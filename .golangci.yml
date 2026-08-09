@@ -1,0 +1,136 @@
+version: "2"
+
+run:
+  concurrency: 4
+  timeout: 5m
+  tests: true
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 50
+
+linters:
+  enable:
+    - asciicheck
+    - bidichk
+    - bodyclose
+    - containedctx
+    - copyloopvar
+    - dupl
+    - dupword
+    - durationcheck
+    - errcheck
+    - errname
+    - errorlint
+    - exhaustive
+    - exptostd
+    - fatcontext
+    - forcetypeassert
+    - funlen
+    - goconst
+    - gocritic
+    - gocyclo
+    - gosec
+    - govet
+    - ineffassign
+    - intrange
+    - loggercheck
+    - misspell
+    - modernize
+    - nestif
+    - nilerr
+    - noctx
+    - nolintlint
+    - paralleltest
+    - perfsprint
+    - predeclared
+    - reassign
+    - rowserrcheck
+    - sloglint
+    - sqlclosecheck
+    - staticcheck
+    - testifylint
+    - thelper
+    - unconvert
+    - unused
+    - usestdlibvars
+    - usetesting
+    - whitespace
+    - wsl_v5
+
+  disable:
+    - cyclop
+    - depguard
+    - err113
+    - exhaustruct
+    - gochecknoglobals
+    - gochecknoinits
+    - gocognit
+    - goheader
+    - godot
+    - godoclint
+    - iface
+    - importas
+    - lll
+    - makezero
+    - mirror
+    - mnd
+    - nakedret
+    - noinlineerr
+    - prealloc
+    - protogetter
+    - recvcheck
+    - revive
+    - spancheck
+    - testpackage
+    - unparam
+    - varnamelen
+    - wrapcheck
+    - zerologlint
+
+  exclusions:
+    paths:
+      - vendor$
+      - third_party$
+      - testutils$
+      - examples$
+
+  settings:
+    dupl:
+      threshold: 100
+    errcheck:
+      check-type-assertions: true
+    funlen:
+      lines: 120
+      statements: 80
+    goconst:
+      min-len: 3
+      min-occurrences: 4
+    gocyclo:
+      min-complexity: 13
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+    wsl_v5:
+      allow-first-in-block: true
+      allow-whole-block: false
+      branch-max-lines: 2
+
+formatters:
+  enable:
+    - gofmt
+    - gofumpt
+  disable:
+    - gci
+    - goimports
+    - golines
+    - swaggo
+  settings:
+    gofumpt:
+      extra-rules: true
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$

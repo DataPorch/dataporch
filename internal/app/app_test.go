@@ -38,8 +38,12 @@ func TestApp_Run(t *testing.T) {
 
 func testConfig() config.Config {
 	return config.Config{
-		HTTPAddress:    "127.0.0.1:0",
-		ResourceLimit:  10,
-		ShutdownPeriod: time.Second,
+		HTTPAddress:          "127.0.0.1:0",
+		ResourceLimit:        10,
+		ShutdownPeriod:       time.Second,
+		AdminSocketPath:      "/tmp/dataporch/admin.sock",
+		MasterKeyPath:        "/tmp/dataporch/master.key",
+		SecretsStorePath:     "/tmp/dataporch/secrets.store",
+		ConnectionsStorePath: "/tmp/dataporch/connections.store",
 	}
 }

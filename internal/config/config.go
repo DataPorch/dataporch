@@ -9,9 +9,13 @@ import (
 )
 
 const (
-	defaultHTTPAddress   = "127.0.0.1:8080"
-	defaultResourceLimit = 100
-	maxResourceLimit     = 1000
+	defaultHTTPAddress          = "127.0.0.1:8080"
+	defaultResourceLimit        = 100
+	maxResourceLimit            = 1000
+	defaultAdminSocketPath      = "/run/dataporch/admin.sock"
+	defaultMasterKeyPath        = "/etc/dataporch/master.key"
+	defaultSecretsStorePath     = "/var/lib/dataporch/secrets.store"
+	defaultConnectionsStorePath = "/var/lib/dataporch/connections.store"
 )
 
 var errLookupRequired = errors.New("config: environment lookup is required")
@@ -19,9 +23,13 @@ var errLookupRequired = errors.New("config: environment lookup is required")
 type LookupEnv func(string) (string, bool)
 
 type Config struct {
-	HTTPAddress    string
-	ResourceLimit  int
-	ShutdownPeriod time.Duration
+	HTTPAddress          string
+	ResourceLimit        int
+	ShutdownPeriod       time.Duration
+	AdminSocketPath      string
+	MasterKeyPath        string
+	SecretsStorePath     string
+	ConnectionsStorePath string
 }
 
 func Load(lookup LookupEnv) (Config, error) {
@@ -30,9 +38,13 @@ func Load(lookup LookupEnv) (Config, error) {
 	}
 
 	cfg := Config{
-		HTTPAddress:    defaultHTTPAddress,
-		ResourceLimit:  defaultResourceLimit,
-		ShutdownPeriod: 10 * time.Second,
+		HTTPAddress:          defaultHTTPAddress,
+		ResourceLimit:        defaultResourceLimit,
+		ShutdownPeriod:       10 * time.Second,
+		AdminSocketPath:      defaultAdminSocketPath,
+		MasterKeyPath:        defaultMasterKeyPath,
+		SecretsStorePath:     defaultSecretsStorePath,
+		ConnectionsStorePath: defaultConnectionsStorePath,
 	}
 
 	if value, exists := lookup("DATAPORCH_HTTP_ADDRESS"); exists {
@@ -46,6 +58,22 @@ func Load(lookup LookupEnv) (Config, error) {
 		}
 
 		cfg.ResourceLimit = limit
+	}
+
+	if value, exists := lookup("DATAPORCH_ADMIN_SOCKET_PATH"); exists {
+		cfg.AdminSocketPath = value
+	}
+
+	if value, exists := lookup("DATAPORCH_MASTER_KEY_PATH"); exists {
+		cfg.MasterKeyPath = value
+	}
+
+	if value, exists := lookup("DATAPORCH_SECRETS_STORE_PATH"); exists {
+		cfg.SecretsStorePath = value
+	}
+
+	if value, exists := lookup("DATAPORCH_CONNECTIONS_STORE_PATH"); exists {
+		cfg.ConnectionsStorePath = value
 	}
 
 	if err := cfg.Validate(); err != nil {
@@ -69,6 +97,30 @@ func (c Config) Validate() error {
 
 	if c.ShutdownPeriod <= 0 {
 		return errors.New("validating shutdown period: must be positive")
+	}
+
+	if c.AdminSocketPath == "" {
+		return errors.New("validating DATAPORCH_ADMIN_SOCKET_PATH: must not be empty")
+	}
+
+	if c.MasterKeyPath == "" {
+		return errors.New("validating DATAPORCH_MASTER_KEY_PATH: must not be empty")
+	}
+
+	if c.SecretsStorePath == "" {
+		return errors.New("validating DATAPORCH_SECRETS_STORE_PATH: must not be empty")
+	}
+
+	if c.ConnectionsStorePath == "" {
+		return errors.New("validating DATAPORCH_CONNECTIONS_STORE_PATH: must not be empty")
+	}
+
+	if c.MasterKeyPath == c.SecretsStorePath {
+		return errors.New("validating security paths: master key and secrets store must differ")
+	}
+
+	if c.SecretsStorePath == c.ConnectionsStorePath {
+		return errors.New("validating security paths: secrets and connections stores must differ")
 	}
 
 	return nil

@@ -16,7 +16,7 @@ func TestSecretsInitRunsOnce(t *testing.T) {
 	t.Parallel()
 
 	dependencies := testCommandDependencies(t)
-	initializations := 0
+	var initializations int
 	dependencies.initializeSecrets = func(config.Config) error {
 		initializations++
 		return nil

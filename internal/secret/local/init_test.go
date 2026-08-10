@@ -77,7 +77,7 @@ func TestInitRollsBackNewKeyWhenStoreCreationFails(t *testing.T) {
 
 	paths := testPaths(t)
 	wantErr := errors.New("store creation failed")
-	createCalls := 0
+	var createCalls int
 	create := func(path string, data []byte, permission fs.FileMode) error {
 		createCalls++
 		if createCalls == 2 {

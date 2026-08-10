@@ -25,7 +25,7 @@ func Create(path string, data []byte, permission fs.FileMode) (err error) {
 		return fmt.Errorf("creating file %q: %w", path, err)
 	}
 
-	isClosed := false
+	var isClosed bool
 	defer func() {
 		if !isClosed {
 			_ = file.Close()
@@ -82,8 +82,8 @@ func replace(
 		return errors.New("atomicfile: temporary-file creator returned nil")
 	}
 
-	isClosed := false
-	isPublished := false
+	var isClosed bool
+	var isPublished bool
 	defer func() {
 		if !isClosed {
 			_ = file.Close()

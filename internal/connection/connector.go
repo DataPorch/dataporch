@@ -61,6 +61,7 @@ func isNilAdapter(adapter Adapter) bool {
 		return true
 	}
 
+	// Reflection is required to reject typed nil values stored in the adapter interface.
 	value := reflect.ValueOf(adapter)
 	switch value.Kind() {
 	case reflect.Chan,

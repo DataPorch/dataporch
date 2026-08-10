@@ -135,6 +135,7 @@ func isASCIIDigit(character rune) bool {
 	return character >= '0' && character <= '9'
 }
 
+// Clone helpers preserve nil maps so clones retain the source representation.
 func cloneStrings(values map[string]string) map[string]string {
 	if values == nil {
 		return nil

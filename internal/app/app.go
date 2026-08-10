@@ -17,7 +17,7 @@ import (
 	"github.com/adamraziv/dataporch/internal/execution"
 	"github.com/adamraziv/dataporch/internal/transports/httpapi"
 	"github.com/adamraziv/dataporch/internal/transports/localadmin"
-	mcptransport "github.com/adamraziv/dataporch/internal/transports/mcp"
+	"github.com/adamraziv/dataporch/internal/transports/mcp"
 )
 
 const (
@@ -70,7 +70,7 @@ func New(cfg config.Config, logger *slog.Logger, adapters ...connection.Adapter)
 
 	service, err := execution.New(
 		connector,
-		access.NewAllowAll(),
+		access.New(),
 		cfg.ResourceLimit,
 	)
 	if err != nil {
@@ -82,7 +82,7 @@ func New(cfg config.Config, logger *slog.Logger, adapters ...connection.Adapter)
 		return nil, fmt.Errorf("creating http adapter: %w", err)
 	}
 
-	mcpHandler, err := mcptransport.New(service, cfg.ResourceLimit, logger)
+	mcpHandler, err := mcp.New(service, cfg.ResourceLimit, logger)
 	if err != nil {
 		return nil, fmt.Errorf("creating mcp adapter: %w", err)
 	}

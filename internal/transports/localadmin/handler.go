@@ -69,7 +69,12 @@ func (h *Handler) importConnection(w http.ResponseWriter, r *http.Request) {
 		ConnectionString: request.ConnectionString,
 	})
 	if err != nil {
-		h.writeImportError(w, r, request, err)
+		h.writeImportError(
+			w,
+			r,
+			request,
+			err,
+		)
 		return
 	}
 	writeImportResult(w, result)

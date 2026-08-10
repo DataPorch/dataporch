@@ -25,7 +25,7 @@ func newSecurityComponents(
 	logger *slog.Logger,
 	adapters ...connection.Adapter,
 ) (securityComponents, error) {
-	connector, err := connection.New(adapters...)
+	connector, err := connection.NewConnector(adapters...)
 	if err != nil {
 		return securityComponents{}, err
 	}

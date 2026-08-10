@@ -8,7 +8,7 @@ import (
 func TestAllowAll_Authorize(t *testing.T) {
 	t.Parallel()
 
-	policy := NewAllowAll()
+	policy := New()
 	if err := policy.Authorize(t.Context(), ActionListResources); err != nil {
 		t.Fatalf("Authorize() error = %v", err)
 	}
@@ -17,7 +17,7 @@ func TestAllowAll_Authorize(t *testing.T) {
 func TestAllowAll_AuthorizeRejectsInvalidRequests(t *testing.T) {
 	t.Parallel()
 
-	policy := NewAllowAll()
+	policy := New()
 	canceledCtx, cancel := context.WithCancel(t.Context())
 	cancel()
 

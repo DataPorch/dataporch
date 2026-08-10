@@ -11,9 +11,9 @@ func TestConnectorResolvesParserAdapter(t *testing.T) {
 			Settings: map[string]string{"host": "postgres.internal"},
 		},
 	}
-	connector, err := New(adapter)
+	connector, err := NewConnector(adapter)
 	if err != nil {
-		t.Fatalf("New() error = %v", err)
+		t.Fatalf("NewConnector() error = %v", err)
 	}
 
 	resolved, err := connector.Resolve("postgres")

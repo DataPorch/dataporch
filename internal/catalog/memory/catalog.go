@@ -33,6 +33,7 @@ func New(resources []catalog.Resource) (*Catalog, error) {
 		seen[resource.URI] = struct{}{}
 	}
 
+	// Preserve nil input so construction retains caller-visible slice semantics.
 	return &Catalog{resources: slices.Clone(resources)}, nil
 }
 
@@ -51,5 +52,6 @@ func (c *Catalog) ListResources(ctx context.Context, limit int) ([]catalog.Resou
 
 	resultSize := min(limit, len(c.resources))
 
+	// Preserve the catalog's nil or non-nil result shape.
 	return slices.Clone(c.resources[:resultSize]), nil
 }

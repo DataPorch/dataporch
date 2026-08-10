@@ -16,7 +16,7 @@ const ActionListResources Action = "list_resources"
 
 type AllowAll struct{}
 
-func NewAllowAll() *AllowAll {
+func New() *AllowAll {
 	return &AllowAll{}
 }
 

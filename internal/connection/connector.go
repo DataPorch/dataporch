@@ -25,7 +25,7 @@ type Connector struct {
 	adapters map[Kind]Adapter
 }
 
-func New(adapters ...Adapter) (*Connector, error) {
+func NewConnector(adapters ...Adapter) (*Connector, error) {
 	index := make(map[Kind]Adapter, len(adapters))
 	for _, adapter := range adapters {
 		if isNilAdapter(adapter) {

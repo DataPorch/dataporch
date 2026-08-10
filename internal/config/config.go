@@ -22,6 +22,7 @@ var errLookupRequired = errors.New("config: environment lookup is required")
 
 type LookupEnv func(string) (string, bool)
 
+// Config errors retain uppercase environment variable names so diagnostics match operator-facing keys.
 type Config struct {
 	HTTPAddress          string
 	ResourceLimit        int

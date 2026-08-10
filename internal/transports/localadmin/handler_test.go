@@ -57,7 +57,7 @@ func TestHandlerRejectsInvalidRequests(t *testing.T) {
 			body:   `{"databaseId":"finance","kind":"postgres","unknown":true}`,
 			want:   http.StatusBadRequest,
 		},
-		{name: "trailing JSON", method: http.MethodPost, body: `{} {}`, want: http.StatusBadRequest},
+		{name: "trailing json", method: http.MethodPost, body: `{} {}`, want: http.StatusBadRequest},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -110,7 +110,7 @@ func TestHandlerKeepsConnectionStringOutsidePersistenceAndOutput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open definitions() error = %v", err)
 	}
-	connector, err := connection.New(canaryAdapter{})
+	connector, err := connection.NewConnector(canaryAdapter{})
 	if err != nil {
 		t.Fatalf("New connector() error = %v", err)
 	}

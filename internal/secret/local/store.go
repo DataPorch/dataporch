@@ -110,12 +110,9 @@ func (s *Store) Resolve(ctx context.Context, ref secret.Reference) ([]byte, erro
 		return nil, err
 	}
 
-	scheme, id, err := ref.Parts()
+	id, err := localID(ref)
 	if err != nil {
-		return nil, fmt.Errorf("parsing secret reference: %w", err)
-	}
-	if scheme != "local" {
-		return nil, fmt.Errorf("%w: %s", ErrWrongProvider, scheme)
+		return nil, err
 	}
 	idBytes, err := base64.RawURLEncoding.DecodeString(id)
 	if err != nil {
@@ -141,6 +138,45 @@ func (s *Store) Resolve(ctx context.Context, ref secret.Reference) ([]byte, erro
 	}
 
 	return append([]byte(nil), plaintext...), nil
+}
+
+func (s *Store) Delete(ctx context.Context, ref secret.Reference) error {
+	if err := validContext(ctx); err != nil {
+		return err
+	}
+
+	id, err := localID(ref)
+	if err != nil {
+		return err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, exists := s.entries[id]; !exists {
+		return fmt.Errorf("%w: %s", ErrSecretNotFound, id)
+	}
+
+	entries := cloneEntries(s.entries)
+	delete(entries, id)
+	if err := s.writeSnapshot(s.path, entries); err != nil {
+		return fmt.Errorf("persisting encrypted secret deletion: %w", err)
+	}
+
+	s.entries = entries
+	return nil
+}
+
+func localID(ref secret.Reference) (string, error) {
+	scheme, id, err := ref.Parts()
+	if err != nil {
+		return "", fmt.Errorf("parsing secret reference: %w", err)
+	}
+	if scheme != "local" {
+		return "", fmt.Errorf("%w: %s", ErrWrongProvider, scheme)
+	}
+
+	return id, nil
 }
 
 func readProtectedFile(path string) ([]byte, error) {

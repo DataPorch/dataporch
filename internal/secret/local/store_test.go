@@ -4,8 +4,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
+	"sync"
 	"testing"
+
+	"github.com/adamraziv/dataporch/internal/secret"
 )
 
 const canary = "dataporch-canary-password-7f4a"
@@ -179,6 +183,127 @@ func TestOpenRejectsPermissiveStoreFile(t *testing.T) {
 	}
 }
 
+func TestDeleteRemovesOnlyRequestedSecret(t *testing.T) {
+	t.Parallel()
+
+	store, _ := initializedStore(t)
+	first, err := store.Store(t.Context(), []byte("first"))
+	if err != nil {
+		t.Fatalf("Store(first) error = %v", err)
+	}
+	second, err := store.Store(t.Context(), []byte("second"))
+	if err != nil {
+		t.Fatalf("Store(second) error = %v", err)
+	}
+
+	if err := store.Delete(t.Context(), first); err != nil {
+		t.Fatalf("Delete() error = %v", err)
+	}
+	if _, err := store.Resolve(t.Context(), first); !errors.Is(err, ErrSecretNotFound) {
+		t.Fatalf("Resolve(first) error = %v, want ErrSecretNotFound", err)
+	}
+	plaintext, err := store.Resolve(t.Context(), second)
+	if err != nil {
+		t.Fatalf("Resolve(second) error = %v", err)
+	}
+	if string(plaintext) != "second" {
+		t.Fatalf("Resolve(second) = %q, want second", plaintext)
+	}
+}
+
+func TestDeleteMissingSecret(t *testing.T) {
+	t.Parallel()
+
+	store, _ := initializedStore(t)
+	if err := store.Delete(t.Context(), "local://missing"); !errors.Is(err, ErrSecretNotFound) {
+		t.Fatalf("Delete() error = %v, want ErrSecretNotFound", err)
+	}
+}
+
+func TestFailedStorePreservesDiskAndMemorySnapshot(t *testing.T) {
+	t.Parallel()
+
+	store, paths := initializedStore(t)
+	ref, err := store.Store(t.Context(), []byte("existing"))
+	if err != nil {
+		t.Fatalf("Store() error = %v", err)
+	}
+
+	wantErr := errors.New("injected write failure")
+	store.writeSnapshot = func(string, map[string][]byte) error { return wantErr }
+	if _, err := store.Store(t.Context(), []byte("new")); !errors.Is(err, wantErr) {
+		t.Fatalf("Store() error = %v, want %v", err, wantErr)
+	}
+	assertSecretResolves(t, store, ref, "existing")
+
+	reopened, err := Open(paths)
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	assertSecretResolves(t, reopened, ref, "existing")
+}
+
+func TestFailedDeletePreservesDiskAndMemorySnapshot(t *testing.T) {
+	t.Parallel()
+
+	store, paths := initializedStore(t)
+	ref, err := store.Store(t.Context(), []byte("existing"))
+	if err != nil {
+		t.Fatalf("Store() error = %v", err)
+	}
+
+	wantErr := errors.New("injected write failure")
+	store.writeSnapshot = func(string, map[string][]byte) error { return wantErr }
+	if err := store.Delete(t.Context(), ref); !errors.Is(err, wantErr) {
+		t.Fatalf("Delete() error = %v, want %v", err, wantErr)
+	}
+	assertSecretResolves(t, store, ref, "existing")
+
+	reopened, err := Open(paths)
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	assertSecretResolves(t, reopened, ref, "existing")
+}
+
+func TestConcurrentStoreResolveAndDelete(t *testing.T) {
+	t.Parallel()
+
+	store, _ := initializedStore(t)
+	const workers = 8
+
+	errorsByWorker := make(chan error, workers)
+	var group sync.WaitGroup
+	for worker := range workers {
+		group.Go(func() {
+			value := fmt.Sprintf("value-%d", worker)
+			ref, err := store.Store(t.Context(), []byte(value))
+			if err != nil {
+				errorsByWorker <- fmt.Errorf("storing: %w", err)
+				return
+			}
+			plaintext, err := store.Resolve(t.Context(), ref)
+			if err != nil {
+				errorsByWorker <- fmt.Errorf("resolving: %w", err)
+				return
+			}
+			if string(plaintext) != value {
+				errorsByWorker <- fmt.Errorf("resolved %q, want %q", plaintext, value)
+				return
+			}
+			if err := store.Delete(t.Context(), ref); err != nil {
+				errorsByWorker <- fmt.Errorf("deleting: %w", err)
+			}
+		})
+	}
+	group.Wait()
+	close(errorsByWorker)
+
+	for err := range errorsByWorker {
+		t.Error(err)
+	}
+}
+
 func initializedStore(t *testing.T) (*Store, Paths) {
 	t.Helper()
 
@@ -217,5 +342,17 @@ func writeEntries(t *testing.T, paths Paths, entries map[string][]byte) {
 	}
 	if err := os.WriteFile(paths.StorePath, data, 0o600); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
+	}
+}
+
+func assertSecretResolves(t *testing.T, store *Store, ref secret.Reference, want string) {
+	t.Helper()
+
+	plaintext, err := store.Resolve(t.Context(), ref)
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if string(plaintext) != want {
+		t.Fatalf("Resolve() = %q, want %q", plaintext, want)
 	}
 }

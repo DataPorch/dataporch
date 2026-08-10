@@ -22,12 +22,15 @@ func TestInitializeSecretsUsesConfiguredPaths(t *testing.T) {
 	if err := InitializeSecrets(cfg); err != nil {
 		t.Fatalf("InitializeSecrets() error = %v", err)
 	}
+
 	if _, err := os.Stat(cfg.MasterKeyPath); err != nil {
 		t.Fatalf("Stat(master key) error = %v", err)
 	}
+
 	if _, err := os.Stat(cfg.SecretsStorePath); err != nil {
 		t.Fatalf("Stat(secret store) error = %v", err)
 	}
+
 	if err := InitializeSecrets(cfg); !errors.Is(err, local.ErrAlreadyInitialized) {
 		t.Fatalf("InitializeSecrets() error = %v, want ErrAlreadyInitialized", err)
 	}

@@ -3,6 +3,7 @@ package connection
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"strings"
 
 	"github.com/adamraziv/dataporch/internal/secret"
@@ -37,6 +38,7 @@ func (d Definition) Validate() error {
 	if !isValidID(d.ID) {
 		return fmt.Errorf("%w: invalid database id", ErrInvalidDefinition)
 	}
+
 	if strings.TrimSpace(string(d.Kind)) == "" {
 		return fmt.Errorf("%w: missing adapter kind", ErrInvalidDefinition)
 	}
@@ -46,13 +48,16 @@ func (d Definition) Validate() error {
 			return fmt.Errorf("%w: invalid setting name", ErrInvalidDefinition)
 		}
 	}
+
 	for name, ref := range d.SecretRefs {
 		if !isValidFieldName(name) {
 			return fmt.Errorf("%w: invalid secret name", ErrInvalidDefinition)
 		}
+
 		if _, exists := d.Settings[name]; exists {
 			return fmt.Errorf("%w: setting and secret names overlap", ErrInvalidDefinition)
 		}
+
 		if _, err := secret.Parse(ref.String()); err != nil {
 			return fmt.Errorf("%w: invalid secret reference", ErrInvalidDefinition)
 		}
@@ -87,11 +92,13 @@ func isValidID(id ID) bool {
 	if len(id) == 0 || len(id) > maxIDLength {
 		return false
 	}
+
 	for _, character := range id {
 		if !isValidIDCharacter(character) {
 			return false
 		}
 	}
+
 	return true
 }
 
@@ -99,11 +106,13 @@ func isValidFieldName(name string) bool {
 	if name == "" || !isASCIILetter(rune(name[0])) {
 		return false
 	}
+
 	for _, character := range name[1:] {
 		if !isValidFieldCharacter(character) {
 			return false
 		}
 	}
+
 	return true
 }
 
@@ -128,6 +137,7 @@ func isValidFieldCharacter(character rune) bool {
 func isASCIILetter(character rune) bool {
 	isLowercase := character >= 'a' && character <= 'z'
 	isUppercase := character >= 'A' && character <= 'Z'
+
 	return isLowercase || isUppercase
 }
 
@@ -140,10 +150,10 @@ func cloneStrings(values map[string]string) map[string]string {
 	if values == nil {
 		return nil
 	}
+
 	cloned := make(map[string]string, len(values))
-	for name, value := range values {
-		cloned[name] = value
-	}
+	maps.Copy(cloned, values)
+
 	return cloned
 }
 
@@ -151,10 +161,10 @@ func cloneReferences(values map[string]secret.Reference) map[string]secret.Refer
 	if values == nil {
 		return nil
 	}
+
 	cloned := make(map[string]secret.Reference, len(values))
-	for name, value := range values {
-		cloned[name] = value
-	}
+	maps.Copy(cloned, values)
+
 	return cloned
 }
 
@@ -162,9 +172,11 @@ func cloneBytes(values map[string][]byte) map[string][]byte {
 	if values == nil {
 		return nil
 	}
+
 	cloned := make(map[string][]byte, len(values))
 	for name, value := range values {
 		cloned[name] = append([]byte(nil), value...)
 	}
+
 	return cloned
 }

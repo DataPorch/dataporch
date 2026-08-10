@@ -15,6 +15,7 @@ func TestManagerRegisterIsImmediatelyVisible(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewManager() error = %v", err)
 	}
+
 	definition := testDefinition("finance", "local://secret-a")
 	if err := manager.Register(definition); err != nil {
 		t.Fatalf("Register() error = %v", err)
@@ -24,6 +25,7 @@ func TestManagerRegisterIsImmediatelyVisible(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Lookup() error = %v", err)
 	}
+
 	if got.ID != "finance" {
 		t.Errorf("Lookup().ID = %q, want finance", got.ID)
 	}
@@ -33,6 +35,7 @@ func TestManagerPrepareResolvesAllNamedSecrets(t *testing.T) {
 	t.Parallel()
 
 	resolver := resolverStub{values: map[secret.Reference][]byte{"local://password": []byte("secret")}}
+
 	manager, err := NewManager(resolver, []Definition{testDefinition("finance", "local://password")})
 	if err != nil {
 		t.Fatalf("NewManager() error = %v", err)
@@ -42,6 +45,7 @@ func TestManagerPrepareResolvesAllNamedSecrets(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Prepare() error = %v", err)
 	}
+
 	if string(resolved.Secrets["password"]) != "secret" {
 		t.Errorf("Prepare().Secrets = %q, want secret", resolved.Secrets["password"])
 	}
@@ -56,6 +60,7 @@ func TestManagerFailureForADoesNotAffectB(t *testing.T) {
 			"local://secret-a": errors.New("authentication failed"),
 		},
 	}
+
 	manager, err := NewManager(resolver, []Definition{
 		testDefinition("a", "local://secret-a"),
 		testDefinition("b", "local://secret-b"),
@@ -67,6 +72,7 @@ func TestManagerFailureForADoesNotAffectB(t *testing.T) {
 	if _, err := manager.Prepare(context.Background(), "a"); !errors.Is(err, ErrDatabaseUnavailable) {
 		t.Fatalf("Prepare(a) error = %v, want ErrDatabaseUnavailable", err)
 	}
+
 	if _, err := manager.Prepare(context.Background(), "b"); err != nil {
 		t.Fatalf("Prepare(b) error = %v", err)
 	}
@@ -81,6 +87,7 @@ func (r resolverStub) Resolve(_ context.Context, ref secret.Reference) ([]byte, 
 	if err := r.errors[ref]; err != nil {
 		return nil, err
 	}
+
 	return append([]byte(nil), r.values[ref]...), nil
 }
 

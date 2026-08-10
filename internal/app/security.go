@@ -32,10 +32,12 @@ func newSecurityComponents(
 
 	resolver, writer := openSecretStore(cfg, logger)
 	repository, definitions := openDefinitionStore(cfg, logger)
+
 	manager, err := connection.NewManager(resolver, definitions)
 	if err != nil {
 		return securityComponents{}, err
 	}
+
 	importer, err := connection.NewImporter(connection.ImporterDependencies{
 		Adapters:    connector,
 		Secrets:     writer,
@@ -54,14 +56,17 @@ func newSecurityComponents(
 	if err != nil {
 		return securityComponents{}, err
 	}
+
 	handler, err := localadmin.NewHandler(importer, logger)
 	if err != nil {
 		return securityComponents{}, err
 	}
+
 	server, err := localadmin.NewServer(cfg.AdminSocketPath, handler, logger)
 	if err != nil {
 		return securityComponents{}, err
 	}
+
 	return securityComponents{manager: manager, adminServer: server}, nil
 }
 
@@ -70,8 +75,11 @@ func openSecretStore(cfg config.Config, logger *slog.Logger) (connection.SecretR
 	if err == nil {
 		return store, store
 	}
+
 	logUnavailable(logger, "local_secret_store", err)
+
 	unavailable := unavailableSecrets{}
+
 	return unavailable, unavailable
 }
 
@@ -84,11 +92,13 @@ func openDefinitionStore(
 		logUnavailable(logger, "connection_store", err)
 		return unavailableDefinitions{}, nil
 	}
+
 	definitions, err := store.List(context.Background())
 	if err != nil {
 		logUnavailable(logger, "connection_store", err)
 		return unavailableDefinitions{}, nil
 	}
+
 	return store, definitions
 }
 

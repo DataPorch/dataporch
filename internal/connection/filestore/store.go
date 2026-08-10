@@ -51,6 +51,7 @@ func (s *Store) Lookup(ctx context.Context, id connection.ID) (connection.Defini
 	s.mu.RLock()
 	definition, exists := s.definitions[id]
 	s.mu.RUnlock()
+
 	if !exists {
 		return connection.Definition{}, fmt.Errorf("%w: %s", connection.ErrDefinitionNotFound, id)
 	}
@@ -66,6 +67,7 @@ func (s *Store) List(ctx context.Context) ([]connection.Definition, error) {
 	s.mu.RLock()
 	definitions := sortedDefinitions(s.definitions)
 	s.mu.RUnlock()
+
 	return definitions, nil
 }
 
@@ -73,6 +75,7 @@ func (s *Store) Upsert(ctx context.Context, definition connection.Definition) er
 	if err := validContext(ctx); err != nil {
 		return err
 	}
+
 	if err := definition.Validate(); err != nil {
 		return fmt.Errorf("validating definition: %w", err)
 	}
@@ -82,12 +85,14 @@ func (s *Store) Upsert(ctx context.Context, definition connection.Definition) er
 
 	definitions := cloneDefinitions(s.definitions)
 	definitions[definition.ID] = definition.Clone()
+
 	snapshot := sortedDefinitions(definitions)
 	if err := s.writeSnapshot(s.path, snapshot); err != nil {
 		return fmt.Errorf("persisting connection definitions: %w", err)
 	}
 
 	s.definitions = definitions
+
 	return nil
 }
 
@@ -96,20 +101,24 @@ func load(path string) (map[connection.ID]connection.Definition, error) {
 	if errors.Is(err, fs.ErrNotExist) {
 		return map[connection.ID]connection.Definition{}, nil
 	}
+
 	if err != nil {
 		return nil, fmt.Errorf("stating connection store: %w", err)
 	}
+
 	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 		return nil, fmt.Errorf("%w: not a regular file", ErrStoreCorrupt)
 	}
+
 	if info.Mode().Perm()&0o077 != 0 {
 		return nil, fmt.Errorf("%w: %s", ErrInvalidPermissions, path)
 	}
 
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // The path was verified as a protected regular file.
 	if err != nil {
 		return nil, fmt.Errorf("reading connection store: %w", err)
 	}
+
 	var persisted snapshot
 	if err := json.Unmarshal(data, &persisted); err != nil {
 		return nil, fmt.Errorf("%w: decoding snapshot", ErrStoreCorrupt)
@@ -120,9 +129,11 @@ func load(path string) (map[connection.ID]connection.Definition, error) {
 		if err := definition.Validate(); err != nil {
 			return nil, fmt.Errorf("%w: invalid definition", ErrStoreCorrupt)
 		}
+
 		if _, exists := definitions[definition.ID]; exists {
 			return nil, fmt.Errorf("%w: duplicate database id", ErrStoreCorrupt)
 		}
+
 		definitions[definition.ID] = definition.Clone()
 	}
 
@@ -134,6 +145,7 @@ func writeSnapshot(path string, definitions []connection.Definition) error {
 	if err != nil {
 		return fmt.Errorf("encoding connection snapshot: %w", err)
 	}
+
 	return atomicfile.Replace(path, data, 0o600)
 }
 
@@ -142,12 +154,14 @@ func sortedDefinitions(definitions map[connection.ID]connection.Definition) []co
 	for id := range definitions {
 		ids = append(ids, string(id))
 	}
+
 	sort.Strings(ids)
 
 	sorted := make([]connection.Definition, 0, len(ids))
 	for _, id := range ids {
 		sorted = append(sorted, definitions[connection.ID(id)].Clone())
 	}
+
 	return sorted
 }
 
@@ -156,6 +170,7 @@ func cloneDefinitions(definitions map[connection.ID]connection.Definition) map[c
 	for id, definition := range definitions {
 		cloned[id] = definition.Clone()
 	}
+
 	return cloned
 }
 
@@ -163,5 +178,6 @@ func validContext(ctx context.Context) error {
 	if ctx == nil {
 		return errors.New("connection filestore: context is required")
 	}
+
 	return ctx.Err()
 }

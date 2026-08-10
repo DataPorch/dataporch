@@ -43,7 +43,8 @@ func Open(paths Paths) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("reading master key: %w", err)
 	}
-	defer clear(key)
+	defer zeroBytes(key)
+
 	if len(key) != masterKeySize {
 		return nil, fmt.Errorf("%w: invalid master key length", ErrStoreCorrupt)
 	}
@@ -62,6 +63,7 @@ func Open(paths Paths) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("creating cipher: %w", err)
 	}
+
 	aead, err := cipher.NewGCMWithRandomNonce(block)
 	if err != nil {
 		return nil, fmt.Errorf("creating authenticated cipher: %w", err)
@@ -81,11 +83,14 @@ func (s *Store) Store(ctx context.Context, plaintext []byte) (secret.Reference, 
 	}
 
 	idBytes := make([]byte, secretIDSize)
-	defer clear(idBytes)
+	defer zeroBytes(idBytes)
+
 	if _, err := rand.Read(idBytes); err != nil {
 		return "", fmt.Errorf("generating secret id: %w", err)
 	}
+
 	id := base64.RawURLEncoding.EncodeToString(idBytes)
+
 	ref, err := secret.NewLocal(id)
 	if err != nil {
 		return "", fmt.Errorf("creating secret reference: %w", err)
@@ -101,12 +106,14 @@ func (s *Store) Store(ctx context.Context, plaintext []byte) (secret.Reference, 
 		idBytes,
 	)
 	entries := cloneEntries(s.entries)
+
 	entries[id] = ciphertext
 	if err := s.writeSnapshot(s.path, entries); err != nil {
 		return "", fmt.Errorf("persisting encrypted secret: %w", err)
 	}
 
 	s.entries = entries
+
 	return ref, nil
 }
 
@@ -119,19 +126,23 @@ func (s *Store) Resolve(ctx context.Context, ref secret.Reference) ([]byte, erro
 	if err != nil {
 		return nil, err
 	}
+
 	idBytes, err := base64.RawURLEncoding.DecodeString(id)
 	if err != nil {
 		return nil, fmt.Errorf("%w: invalid secret id", ErrStoreCorrupt)
 	}
-	defer clear(idBytes)
+	defer zeroBytes(idBytes)
 
 	s.mu.RLock()
+
 	ciphertext, exists := s.entries[id]
 	if exists {
 		ciphertext = append([]byte(nil), ciphertext...)
 	}
+
 	aead := s.aead
 	s.mu.RUnlock()
+
 	if !exists {
 		return nil, fmt.Errorf("%w: %s", ErrSecretNotFound, id)
 	}
@@ -142,7 +153,8 @@ func (s *Store) Resolve(ctx context.Context, ref secret.Reference) ([]byte, erro
 		ciphertext,
 		idBytes,
 	)
-	clear(ciphertext)
+	zeroBytes(ciphertext)
+
 	if err != nil {
 		return nil, fmt.Errorf("%w: decrypting secret %s", ErrStoreCorrupt, id)
 	}
@@ -169,11 +181,13 @@ func (s *Store) Delete(ctx context.Context, ref secret.Reference) error {
 
 	entries := cloneEntries(s.entries)
 	delete(entries, id)
+
 	if err := s.writeSnapshot(s.path, entries); err != nil {
 		return fmt.Errorf("persisting encrypted secret deletion: %w", err)
 	}
 
 	s.entries = entries
+
 	return nil
 }
 
@@ -182,6 +196,7 @@ func localID(ref secret.Reference) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("parsing secret reference: %w", err)
 	}
+
 	if scheme != "local" {
 		return "", fmt.Errorf("%w: %s", ErrWrongProvider, scheme)
 	}
@@ -194,14 +209,16 @@ func readProtectedFile(path string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 		return nil, fmt.Errorf("%w: not a regular file", ErrStoreCorrupt)
 	}
+
 	if info.Mode().Perm()&0o077 != 0 {
 		return nil, fmt.Errorf("%w: %s", ErrInvalidPermissions, path)
 	}
 
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // The path was verified as a protected regular file.
 	if err != nil {
 		return nil, err
 	}

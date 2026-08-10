@@ -11,6 +11,7 @@ func TestConnectorResolvesParserAdapter(t *testing.T) {
 			Settings: map[string]string{"host": "postgres.internal"},
 		},
 	}
+
 	connector, err := NewConnector(adapter)
 	if err != nil {
 		t.Fatalf("NewConnector() error = %v", err)
@@ -20,10 +21,12 @@ func TestConnectorResolvesParserAdapter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resolve() error = %v", err)
 	}
+
 	parsed, err := resolved.ParseConnectionString([]byte("private-input"))
 	if err != nil {
 		t.Fatalf("ParseConnectionString() error = %v", err)
 	}
+
 	if parsed.Settings["host"] != "postgres.internal" {
 		t.Errorf("ParseConnectionString().Settings = %#v", parsed.Settings)
 	}

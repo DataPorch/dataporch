@@ -50,6 +50,7 @@ func TestNewStartsWithoutInitializedSecretStore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
+
 	if application.manager == nil {
 		t.Fatal("manager = nil")
 	}
@@ -62,19 +63,25 @@ func TestAppRunsPublicServerWhenAdminSocketFails(t *testing.T) {
 	if err := os.WriteFile(cfg.AdminSocketPath, []byte("not a socket"), 0o600); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
+
 	application, err := New(cfg, slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)))
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
+
 	ctx, cancel := context.WithCancel(t.Context())
+
 	done := make(chan error, 1)
 	go func() { done <- application.Run(ctx) }()
+
 	select {
 	case err := <-done:
 		t.Fatalf("Run() returned before cancellation: %v", err)
 	case <-time.After(100 * time.Millisecond):
 	}
+
 	cancel()
+
 	if err := <-done; err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
@@ -84,18 +91,24 @@ func TestAppCreatesAndRemovesAdminSocket(t *testing.T) {
 	t.Parallel()
 
 	cfg := initializedTestConfig(t)
+
 	application, err := New(cfg, slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)))
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
+
 	ctx, cancel := context.WithCancel(t.Context())
+
 	done := make(chan error, 1)
 	go func() { done <- application.Run(ctx) }()
+
 	waitForFile(t, cfg.AdminSocketPath)
 	cancel()
+
 	if err := <-done; err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
+
 	if _, err := os.Lstat(cfg.AdminSocketPath); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("socket stat error = %v, want not exist", err)
 	}
@@ -109,19 +122,25 @@ func TestAppLiveImportRegistersWithoutRestart(t *testing.T) {
 		Settings: map[string]string{"host": "postgres.internal", "database": "finance", "username": "app_reader"},
 		Secrets:  map[string][]byte{"password": []byte("dataporch-secret-canary-91f7c2")},
 	}}
+
 	application, err := New(cfg, slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)), adapter)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
+
 	ctx, cancel := context.WithCancel(t.Context())
+
 	done := make(chan error, 1)
 	go func() { done <- application.Run(ctx) }()
+
 	defer func() {
 		cancel()
+
 		if err := <-done; err != nil {
 			t.Errorf("Run() error = %v", err)
 		}
 	}()
+
 	waitForFile(t, cfg.AdminSocketPath)
 
 	response, err := importOverSocket(
@@ -133,14 +152,18 @@ func TestAppLiveImportRegistersWithoutRestart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("importOverSocket() error = %v", err)
 	}
+
 	if response.StatusCode != http.StatusCreated {
 		t.Fatalf("status = %d, want 201", response.StatusCode)
 	}
+
 	_ = response.Body.Close()
+
 	definition, err := application.manager.Lookup("finance")
 	if err != nil {
 		t.Fatalf("Lookup() error = %v", err)
 	}
+
 	if definition.Kind != "postgres" || adapter.parseCalls != 1 {
 		t.Fatalf("definition/parse calls = %#v/%d", definition, adapter.parseCalls)
 	}
@@ -154,20 +177,27 @@ func TestAppImportDoesNotCallAdapterAuthentication(t *testing.T) {
 		Settings: map[string]string{"host": "postgres.internal"},
 		Secrets:  map[string][]byte{"password": []byte("private")},
 	}}
+
 	application, err := New(cfg, slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)), adapter)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
+
 	ctx, cancel := context.WithCancel(t.Context())
+
 	done := make(chan error, 1)
 	go func() { done <- application.Run(ctx) }()
+
 	defer func() {
 		cancel()
+
 		if err := <-done; err != nil {
 			t.Errorf("Run() error = %v", err)
 		}
 	}()
+
 	waitForFile(t, cfg.AdminSocketPath)
+
 	response, err := importOverSocket(
 		cfg.AdminSocketPath,
 		"finance",
@@ -177,7 +207,9 @@ func TestAppImportDoesNotCallAdapterAuthentication(t *testing.T) {
 	if err != nil {
 		t.Fatalf("importOverSocket() error = %v", err)
 	}
+
 	_ = response.Body.Close()
+
 	if adapter.authenticationCalls != 0 {
 		t.Fatalf("authentication calls = %d, want 0", adapter.authenticationCalls)
 	}
@@ -198,6 +230,7 @@ func testConfig() config.Config {
 func testConfigFor(t *testing.T) config.Config {
 	t.Helper()
 	base := t.TempDir()
+
 	return config.Config{
 		HTTPAddress:          "127.0.0.1:0",
 		ResourceLimit:        10,
@@ -211,26 +244,31 @@ func testConfigFor(t *testing.T) config.Config {
 
 func initializedTestConfig(t *testing.T) config.Config {
 	t.Helper()
+
 	cfg := testConfigFor(t)
 	if err := InitializeSecrets(cfg); err != nil {
 		t.Fatalf("InitializeSecrets() error = %v", err)
 	}
+
 	return cfg
 }
 
 func waitForFile(t *testing.T, path string) {
 	t.Helper()
+
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		if _, err := os.Lstat(path); err == nil {
 			return
 		}
+
 		time.Sleep(10 * time.Millisecond)
 	}
+
 	t.Fatalf("%q was not created", path)
 }
 
-func importOverSocket(path string, databaseID, kind, connectionString string) (*http.Response, error) {
+func importOverSocket(path, databaseID, kind, connectionString string) (*http.Response, error) {
 	dialer := &net.Dialer{Timeout: time.Second}
 	client := &http.Client{
 		Transport: &http.Transport{
@@ -239,6 +277,7 @@ func importOverSocket(path string, databaseID, kind, connectionString string) (*
 			},
 		},
 	}
+
 	payload, err := json.Marshal(struct {
 		DatabaseID       string `json:"databaseId"`
 		Kind             string `json:"kind"`
@@ -247,10 +286,17 @@ func importOverSocket(path string, databaseID, kind, connectionString string) (*
 	if err != nil {
 		return nil, err
 	}
-	request, err := http.NewRequest(http.MethodPost, "http://unix/v1/connections/import", bytes.NewReader(payload))
+
+	request, err := http.NewRequestWithContext(
+		context.Background(),
+		http.MethodPost,
+		"http://unix/v1/connections/import",
+		bytes.NewReader(payload),
+	)
 	if err != nil {
 		return nil, err
 	}
+
 	return client.Do(request)
 }
 

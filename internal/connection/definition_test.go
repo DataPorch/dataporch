@@ -54,6 +54,7 @@ func TestDefinitionValidate(t *testing.T) {
 
 			definition := valid.Clone()
 			tt.change(&definition)
+
 			if err := definition.Validate(); err == nil {
 				t.Fatal("Validate() error = nil, want non-nil")
 			}
@@ -80,6 +81,7 @@ func TestDefinitionCloneDoesNotShareMaps(t *testing.T) {
 	if definition.Settings["host"] != "postgres.internal" {
 		t.Errorf("source settings = %q, want postgres.internal", definition.Settings["host"])
 	}
+
 	if definition.SecretRefs["password"] != "local://secret-b" {
 		t.Errorf("source secret reference = %q, want local://secret-b", definition.SecretRefs["password"])
 	}

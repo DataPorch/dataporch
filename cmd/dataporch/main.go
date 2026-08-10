@@ -39,6 +39,7 @@ func productionDependencies(logger *slog.Logger) commandDependencies {
 			if err != nil {
 				return fmt.Errorf("creating application: %w", err)
 			}
+
 			return runApplication(ctx, application)
 		},
 	}

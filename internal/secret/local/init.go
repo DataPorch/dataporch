@@ -39,9 +39,11 @@ func initStore(paths Paths, random io.Reader, create createFileFunc) error {
 	if err := validatePaths(paths); err != nil {
 		return err
 	}
+
 	if random == nil {
 		return errors.New("secret local: random reader is required")
 	}
+
 	if create == nil {
 		return errors.New("secret local: file creator is required")
 	}
@@ -49,12 +51,14 @@ func initStore(paths Paths, random io.Reader, create createFileFunc) error {
 	if err := os.MkdirAll(filepath.Dir(paths.KeyPath), 0o700); err != nil {
 		return fmt.Errorf("creating master key directory: %w", err)
 	}
+
 	if err := os.MkdirAll(filepath.Dir(paths.StorePath), 0o700); err != nil {
 		return fmt.Errorf("creating secret store directory: %w", err)
 	}
 
 	key := make([]byte, masterKeySize)
-	defer clear(key)
+	defer zeroBytes(key)
+
 	if _, err := io.ReadFull(random, key); err != nil {
 		return fmt.Errorf("generating master key: %w", err)
 	}
@@ -72,6 +76,7 @@ func initStore(paths Paths, random io.Reader, create createFileFunc) error {
 		if removeErr := os.Remove(paths.KeyPath); removeErr != nil && !errors.Is(removeErr, fs.ErrNotExist) {
 			return errors.Join(initializedError(err), fmt.Errorf("removing new master key: %w", removeErr))
 		}
+
 		return initializedError(err)
 	}
 
@@ -82,6 +87,7 @@ func validatePaths(paths Paths) error {
 	if paths.KeyPath == "" || paths.StorePath == "" {
 		return errPathsRequired
 	}
+
 	if paths.KeyPath == paths.StorePath {
 		return errors.New("secret local: key and store paths must differ")
 	}
@@ -97,7 +103,7 @@ func initializedError(err error) error {
 	return err
 }
 
-func clear(value []byte) {
+func zeroBytes(value []byte) {
 	for index := range value {
 		value[index] = 0
 	}

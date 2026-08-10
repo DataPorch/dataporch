@@ -68,13 +68,16 @@ func NewImporter(dependencies ImporterDependencies) (*Importer, error) {
 	hasAdapters := dependencies.Adapters != nil
 	hasSecrets := dependencies.Secrets != nil
 	hasDefinitions := dependencies.Definitions != nil
+
 	hasRegistrar := dependencies.Registrar != nil
 	if !hasAdapters || !hasSecrets || !hasDefinitions || !hasRegistrar {
 		return nil, ErrImportUnavailable
 	}
+
 	if dependencies.Warn == nil {
 		dependencies.Warn = func(ID, string) {}
 	}
+
 	return &Importer{
 		adapters:    dependencies.Adapters,
 		secrets:     dependencies.Secrets,
@@ -88,21 +91,25 @@ func (i *Importer) Import(ctx context.Context, request ImportRequest) (ImportRes
 	if ctx == nil || ctx.Err() != nil {
 		return ImportResult{}, ErrImportUnavailable
 	}
+
 	if err := (Definition{ID: request.ID, Kind: request.Kind}).Validate(); err != nil {
 		return ImportResult{}, fmt.Errorf("%w: invalid database identity", ErrImportUnavailable)
 	}
+
 	adapter, err := i.adapters.Resolve(request.Kind)
 	if err != nil {
 		return ImportResult{}, fmt.Errorf("%w: adapter unavailable", ErrImportUnavailable)
 	}
 
 	input := append([]byte(nil), request.ConnectionString...)
-	defer clear(input)
+	defer zeroBytes(input)
+
 	parsed, err := adapter.ParseConnectionString(input)
 	if err != nil {
 		return ImportResult{}, fmt.Errorf("%w: %s", ErrInvalidConnectionString, request.Kind)
 	}
 	defer clearParsed(parsed)
+
 	if err := validateParsed(request, parsed); err != nil {
 		return ImportResult{}, fmt.Errorf("%w: invalid normalized connection", ErrInvalidConnectionString)
 	}
@@ -117,16 +124,20 @@ func (i *Importer) Import(ctx context.Context, request ImportRequest) (ImportRes
 		i.deleteNew(ctx, definition.SecretRefs)
 		return ImportResult{}, err
 	}
+
 	if err := i.definitions.Upsert(ctx, definition); err != nil {
 		i.deleteNew(ctx, definition.SecretRefs)
 		return ImportResult{}, fmt.Errorf("%w: saving definition", ErrImportUnavailable)
 	}
+
 	if err := i.registrar.Register(definition); err != nil {
 		return ImportResult{}, fmt.Errorf("%w: registering definition", ErrImportUnavailable)
 	}
+
 	if isUpdated {
 		i.deleteOld(ctx, request.ID, previous.SecretRefs)
 	}
+
 	return ImportResult{
 		ID:                 request.ID,
 		IsUpdated:          isUpdated,
@@ -143,6 +154,7 @@ func (i *Importer) newDefinition(
 	if err != nil {
 		return Definition{}, err
 	}
+
 	definition := Definition{
 		ID:         request.ID,
 		Kind:       request.Kind,
@@ -151,11 +163,13 @@ func (i *Importer) newDefinition(
 	}
 	if err := definition.Validate(); err != nil {
 		i.deleteNew(ctx, refs)
+
 		return Definition{}, fmt.Errorf(
 			"%w: invalid normalized connection",
 			ErrInvalidConnectionString,
 		)
 	}
+
 	return definition, nil
 }
 
@@ -164,9 +178,11 @@ func (i *Importer) existingDefinition(ctx context.Context, id ID) (Definition, b
 	if err == nil {
 		return definition, true, nil
 	}
+
 	if errors.Is(err, ErrDefinitionNotFound) {
 		return Definition{}, false, nil
 	}
+
 	return Definition{}, false, fmt.Errorf(
 		"%w: loading existing definition",
 		ErrImportUnavailable,
@@ -178,6 +194,7 @@ func validateParsed(request ImportRequest, parsed ParsedConnection) error {
 	for name := range parsed.Secrets {
 		refs[name] = "local://validation"
 	}
+
 	return (Definition{ID: request.ID, Kind: request.Kind, Settings: parsed.Settings, SecretRefs: refs}).Validate()
 }
 
@@ -186,18 +203,23 @@ func (i *Importer) storeSecrets(ctx context.Context, secrets map[string][]byte) 
 	for name := range secrets {
 		names = append(names, name)
 	}
+
 	sort.Strings(names)
+
 	refs := make(map[string]secret.Reference, len(names))
 	for _, name := range names {
 		value := append([]byte(nil), secrets[name]...)
 		ref, err := i.secrets.Store(ctx, value)
-		clear(value)
+		zeroBytes(value)
+
 		if err != nil {
 			i.deleteNew(ctx, refs)
 			return nil, fmt.Errorf("%w: storing secret", ErrImportUnavailable)
 		}
+
 		refs[name] = ref
 	}
+
 	return refs, nil
 }
 
@@ -218,6 +240,6 @@ func (i *Importer) deleteOld(ctx context.Context, id ID, refs map[string]secret.
 
 func clearParsed(parsed ParsedConnection) {
 	for _, value := range parsed.Secrets {
-		clear(value)
+		zeroBytes(value)
 	}
 }

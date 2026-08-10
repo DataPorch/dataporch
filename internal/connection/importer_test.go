@@ -16,6 +16,7 @@ func TestImporterAddsNormalizedDefinitionWithoutAuthentication(t *testing.T) {
 		Settings: map[string]string{"host": "postgres.internal", "username": "reader"},
 		Secrets:  map[string][]byte{"password": []byte("canary")},
 	})
+
 	result, err := importer.Import(t.Context(), ImportRequest{
 		ID:               "finance",
 		Kind:             "postgres",
@@ -24,10 +25,12 @@ func TestImporterAddsNormalizedDefinitionWithoutAuthentication(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Import() error = %v", err)
 	}
+
 	isExpectedResult := !result.IsUpdated && !result.IsConnectionTested && result.ID == "finance"
 	if !isExpectedResult {
 		t.Fatalf("Import() = %#v, want new untested finance result", result)
 	}
+
 	definition := dependencies.repository.definitions["finance"]
 	if definition.Settings["host"] != "postgres.internal" || definition.SecretRefs["password"] == "" {
 		t.Fatalf("saved definition = %#v, want normalized fields", definition)
@@ -56,9 +59,11 @@ func TestImporterDeletesOldOwnedSecretAfterReplacement(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Import() error = %v", err)
 	}
+
 	if !result.IsUpdated {
 		t.Fatal("Import().IsUpdated = false, want true")
 	}
+
 	if !dependencies.writer.deleted["local://old"] {
 		t.Fatal("old secret was not deleted")
 	}
@@ -77,6 +82,7 @@ func TestImporterCleansNewSecretsAfterPersistenceFailure(t *testing.T) {
 	}); !errors.Is(err, ErrImportUnavailable) {
 		t.Fatalf("Import() error = %v, want ErrImportUnavailable", err)
 	}
+
 	if !dependencies.writer.deleted["local://new-password"] {
 		t.Fatal("new secret was not cleaned up")
 	}
@@ -97,6 +103,7 @@ func TestImporterSanitizesParserError(t *testing.T) {
 	if !errors.Is(err, ErrInvalidConnectionString) {
 		t.Fatalf("Import() error = %v, want ErrInvalidConnectionString", err)
 	}
+
 	if strings.Contains(err.Error(), canary) {
 		t.Fatalf("Import() error leaked connection string: %v", err)
 	}
@@ -112,6 +119,7 @@ func newImporter(t *testing.T, parsed ParsedConnection) (*Importer, importerDepe
 
 	repository := &definitionRepositoryStub{definitions: map[ID]Definition{}}
 	writer := &secretWriterStub{deleted: map[secret.Reference]bool{}}
+
 	importer, err := NewImporter(ImporterDependencies{
 		Adapters: adapterResolverStub{
 			adapter: &adapterStub{kind: "postgres", parsed: parsed},
@@ -123,6 +131,7 @@ func newImporter(t *testing.T, parsed ParsedConnection) (*Importer, importerDepe
 	if err != nil {
 		t.Fatalf("NewImporter() error = %v", err)
 	}
+
 	return importer, importerDependencies{repository: repository, writer: writer}
 }
 
@@ -153,6 +162,7 @@ func (s *definitionRepositoryStub) Lookup(_ context.Context, id ID) (Definition,
 	if !exists {
 		return Definition{}, ErrDefinitionNotFound
 	}
+
 	return definition.Clone(), nil
 }
 
@@ -160,7 +170,9 @@ func (s *definitionRepositoryStub) Upsert(_ context.Context, definition Definiti
 	if s.upsertErr != nil {
 		return s.upsertErr
 	}
+
 	s.definitions[definition.ID] = definition.Clone()
+
 	return nil
 }
 

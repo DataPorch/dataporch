@@ -14,7 +14,7 @@ const (
 	maxResourceLimit            = 1000
 	defaultAdminSocketPath      = "/run/dataporch/admin.sock"
 	defaultMasterKeyPath        = "/etc/dataporch/master.key"
-	defaultSecretsStorePath     = "/var/lib/dataporch/secrets.store"
+	defaultSecretsStorePath     = "/var/lib/dataporch/secrets.store" //nolint:gosec // This is a path, not a credential.
 	defaultConnectionsStorePath = "/var/lib/dataporch/connections.store"
 )
 

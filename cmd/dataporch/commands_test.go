@@ -16,7 +16,9 @@ func TestSecretsInitRunsOnce(t *testing.T) {
 	t.Parallel()
 
 	dependencies := testCommandDependencies(t)
+
 	var initializations int
+
 	dependencies.initializeSecrets = func(config.Config) error {
 		initializations++
 		return nil
@@ -25,6 +27,7 @@ func TestSecretsInitRunsOnce(t *testing.T) {
 	if err := run([]string{"secrets", "init"}, dependencies); err != nil {
 		t.Fatalf("run() error = %v", err)
 	}
+
 	if initializations != 1 {
 		t.Fatalf("initializations = %d, want 1", initializations)
 	}
@@ -53,6 +56,7 @@ func TestConnectionsImportRequiresTerminal(t *testing.T) {
 
 	dependencies := testCommandDependencies(t)
 	dependencies.isTerminal = func(int) bool { return false }
+
 	err := run([]string{"connections", "import", "--id", "finance", "--kind", "postgres"}, dependencies)
 	if !errors.Is(err, errTerminalRequired) {
 		t.Fatalf("run() error = %v, want %v", err, errTerminalRequired)
@@ -65,7 +69,9 @@ func TestConnectionsImportReadsHiddenValue(t *testing.T) {
 	dependencies := testCommandDependencies(t)
 	canary := []byte("postgres://reader:password@host/finance")
 	dependencies.readPassword = func(int) ([]byte, error) { return append([]byte(nil), canary...), nil }
+
 	var got connection.ImportRequest
+
 	dependencies.newClient = func(string) (importClient, error) {
 		return importClientFunc(func(_ context.Context, request connection.ImportRequest) (connection.ImportResult, error) {
 			got = connection.ImportRequest{
@@ -73,6 +79,7 @@ func TestConnectionsImportReadsHiddenValue(t *testing.T) {
 				Kind:             request.Kind,
 				ConnectionString: append([]byte(nil), request.ConnectionString...),
 			}
+
 			return connection.ImportResult{ID: "finance"}, nil
 		}), nil
 	}
@@ -80,6 +87,7 @@ func TestConnectionsImportReadsHiddenValue(t *testing.T) {
 	if err := run([]string{"connections", "import", "--id", "finance", "--kind", "postgres"}, dependencies); err != nil {
 		t.Fatalf("run() error = %v", err)
 	}
+
 	if string(got.ConnectionString) != string(canary) {
 		t.Fatalf("connection string = %q, want %q", got.ConnectionString, canary)
 	}
@@ -90,6 +98,7 @@ func TestConnectionsImportDoesNotAcceptDSNFlag(t *testing.T) {
 
 	canary := "postgres://reader:password@host/finance"
 	dependencies := testCommandDependencies(t)
+
 	err := run([]string{"connections", "import", "--id", "finance", "--kind", "postgres", "--dsn", canary}, dependencies)
 	if err == nil || strings.Contains(err.Error(), canary) {
 		t.Fatalf("run() error = %v, want safe unknown-flag error", err)
@@ -100,12 +109,20 @@ func TestConnectionsImportPrintsExactAddedMessage(t *testing.T) {
 	t.Parallel()
 
 	dependencies := testCommandDependencies(t)
+
 	dependencies.newClient = resultClientFactory(connection.ImportResult{ID: "finance"})
 	if err := run([]string{"connections", "import", "--id", "finance", "--kind", "postgres"}, dependencies); err != nil {
 		t.Fatalf("run() error = %v", err)
 	}
+
 	const want = "Database \"finance\" was added successfully and its connection has not been tested.\n"
-	if got := dependencies.stdout.(*bytes.Buffer).String(); got != "Connection string: \n"+want {
+
+	stdout, ok := dependencies.stdout.(*bytes.Buffer)
+	if !ok {
+		t.Fatalf("stdout type = %T, want *bytes.Buffer", dependencies.stdout)
+	}
+
+	if got := stdout.String(); got != "Connection string: \n"+want {
 		t.Fatalf("stdout = %q, want %q", got, "Connection string: \n"+want)
 	}
 }
@@ -114,12 +131,20 @@ func TestConnectionsImportPrintsUpdatedMessage(t *testing.T) {
 	t.Parallel()
 
 	dependencies := testCommandDependencies(t)
+
 	dependencies.newClient = resultClientFactory(connection.ImportResult{ID: "finance", IsUpdated: true})
 	if err := run([]string{"connections", "import", "--id", "finance", "--kind", "postgres"}, dependencies); err != nil {
 		t.Fatalf("run() error = %v", err)
 	}
+
 	const want = "Database \"finance\" was updated successfully and its connection has not been tested.\n"
-	if got := dependencies.stdout.(*bytes.Buffer).String(); got != "Connection string: \n"+want {
+
+	stdout, ok := dependencies.stdout.(*bytes.Buffer)
+	if !ok {
+		t.Fatalf("stdout type = %T, want *bytes.Buffer", dependencies.stdout)
+	}
+
+	if got := stdout.String(); got != "Connection string: \n"+want {
 		t.Fatalf("stdout = %q, want %q", got, "Connection string: \n"+want)
 	}
 }
@@ -140,8 +165,17 @@ func TestConnectionsImportDoesNotEchoCanary(t *testing.T) {
 	if err == nil {
 		t.Fatal("run() error = nil, want error")
 	}
-	stdoutContainsCanary := strings.Contains(dependencies.stdout.(*bytes.Buffer).String(), canary)
-	stderrContainsCanary := strings.Contains(dependencies.stderr.(*bytes.Buffer).String(), canary)
+
+	stdout, stdoutOK := dependencies.stdout.(*bytes.Buffer)
+
+	stderr, stderrOK := dependencies.stderr.(*bytes.Buffer)
+	if !stdoutOK || !stderrOK {
+		t.Fatalf("stdout/stderr types = %T/%T, want *bytes.Buffer", dependencies.stdout, dependencies.stderr)
+	}
+
+	stdoutContainsCanary := strings.Contains(stdout.String(), canary)
+	stderrContainsCanary := strings.Contains(stderr.String(), canary)
+
 	errorContainsCanary := strings.Contains(err.Error(), canary)
 	if stdoutContainsCanary || stderrContainsCanary || errorContainsCanary {
 		t.Fatal("connection string leaked")
@@ -150,6 +184,7 @@ func TestConnectionsImportDoesNotEchoCanary(t *testing.T) {
 
 func testCommandDependencies(t *testing.T) commandDependencies {
 	t.Helper()
+
 	return commandDependencies{
 		stdin:        os.Stdin,
 		stdout:       &bytes.Buffer{},

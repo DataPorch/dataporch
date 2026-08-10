@@ -39,29 +39,34 @@ func NewHandler(importer Importer, logger *slog.Logger) (http.Handler, error) {
 	if importer == nil {
 		return nil, errImporterRequired
 	}
+
 	if logger == nil {
 		return nil, errLoggerRequired
 	}
+
 	handler := &Handler{
 		mux:      http.NewServeMux(),
 		importer: importer,
 		logger:   logger,
 	}
 	handler.mux.HandleFunc("POST /v1/connections/import", handler.importConnection)
+
 	return handler, nil
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) { h.mux.ServeHTTP(w, r) }
 
 func (h *Handler) importConnection(w http.ResponseWriter, r *http.Request) {
-	defer r.Body.Close()
+	defer func() { _ = r.Body.Close() }()
+
 	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBody)
+
 	request, err := decodeImportRequest(r.Body)
 	if err != nil {
 		writeRequestError(w, err)
 		return
 	}
-	defer clear(request.ConnectionString)
+	defer zeroBytes(request.ConnectionString)
 
 	result, err := h.importer.Import(r.Context(), connection.ImportRequest{
 		ID:               request.DatabaseID,
@@ -75,8 +80,10 @@ func (h *Handler) importConnection(w http.ResponseWriter, r *http.Request) {
 			request,
 			err,
 		)
+
 		return
 	}
+
 	writeImportResult(w, result)
 }
 
@@ -96,6 +103,7 @@ func (h *Handler) writeImportError(
 		"category",
 		errorCategory(err),
 	)
+
 	if errors.Is(err, connection.ErrInvalidConnectionString) {
 		writeError(
 			w,
@@ -103,8 +111,10 @@ func (h *Handler) writeImportError(
 			"invalid_connection_string",
 			"connection string is invalid",
 		)
+
 		return
 	}
+
 	writeError(
 		w,
 		http.StatusServiceUnavailable,
@@ -115,14 +125,18 @@ func (h *Handler) writeImportError(
 
 func decodeImportRequest(reader io.Reader) (importRequest, error) {
 	var request importRequest
+
 	decoder := json.NewDecoder(reader)
 	decoder.DisallowUnknownFields()
+
 	if err := decoder.Decode(&request); err != nil {
 		return importRequest{}, err
 	}
+
 	if err := decoder.Decode(&struct{}{}); err != io.EOF {
 		return importRequest{}, errInvalidRequest
 	}
+
 	return request, nil
 }
 
@@ -135,8 +149,10 @@ func writeRequestError(w http.ResponseWriter, err error) {
 			"request_too_large",
 			"request is too large",
 		)
+
 		return
 	}
+
 	writeError(
 		w,
 		http.StatusBadRequest,
@@ -148,10 +164,12 @@ func writeRequestError(w http.ResponseWriter, err error) {
 func writeImportResult(w http.ResponseWriter, result connection.ImportResult) {
 	status := "added"
 	code := http.StatusCreated
+
 	if result.IsUpdated {
 		status = "updated"
 		code = http.StatusOK
 	}
+
 	writeJSON(w, code, struct {
 		Status             string        `json:"status"`
 		DatabaseID         connection.ID `json:"databaseId"`
@@ -163,6 +181,7 @@ func errorCategory(err error) string {
 	if errors.Is(err, connection.ErrInvalidConnectionString) {
 		return "invalid_connection_string"
 	}
+
 	return "database_unavailable"
 }
 
@@ -180,7 +199,7 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 	_ = json.NewEncoder(w).Encode(value)
 }
 
-func clear(value []byte) {
+func zeroBytes(value []byte) {
 	for i := range value {
 		value[i] = 0
 	}

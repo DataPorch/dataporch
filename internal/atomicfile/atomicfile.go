@@ -20,7 +20,11 @@ type temporaryFile interface {
 type createTemporaryFile func(directory, pattern string) (temporaryFile, error)
 
 func Create(path string, data []byte, permission fs.FileMode) (err error) {
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, permission)
+	file, err := os.OpenFile( //nolint:gosec // The destination path is the explicit API input.
+		path,
+		os.O_CREATE|os.O_EXCL|os.O_WRONLY,
+		permission,
+	)
 	if err != nil {
 		return fmt.Errorf("creating file %q: %w", path, err)
 	}
@@ -35,15 +39,19 @@ func Create(path string, data []byte, permission fs.FileMode) (err error) {
 	if err := file.Chmod(permission); err != nil {
 		return fmt.Errorf("setting permissions for %q: %w", path, err)
 	}
+
 	if err := writeAll(file, data); err != nil {
 		return fmt.Errorf("writing file %q: %w", path, err)
 	}
+
 	if err := file.Sync(); err != nil {
 		return fmt.Errorf("syncing file %q: %w", path, err)
 	}
+
 	if err := file.Close(); err != nil {
 		return fmt.Errorf("closing file %q: %w", path, err)
 	}
+
 	isClosed = true
 
 	if err := syncDirectory(filepath.Dir(path)); err != nil {
@@ -78,16 +86,21 @@ func replace(
 	if err != nil {
 		return fmt.Errorf("creating temporary file for %q: %w", path, err)
 	}
+
 	if file == nil {
 		return errors.New("atomicfile: temporary-file creator returned nil")
 	}
 
-	var isClosed bool
-	var isPublished bool
+	var (
+		isClosed    bool
+		isPublished bool
+	)
+
 	defer func() {
 		if !isClosed {
 			_ = file.Close()
 		}
+
 		if !isPublished {
 			_ = os.Remove(file.Name())
 		}
@@ -96,20 +109,25 @@ func replace(
 	if err := file.Chmod(permission); err != nil {
 		return fmt.Errorf("setting temporary file permissions for %q: %w", path, err)
 	}
+
 	if err := writeAll(file, data); err != nil {
 		return fmt.Errorf("writing temporary file for %q: %w", path, err)
 	}
+
 	if err := file.Sync(); err != nil {
 		return fmt.Errorf("syncing temporary file for %q: %w", path, err)
 	}
+
 	if err := file.Close(); err != nil {
 		return fmt.Errorf("closing temporary file for %q: %w", path, err)
 	}
+
 	isClosed = true
 
 	if err := os.Rename(file.Name(), path); err != nil {
 		return fmt.Errorf("replacing file %q: %w", path, err)
 	}
+
 	isPublished = true
 
 	if err := syncDirectory(filepath.Dir(path)); err != nil {
@@ -125,9 +143,11 @@ func writeAll(writer io.Writer, data []byte) error {
 		if err != nil {
 			return err
 		}
+
 		if written == 0 {
 			return io.ErrShortWrite
 		}
+
 		data = data[written:]
 	}
 
@@ -135,7 +155,7 @@ func writeAll(writer io.Writer, data []byte) error {
 }
 
 func syncDirectory(path string) (err error) {
-	directory, err := os.Open(path)
+	directory, err := os.Open(path) //nolint:gosec // The path is the destination's parent directory.
 	if err != nil {
 		return err
 	}

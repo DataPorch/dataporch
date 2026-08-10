@@ -14,6 +14,7 @@ type Reference string
 
 func Parse(raw string) (Reference, error) {
 	scheme, locator, found := strings.Cut(raw, "://")
+
 	isValid := found && isValidScheme(scheme) && isValidLocator(locator)
 	if !isValid {
 		return "", ErrInvalidReference
@@ -41,6 +42,7 @@ func (r Reference) Parts() (string, string, error) {
 	}
 
 	scheme, locator, _ := strings.Cut(parsed.String(), "://")
+
 	return scheme, locator, nil
 }
 
@@ -48,6 +50,7 @@ func isValidScheme(scheme string) bool {
 	if len(scheme) == 0 {
 		return false
 	}
+
 	if scheme[0] < 'a' || scheme[0] > 'z' {
 		return false
 	}
@@ -56,12 +59,15 @@ func isValidScheme(scheme string) bool {
 		if character >= 'a' && character <= 'z' {
 			continue
 		}
+
 		if character >= '0' && character <= '9' {
 			continue
 		}
+
 		if character == '-' {
 			continue
 		}
+
 		return false
 	}
 

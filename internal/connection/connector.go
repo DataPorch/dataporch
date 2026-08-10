@@ -63,7 +63,7 @@ func isNilAdapter(adapter Adapter) bool {
 
 	// Reflection is required to reject typed nil values stored in the adapter interface.
 	value := reflect.ValueOf(adapter)
-	switch value.Kind() {
+	switch value.Kind() { //nolint:exhaustive // Non-nilable kinds intentionally share the default result.
 	case reflect.Chan,
 		reflect.Func,
 		reflect.Interface,

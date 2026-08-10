@@ -58,12 +58,15 @@ func TestLoadSecurityPaths(t *testing.T) {
 			if cfg.AdminSocketPath != tt.wantAdminSocket {
 				t.Errorf("AdminSocketPath = %q, want %q", cfg.AdminSocketPath, tt.wantAdminSocket)
 			}
+
 			if cfg.MasterKeyPath != tt.wantMasterKey {
 				t.Errorf("MasterKeyPath = %q, want %q", cfg.MasterKeyPath, tt.wantMasterKey)
 			}
+
 			if cfg.SecretsStorePath != tt.wantSecretsStore {
 				t.Errorf("SecretsStorePath = %q, want %q", cfg.SecretsStorePath, tt.wantSecretsStore)
 			}
+
 			if cfg.ConnectionsStorePath != tt.wantConnectionsFile {
 				t.Errorf("ConnectionsStorePath = %q, want %q", cfg.ConnectionsStorePath, tt.wantConnectionsFile)
 			}
@@ -107,6 +110,7 @@ func TestValidateRejectsInvalidSecurityPaths(t *testing.T) {
 
 			cfg := valid
 			tt.change(&cfg)
+
 			if err := cfg.Validate(); err == nil {
 				t.Fatal("Validate() error = nil, want non-nil")
 			}

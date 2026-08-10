@@ -37,9 +37,11 @@ func NewManager(resolver SecretResolver, definitions []Definition) (*Manager, er
 		if err := definition.Validate(); err != nil {
 			return nil, fmt.Errorf("validating definition: %w", err)
 		}
+
 		if _, exists := managed[definition.ID]; exists {
 			return nil, fmt.Errorf("%w: duplicate database id", ErrInvalidDefinition)
 		}
+
 		managed[definition.ID] = definition.Clone()
 	}
 
@@ -54,6 +56,7 @@ func (m *Manager) Register(definition Definition) error {
 	m.mu.Lock()
 	m.definitions[definition.ID] = definition.Clone()
 	m.mu.Unlock()
+
 	return nil
 }
 
@@ -61,6 +64,7 @@ func (m *Manager) Lookup(id ID) (Definition, error) {
 	m.mu.RLock()
 	definition, exists := m.definitions[id]
 	m.mu.RUnlock()
+
 	if !exists {
 		return Definition{}, fmt.Errorf("%w: %s", ErrDatabaseNotFound, id)
 	}
@@ -72,8 +76,13 @@ func (m *Manager) Prepare(ctx context.Context, id ID) (ResolvedDefinition, error
 	if ctx == nil {
 		return ResolvedDefinition{}, fmt.Errorf("%w: context is required", ErrDatabaseUnavailable)
 	}
+
 	if err := ctx.Err(); err != nil {
-		return ResolvedDefinition{}, fmt.Errorf("%w: %v", ErrDatabaseUnavailable, err)
+		return ResolvedDefinition{}, fmt.Errorf(
+			"%w: %v",
+			ErrDatabaseUnavailable,
+			err, //nolint:errorlint // Preserve the existing public error chain.
+		)
 	}
 
 	definition, err := m.Lookup(id)
@@ -87,10 +96,12 @@ func (m *Manager) Prepare(ctx context.Context, id ID) (ResolvedDefinition, error
 		Settings: cloneStrings(definition.Settings),
 		Secrets:  make(map[string][]byte, len(definition.SecretRefs)),
 	}
+
 	names := make([]string, 0, len(definition.SecretRefs))
 	for name := range definition.SecretRefs {
 		names = append(names, name)
 	}
+
 	sort.Strings(names)
 
 	for _, name := range names {
@@ -99,6 +110,7 @@ func (m *Manager) Prepare(ctx context.Context, id ID) (ResolvedDefinition, error
 			clearSecrets(resolved.Secrets)
 			return ResolvedDefinition{}, fmt.Errorf("%w: %s", ErrDatabaseUnavailable, id)
 		}
+
 		resolved.Secrets[name] = append([]byte(nil), value...)
 	}
 
@@ -107,11 +119,11 @@ func (m *Manager) Prepare(ctx context.Context, id ID) (ResolvedDefinition, error
 
 func clearSecrets(secrets map[string][]byte) {
 	for _, value := range secrets {
-		clear(value)
+		zeroBytes(value)
 	}
 }
 
-func clear(value []byte) {
+func zeroBytes(value []byte) {
 	for index := range value {
 		value[index] = 0
 	}

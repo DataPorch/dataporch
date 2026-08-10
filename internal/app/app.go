@@ -90,6 +90,7 @@ func New(cfg config.Config, logger *slog.Logger, adapters ...connection.Adapter)
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", mcpHandler)
 	mux.Handle("/", httpHandler)
+
 	security, err := newSecurityComponents(cfg, logger, adapters...)
 	if err != nil {
 		return nil, fmt.Errorf("creating security components: %w", err)
@@ -134,8 +135,10 @@ func (a *App) Run(ctx context.Context) error {
 
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
+
 	publicErrors := a.servePublic(listener)
 	adminErrors := a.serveAdmin(runCtx)
+
 	return a.waitForServers(
 		ctx,
 		cancel,
@@ -146,22 +149,26 @@ func (a *App) Run(ctx context.Context) error {
 
 func (a *App) listenPublic(ctx context.Context) (net.Listener, error) {
 	var listenConfig net.ListenConfig
+
 	listener, err := listenConfig.Listen(ctx, "tcp", a.server.Addr)
 	if err != nil {
 		return nil, fmt.Errorf("listening on %q: %w", a.server.Addr, err)
 	}
+
 	return listener, nil
 }
 
 func (a *App) servePublic(listener net.Listener) <-chan error {
 	errors := make(chan error, 1)
 	go func() { errors <- a.server.Serve(listener) }()
+
 	return errors
 }
 
 func (a *App) serveAdmin(ctx context.Context) <-chan error {
 	errors := make(chan error, 1)
 	go func() { errors <- a.adminServer.Run(ctx) }()
+
 	return errors
 }
 
@@ -176,9 +183,11 @@ func (a *App) waitForServers(
 		case err := <-publicErrors:
 			cancel()
 			a.waitForAdmin(adminErrors)
+
 			if errors.Is(err, http.ErrServerClosed) {
 				return nil
 			}
+
 			return fmt.Errorf("serving http: %w", err)
 		case err := <-adminErrors:
 			if err != nil {
@@ -189,6 +198,7 @@ func (a *App) waitForServers(
 					"unavailable",
 				)
 			}
+
 			adminErrors = nil
 		case <-ctx.Done():
 			return a.shutdown(
@@ -208,20 +218,27 @@ func (a *App) shutdown(
 	adminErrors <-chan error,
 ) error {
 	cancel()
+
 	shutdownCtx, stop := context.WithTimeout(context.WithoutCancel(ctx), a.shutdownPeriod)
 	defer stop()
+
 	shutdownErr := a.server.Shutdown(shutdownCtx)
 	if shutdownErr != nil {
 		shutdownErr = errors.Join(shutdownErr, a.server.Close())
 	}
+
 	if err := <-publicErrors; err != nil && !errors.Is(err, http.ErrServerClosed) {
 		shutdownErr = errors.Join(shutdownErr, fmt.Errorf("serving http: %w", err))
 	}
+
 	a.waitForAdmin(adminErrors)
+
 	if shutdownErr != nil {
 		return fmt.Errorf("shutting down http server: %w", shutdownErr)
 	}
+
 	a.logger.InfoContext(shutdownCtx, "dataporch stopped")
+
 	return nil
 }
 
@@ -229,6 +246,7 @@ func (a *App) waitForAdmin(adminErrors <-chan error) {
 	if adminErrors == nil {
 		return
 	}
+
 	if err := <-adminErrors; err != nil {
 		a.logger.Warn("admin transport unavailable", "category", "unavailable")
 	}

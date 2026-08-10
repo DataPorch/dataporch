@@ -29,8 +29,10 @@ func TestReference(t *testing.T) {
 				if err == nil {
 					t.Fatal("Parse() error = nil, want non-nil")
 				}
+
 				return
 			}
+
 			if err != nil {
 				t.Fatalf("Parse() error = %v", err)
 			}
@@ -39,6 +41,7 @@ func TestReference(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Parts() error = %v", err)
 			}
+
 			if scheme != tt.scheme || locator != tt.locator {
 				t.Fatalf(
 					"Parts() = %q, %q; want %q, %q",

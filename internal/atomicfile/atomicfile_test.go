@@ -23,6 +23,7 @@ func TestCreateRefusesExistingPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadFile() error = %v", err)
 	}
+
 	if string(data) != "existing" {
 		t.Fatalf("file contents = %q, want %q", data, "existing")
 	}
@@ -40,6 +41,7 @@ func TestCreateUsesRestrictivePermissions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Stat() error = %v", err)
 	}
+
 	if got := info.Mode().Perm(); got != 0o600 {
 		t.Errorf("permissions = %o, want 600", got)
 	}
@@ -61,6 +63,7 @@ func TestReplacePublishesCompleteContent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadFile() error = %v", err)
 	}
+
 	if string(data) != "complete new snapshot" {
 		t.Fatalf("file contents = %q, want complete new snapshot", data)
 	}
@@ -70,6 +73,7 @@ func TestReplacePreservesOldFileWhenTemporaryWriteFails(t *testing.T) {
 	t.Parallel()
 
 	directory := t.TempDir()
+
 	path := filepath.Join(directory, "snapshot")
 	if err := os.WriteFile(path, []byte("old"), 0o600); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
@@ -89,6 +93,7 @@ func TestReplacePreservesOldFileWhenTemporaryWriteFails(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadFile() error = %v", err)
 	}
+
 	if string(data) != "old" {
 		t.Fatalf("file contents = %q, want %q", data, "old")
 	}
@@ -97,6 +102,7 @@ func TestReplacePreservesOldFileWhenTemporaryWriteFails(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadDir() error = %v", err)
 	}
+
 	if len(entries) != 1 || entries[0].Name() != "snapshot" {
 		t.Fatalf("directory entries = %#v, want only snapshot", entries)
 	}

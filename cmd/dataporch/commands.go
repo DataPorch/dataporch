@@ -45,6 +45,11 @@ type commandDependencies struct {
 	newClient         func(string) (importClient, error)
 }
 
+type importArguments struct {
+	databaseID connection.ID
+	kind       connection.Kind
+}
+
 func run(args []string, dependencies commandDependencies) error {
 	switch {
 	case len(args) == 0:
@@ -87,40 +92,13 @@ func initializeSecrets(dependencies commandDependencies) error {
 }
 
 func importConnection(args []string, dependencies commandDependencies) error {
-	flags := flag.NewFlagSet("connections import", flag.ContinueOnError)
-	flags.SetOutput(io.Discard)
-	databaseID := flags.String("id", "", "database identifier")
-	kind := flags.String("kind", "", "database adapter kind")
-	if err := flags.Parse(args); err != nil {
-		return fmt.Errorf("parsing import command: %w", err)
-	}
-	if len(flags.Args()) != 0 {
-		return errUnexpectedArguments
-	}
-	if *databaseID == "" {
-		return errDatabaseIDRequired
-	}
-	if *kind == "" {
-		return errDatabaseKindRequired
-	}
-	hasStdin := dependencies.stdin != nil
-	hasTerminalCheck := dependencies.isTerminal != nil
-	hasPasswordReader := dependencies.readPassword != nil
-	if !hasStdin || !hasTerminalCheck || !hasPasswordReader {
-		return errTerminalRequired
-	}
-	fd := int(dependencies.stdin.Fd())
-	if !dependencies.isTerminal(fd) {
-		return errTerminalRequired
-	}
-	if dependencies.stdout == nil {
-		return errors.New("standard output is required")
-	}
-	fmt.Fprint(dependencies.stdout, "Connection string: ")
-	connectionString, err := dependencies.readPassword(fd)
-	fmt.Fprintln(dependencies.stdout)
+	arguments, err := parseImportArguments(args)
 	if err != nil {
-		return fmt.Errorf("reading connection string: %w", err)
+		return err
+	}
+	connectionString, err := readConnectionString(dependencies)
+	if err != nil {
+		return err
 	}
 	defer clear(connectionString)
 
@@ -136,8 +114,8 @@ func importConnection(args []string, dependencies commandDependencies) error {
 		return fmt.Errorf("creating connection import client: %w", err)
 	}
 	result, err := client.Import(context.Background(), connection.ImportRequest{
-		ID:               connection.ID(*databaseID),
-		Kind:             connection.Kind(*kind),
+		ID:               arguments.databaseID,
+		Kind:             arguments.kind,
 		ConnectionString: connectionString,
 	})
 	if err != nil {
@@ -150,10 +128,56 @@ func importConnection(args []string, dependencies commandDependencies) error {
 	fmt.Fprintf(
 		dependencies.stdout,
 		"Database %q was %s successfully and its connection has not been tested.\n",
-		*databaseID,
+		arguments.databaseID,
 		verb,
 	)
 	return nil
+}
+
+func parseImportArguments(args []string) (importArguments, error) {
+	flags := flag.NewFlagSet("connections import", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	databaseID := flags.String("id", "", "database identifier")
+	kind := flags.String("kind", "", "database adapter kind")
+	if err := flags.Parse(args); err != nil {
+		return importArguments{}, fmt.Errorf("parsing import command: %w", err)
+	}
+	if len(flags.Args()) != 0 {
+		return importArguments{}, errUnexpectedArguments
+	}
+	if *databaseID == "" {
+		return importArguments{}, errDatabaseIDRequired
+	}
+	if *kind == "" {
+		return importArguments{}, errDatabaseKindRequired
+	}
+	return importArguments{
+		databaseID: connection.ID(*databaseID),
+		kind:       connection.Kind(*kind),
+	}, nil
+}
+
+func readConnectionString(dependencies commandDependencies) ([]byte, error) {
+	hasStdin := dependencies.stdin != nil
+	hasTerminalCheck := dependencies.isTerminal != nil
+	hasPasswordReader := dependencies.readPassword != nil
+	if !hasStdin || !hasTerminalCheck || !hasPasswordReader {
+		return nil, errTerminalRequired
+	}
+	fd := int(dependencies.stdin.Fd())
+	if !dependencies.isTerminal(fd) {
+		return nil, errTerminalRequired
+	}
+	if dependencies.stdout == nil {
+		return nil, errors.New("standard output is required")
+	}
+	fmt.Fprint(dependencies.stdout, "Connection string: ")
+	connectionString, err := dependencies.readPassword(fd)
+	fmt.Fprintln(dependencies.stdout)
+	if err != nil {
+		return connectionString, fmt.Errorf("reading connection string: %w", err)
+	}
+	return connectionString, nil
 }
 
 func loadConfig(dependencies commandDependencies) (config.Config, error) {

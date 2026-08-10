@@ -1,0 +1,112 @@
+package connection
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"sort"
+	"sync"
+
+	"github.com/adamraziv/dataporch/internal/secret"
+)
+
+var (
+	ErrDatabaseUnavailable = errors.New("connection: database unavailable")
+	ErrDatabaseNotFound    = errors.New("connection: database not found")
+	errResolverRequired    = errors.New("connection: secret resolver is required")
+)
+
+type SecretResolver interface {
+	Resolve(context.Context, secret.Reference) ([]byte, error)
+}
+
+type Manager struct {
+	mu          sync.RWMutex
+	resolver    SecretResolver
+	definitions map[ID]Definition
+}
+
+func NewManager(resolver SecretResolver, definitions []Definition) (*Manager, error) {
+	if resolver == nil {
+		return nil, errResolverRequired
+	}
+
+	managed := make(map[ID]Definition, len(definitions))
+	for _, definition := range definitions {
+		if err := definition.Validate(); err != nil {
+			return nil, fmt.Errorf("validating definition: %w", err)
+		}
+		if _, exists := managed[definition.ID]; exists {
+			return nil, fmt.Errorf("%w: duplicate database id", ErrInvalidDefinition)
+		}
+		managed[definition.ID] = definition.Clone()
+	}
+
+	return &Manager{resolver: resolver, definitions: managed}, nil
+}
+
+func (m *Manager) Register(definition Definition) error {
+	if err := definition.Validate(); err != nil {
+		return fmt.Errorf("validating definition: %w", err)
+	}
+
+	m.mu.Lock()
+	m.definitions[definition.ID] = definition.Clone()
+	m.mu.Unlock()
+	return nil
+}
+
+func (m *Manager) Lookup(id ID) (Definition, error) {
+	m.mu.RLock()
+	definition, exists := m.definitions[id]
+	m.mu.RUnlock()
+	if !exists {
+		return Definition{}, fmt.Errorf("%w: %s", ErrDatabaseNotFound, id)
+	}
+
+	return definition.Clone(), nil
+}
+
+func (m *Manager) Prepare(ctx context.Context, id ID) (ResolvedDefinition, error) {
+	if ctx == nil {
+		return ResolvedDefinition{}, fmt.Errorf("%w: context is required", ErrDatabaseUnavailable)
+	}
+	if err := ctx.Err(); err != nil {
+		return ResolvedDefinition{}, fmt.Errorf("%w: %v", ErrDatabaseUnavailable, err)
+	}
+
+	definition, err := m.Lookup(id)
+	if err != nil {
+		return ResolvedDefinition{}, fmt.Errorf("%w: %s", ErrDatabaseUnavailable, id)
+	}
+
+	resolved := ResolvedDefinition{ID: definition.ID, Kind: definition.Kind, Settings: cloneStrings(definition.Settings), Secrets: make(map[string][]byte, len(definition.SecretRefs))}
+	names := make([]string, 0, len(definition.SecretRefs))
+	for name := range definition.SecretRefs {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	for _, name := range names {
+		value, err := m.resolver.Resolve(ctx, definition.SecretRefs[name])
+		if err != nil {
+			clearSecrets(resolved.Secrets)
+			return ResolvedDefinition{}, fmt.Errorf("%w: %s", ErrDatabaseUnavailable, id)
+		}
+		resolved.Secrets[name] = append([]byte(nil), value...)
+	}
+
+	return resolved, nil
+}
+
+func clearSecrets(secrets map[string][]byte) {
+	for _, value := range secrets {
+		clear(value)
+	}
+}
+
+func clear(value []byte) {
+	for index := range value {
+		value[index] = 0
+	}
+}

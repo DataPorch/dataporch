@@ -107,42 +107,70 @@ func (i *Importer) Import(ctx context.Context, request ImportRequest) (ImportRes
 		return ImportResult{}, fmt.Errorf("%w: invalid normalized connection", ErrInvalidConnectionString)
 	}
 
-	refs, err := i.storeSecrets(ctx, parsed.Secrets)
+	definition, err := i.newDefinition(ctx, request, parsed)
 	if err != nil {
 		return ImportResult{}, err
 	}
-	definition := Definition{ID: request.ID, Kind: request.Kind, Settings: cloneStrings(parsed.Settings), SecretRefs: refs}
-	if err := definition.Validate(); err != nil {
-		i.deleteNew(ctx, refs)
-		return ImportResult{}, fmt.Errorf("%w: invalid normalized connection", ErrInvalidConnectionString)
-	}
 
-	previous, lookupErr := i.definitions.Lookup(ctx, request.ID)
-	isUpdated := lookupErr == nil
-	if lookupErr != nil && !errors.Is(lookupErr, ErrDefinitionNotFound) {
-		i.deleteNew(ctx, refs)
-		return ImportResult{}, fmt.Errorf("%w: loading existing definition", ErrImportUnavailable)
+	previous, isUpdated, err := i.existingDefinition(ctx, request.ID)
+	if err != nil {
+		i.deleteNew(ctx, definition.SecretRefs)
+		return ImportResult{}, err
 	}
 	if err := i.definitions.Upsert(ctx, definition); err != nil {
-		i.deleteNew(ctx, refs)
+		i.deleteNew(ctx, definition.SecretRefs)
 		return ImportResult{}, fmt.Errorf("%w: saving definition", ErrImportUnavailable)
 	}
 	if err := i.registrar.Register(definition); err != nil {
 		return ImportResult{}, fmt.Errorf("%w: registering definition", ErrImportUnavailable)
 	}
 	if isUpdated {
-		for _, ref := range previous.SecretRefs {
-			if err := i.secrets.Delete(ctx, ref); err != nil {
-				i.warn(request.ID, oldSecretCleanupFailed)
-				break
-			}
-		}
+		i.deleteOld(ctx, request.ID, previous.SecretRefs)
 	}
 	return ImportResult{
 		ID:                 request.ID,
 		IsUpdated:          isUpdated,
 		IsConnectionTested: false,
 	}, nil
+}
+
+func (i *Importer) newDefinition(
+	ctx context.Context,
+	request ImportRequest,
+	parsed ParsedConnection,
+) (Definition, error) {
+	refs, err := i.storeSecrets(ctx, parsed.Secrets)
+	if err != nil {
+		return Definition{}, err
+	}
+	definition := Definition{
+		ID:         request.ID,
+		Kind:       request.Kind,
+		Settings:   cloneStrings(parsed.Settings),
+		SecretRefs: refs,
+	}
+	if err := definition.Validate(); err != nil {
+		i.deleteNew(ctx, refs)
+		return Definition{}, fmt.Errorf(
+			"%w: invalid normalized connection",
+			ErrInvalidConnectionString,
+		)
+	}
+	return definition, nil
+}
+
+func (i *Importer) existingDefinition(ctx context.Context, id ID) (Definition, bool, error) {
+	definition, err := i.definitions.Lookup(ctx, id)
+	if err == nil {
+		return definition, true, nil
+	}
+	if errors.Is(err, ErrDefinitionNotFound) {
+		return Definition{}, false, nil
+	}
+	return Definition{}, false, fmt.Errorf(
+		"%w: loading existing definition",
+		ErrImportUnavailable,
+	)
 }
 
 func validateParsed(request ImportRequest, parsed ParsedConnection) error {
@@ -176,6 +204,15 @@ func (i *Importer) storeSecrets(ctx context.Context, secrets map[string][]byte) 
 func (i *Importer) deleteNew(ctx context.Context, refs map[string]secret.Reference) {
 	for _, ref := range refs {
 		_ = i.secrets.Delete(ctx, ref)
+	}
+}
+
+func (i *Importer) deleteOld(ctx context.Context, id ID, refs map[string]secret.Reference) {
+	for _, ref := range refs {
+		if err := i.secrets.Delete(ctx, ref); err != nil {
+			i.warn(id, oldSecretCleanupFailed)
+			break
+		}
 	}
 }
 

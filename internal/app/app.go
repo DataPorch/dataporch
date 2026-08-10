@@ -11,8 +11,8 @@ import (
 
 	"github.com/adamraziv/dataporch/internal/access"
 	"github.com/adamraziv/dataporch/internal/catalog"
+	"github.com/adamraziv/dataporch/internal/catalog/memory"
 	"github.com/adamraziv/dataporch/internal/config"
-	"github.com/adamraziv/dataporch/internal/connectors/memory"
 	"github.com/adamraziv/dataporch/internal/execution"
 	"github.com/adamraziv/dataporch/internal/transports/httpapi"
 	mcptransport "github.com/adamraziv/dataporch/internal/transports/mcp"

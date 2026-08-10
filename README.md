@@ -90,10 +90,11 @@ The `make check` command checks formatting and module files. It also runs tests,
 cmd/dataporch/                 Program entry point
 internal/app/                  Dependency setup and process lifecycle
 internal/config/               Environment configuration
+internal/connection/           Built-in database adapter resolution
 internal/catalog/              Resource metadata
+internal/catalog/memory/       In-memory resource catalog
 internal/execution/            Validated application operations
 internal/access/               Access policy implementations
-internal/connectors/memory/    Initial in-memory connector
 internal/transports/httpapi/   HTTP adapter
 internal/transports/mcp/       MCP adapter
 ```

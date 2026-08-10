@@ -32,7 +32,14 @@ func NewHandler(importer Importer, logger *slog.Logger) (http.Handler, error) {
 		return nil, errLoggerRequired
 	}
 	handler := &Handler{mux: http.NewServeMux()}
-	handler.mux.HandleFunc("POST /v1/connections/import", func(w http.ResponseWriter, r *http.Request) { handler.importConnection(w, r, importer, logger) })
+	handler.mux.HandleFunc("POST /v1/connections/import", func(w http.ResponseWriter, r *http.Request) {
+		handler.importConnection(
+			w,
+			r,
+			importer,
+			logger,
+		)
+	})
 	return handler, nil
 }
 
@@ -51,26 +58,64 @@ func (h *Handler) importConnection(w http.ResponseWriter, r *http.Request, impor
 	if err := decoder.Decode(&request); err != nil {
 		var tooLarge *http.MaxBytesError
 		if errors.As(err, &tooLarge) {
-			writeError(w, http.StatusRequestEntityTooLarge, "request_too_large", "request is too large")
+			writeError(
+				w,
+				http.StatusRequestEntityTooLarge,
+				"request_too_large",
+				"request is too large",
+			)
 			return
 		}
-		writeError(w, http.StatusBadRequest, "invalid_request", "request is invalid")
+		writeError(
+			w,
+			http.StatusBadRequest,
+			"invalid_request",
+			"request is invalid",
+		)
 		return
 	}
 	if err := decoder.Decode(&struct{}{}); err != io.EOF {
-		writeError(w, http.StatusBadRequest, "invalid_request", "request is invalid")
+		writeError(
+			w,
+			http.StatusBadRequest,
+			"invalid_request",
+			"request is invalid",
+		)
 		return
 	}
 	defer clear(request.ConnectionString)
 
-	result, err := importer.Import(r.Context(), connection.ImportRequest{ID: request.DatabaseID, Kind: request.Kind, ConnectionString: request.ConnectionString})
+	result, err := importer.Import(r.Context(), connection.ImportRequest{
+		ID:               request.DatabaseID,
+		Kind:             request.Kind,
+		ConnectionString: request.ConnectionString,
+	})
 	if err != nil {
-		logger.ErrorContext(r.Context(), "importing connection", "database_id", request.DatabaseID, "kind", request.Kind, "category", errorCategory(err))
+		logger.ErrorContext(
+			r.Context(),
+			"importing connection",
+			"database_id",
+			request.DatabaseID,
+			"kind",
+			request.Kind,
+			"category",
+			errorCategory(err),
+		)
 		if errors.Is(err, connection.ErrInvalidConnectionString) {
-			writeError(w, http.StatusBadRequest, "invalid_connection_string", "connection string is invalid")
+			writeError(
+				w,
+				http.StatusBadRequest,
+				"invalid_connection_string",
+				"connection string is invalid",
+			)
 			return
 		}
-		writeError(w, http.StatusServiceUnavailable, "database_unavailable", "requested database is unavailable")
+		writeError(
+			w,
+			http.StatusServiceUnavailable,
+			"database_unavailable",
+			"requested database is unavailable",
+		)
 		return
 	}
 	status := "added"

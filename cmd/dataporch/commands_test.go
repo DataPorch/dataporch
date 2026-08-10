@@ -68,7 +68,11 @@ func TestConnectionsImportReadsHiddenValue(t *testing.T) {
 	var got connection.ImportRequest
 	dependencies.newClient = func(string) (importClient, error) {
 		return importClientFunc(func(_ context.Context, request connection.ImportRequest) (connection.ImportResult, error) {
-			got = connection.ImportRequest{ID: request.ID, Kind: request.Kind, ConnectionString: append([]byte(nil), request.ConnectionString...)}
+			got = connection.ImportRequest{
+				ID:               request.ID,
+				Kind:             request.Kind,
+				ConnectionString: append([]byte(nil), request.ConnectionString...),
+			}
 			return connection.ImportResult{ID: "finance"}, nil
 		}), nil
 	}
@@ -136,7 +140,9 @@ func TestConnectionsImportDoesNotEchoCanary(t *testing.T) {
 	if err == nil {
 		t.Fatal("run() error = nil, want error")
 	}
-	if strings.Contains(dependencies.stdout.(*bytes.Buffer).String(), canary) || strings.Contains(dependencies.stderr.(*bytes.Buffer).String(), canary) || strings.Contains(err.Error(), canary) {
+	if strings.Contains(dependencies.stdout.(*bytes.Buffer).String(), canary) ||
+		strings.Contains(dependencies.stderr.(*bytes.Buffer).String(), canary) ||
+		strings.Contains(err.Error(), canary) {
 		t.Fatal("connection string leaked")
 	}
 }
@@ -160,6 +166,10 @@ func testCommandDependencies(t *testing.T) commandDependencies {
 
 func resultClientFactory(result connection.ImportResult) func(string) (importClient, error) {
 	return func(string) (importClient, error) {
-		return importClientFunc(func(context.Context, connection.ImportRequest) (connection.ImportResult, error) { return result, nil }), nil
+		return importClientFunc(
+			func(context.Context, connection.ImportRequest) (connection.ImportResult, error) {
+				return result, nil
+			},
+		), nil
 	}
 }

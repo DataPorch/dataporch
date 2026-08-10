@@ -94,7 +94,12 @@ func (s *Store) Store(ctx context.Context, plaintext []byte) (secret.Reference, 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	ciphertext := s.aead.Seal(nil, nil, plaintext, idBytes)
+	ciphertext := s.aead.Seal(
+		nil,
+		nil,
+		plaintext,
+		idBytes,
+	)
 	entries := cloneEntries(s.entries)
 	entries[id] = ciphertext
 	if err := s.writeSnapshot(s.path, entries); err != nil {
@@ -131,7 +136,12 @@ func (s *Store) Resolve(ctx context.Context, ref secret.Reference) ([]byte, erro
 		return nil, fmt.Errorf("%w: %s", ErrSecretNotFound, id)
 	}
 
-	plaintext, err := aead.Open(nil, nil, ciphertext, idBytes)
+	plaintext, err := aead.Open(
+		nil,
+		nil,
+		ciphertext,
+		idBytes,
+	)
 	clear(ciphertext)
 	if err != nil {
 		return nil, fmt.Errorf("%w: decrypting secret %s", ErrStoreCorrupt, id)

@@ -76,7 +76,12 @@ func TestReplacePreservesOldFileWhenTemporaryWriteFails(t *testing.T) {
 	}
 
 	wantErr := errors.New("temporary write failed")
-	if err := replace(path, []byte("new"), 0o600, failingTemporaryFactory(wantErr)); !errors.Is(err, wantErr) {
+	if err := replace(
+		path,
+		[]byte("new"),
+		0o600,
+		failingTemporaryFactory(wantErr),
+	); !errors.Is(err, wantErr) {
 		t.Fatalf("replace() error = %v, want %v", err, wantErr)
 	}
 

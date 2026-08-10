@@ -48,7 +48,12 @@ func TestHandlerRejectsInvalidRequests(t *testing.T) {
 		want               int
 	}{
 		{name: "wrong method", method: http.MethodGet, body: "", want: http.StatusMethodNotAllowed},
-		{name: "unknown field", method: http.MethodPost, body: `{"databaseId":"finance","kind":"postgres","unknown":true}`, want: http.StatusBadRequest},
+		{
+			name:   "unknown field",
+			method: http.MethodPost,
+			body:   `{"databaseId":"finance","kind":"postgres","unknown":true}`,
+			want:   http.StatusBadRequest,
+		},
 		{name: "trailing JSON", method: http.MethodPost, body: `{} {}`, want: http.StatusBadRequest},
 	}
 	for _, tt := range tests {
@@ -68,7 +73,13 @@ func TestHandlerSanitizesImportError(t *testing.T) {
 
 	canary := "postgres://reader:password@host/database"
 	handler := testHandler(t, &importerStub{err: errors.New(canary)})
-	request := httptest.NewRequest(http.MethodPost, "/v1/connections/import", strings.NewReader(`{"databaseId":"finance","kind":"postgres","connectionString":"cHJpdmF0ZQ=="}`))
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/connections/import",
+		strings.NewReader(
+			`{"databaseId":"finance","kind":"postgres","connectionString":"cHJpdmF0ZQ=="}`,
+		),
+	)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusServiceUnavailable || strings.Contains(response.Body.String(), canary) {
@@ -104,7 +115,13 @@ func TestHandlerKeepsConnectionStringOutsidePersistenceAndOutput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewManager() error = %v", err)
 	}
-	importer, err := connection.NewImporter(connector, secrets, definitions, manager, nil)
+	importer, err := connection.NewImporter(
+		connector,
+		secrets,
+		definitions,
+		manager,
+		nil,
+	)
 	if err != nil {
 		t.Fatalf("NewImporter() error = %v", err)
 	}
@@ -164,7 +181,11 @@ type importerStub struct {
 }
 
 func (i *importerStub) Import(_ context.Context, request connection.ImportRequest) (connection.ImportResult, error) {
-	i.got = connection.ImportRequest{ID: request.ID, Kind: request.Kind, ConnectionString: append([]byte(nil), request.ConnectionString...)}
+	i.got = connection.ImportRequest{
+		ID:               request.ID,
+		Kind:             request.Kind,
+		ConnectionString: append([]byte(nil), request.ConnectionString...),
+	}
 	return i.result, i.err
 }
 

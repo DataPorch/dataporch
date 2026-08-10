@@ -124,7 +124,12 @@ func TestAppLiveImportRegistersWithoutRestart(t *testing.T) {
 	}()
 	waitForFile(t, cfg.AdminSocketPath)
 
-	response, err := importOverSocket(cfg.AdminSocketPath, "finance", "postgres", "postgres://reader:password@host/finance")
+	response, err := importOverSocket(
+		cfg.AdminSocketPath,
+		"finance",
+		"postgres",
+		"postgres://reader:password@host/finance",
+	)
 	if err != nil {
 		t.Fatalf("importOverSocket() error = %v", err)
 	}
@@ -163,7 +168,12 @@ func TestAppImportDoesNotCallAdapterAuthentication(t *testing.T) {
 		}
 	}()
 	waitForFile(t, cfg.AdminSocketPath)
-	response, err := importOverSocket(cfg.AdminSocketPath, "finance", "postgres", "postgres://reader:password@host/finance")
+	response, err := importOverSocket(
+		cfg.AdminSocketPath,
+		"finance",
+		"postgres",
+		"postgres://reader:password@host/finance",
+	)
 	if err != nil {
 		t.Fatalf("importOverSocket() error = %v", err)
 	}
@@ -222,9 +232,13 @@ func waitForFile(t *testing.T, path string) {
 
 func importOverSocket(path string, databaseID, kind, connectionString string) (*http.Response, error) {
 	dialer := &net.Dialer{Timeout: time.Second}
-	client := &http.Client{Transport: &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-		return dialer.DialContext(ctx, "unix", path)
-	}}}
+	client := &http.Client{
+		Transport: &http.Transport{
+			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+				return dialer.DialContext(ctx, "unix", path)
+			},
+		},
+	}
 	payload, err := json.Marshal(struct {
 		DatabaseID       string `json:"databaseId"`
 		Kind             string `json:"kind"`

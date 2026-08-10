@@ -17,7 +17,11 @@ func TestServerCreatesRestrictedSocket(t *testing.T) {
 	t.Parallel()
 
 	path := filepath.Join(t.TempDir(), "admin.sock")
-	server, err := NewServer(path, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}), slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)))
+	server, err := NewServer(
+		path,
+		http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}),
+		slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)),
+	)
 	if err != nil {
 		t.Fatalf("NewServer() error = %v", err)
 	}
@@ -42,7 +46,13 @@ func TestServerServesHTTPOverUnixSocket(t *testing.T) {
 	t.Parallel()
 
 	path := filepath.Join(t.TempDir(), "admin.sock")
-	server, err := NewServer(path, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }), slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)))
+	server, err := NewServer(
+		path,
+		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusNoContent)
+		}),
+		slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)),
+	)
 	if err != nil {
 		t.Fatalf("NewServer() error = %v", err)
 	}

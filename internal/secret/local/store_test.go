@@ -234,13 +234,23 @@ func TestFailedStorePreservesDiskAndMemorySnapshot(t *testing.T) {
 	if _, err := store.Store(t.Context(), []byte("new")); !errors.Is(err, wantErr) {
 		t.Fatalf("Store() error = %v, want %v", err, wantErr)
 	}
-	assertSecretResolves(t, store, ref, "existing")
+	assertSecretResolves(
+		t,
+		store,
+		ref,
+		"existing",
+	)
 
 	reopened, err := Open(paths)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
-	assertSecretResolves(t, reopened, ref, "existing")
+	assertSecretResolves(
+		t,
+		reopened,
+		ref,
+		"existing",
+	)
 }
 
 func TestFailedDeletePreservesDiskAndMemorySnapshot(t *testing.T) {
@@ -257,13 +267,23 @@ func TestFailedDeletePreservesDiskAndMemorySnapshot(t *testing.T) {
 	if err := store.Delete(t.Context(), ref); !errors.Is(err, wantErr) {
 		t.Fatalf("Delete() error = %v, want %v", err, wantErr)
 	}
-	assertSecretResolves(t, store, ref, "existing")
+	assertSecretResolves(
+		t,
+		store,
+		ref,
+		"existing",
+	)
 
 	reopened, err := Open(paths)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
-	assertSecretResolves(t, reopened, ref, "existing")
+	assertSecretResolves(
+		t,
+		reopened,
+		ref,
+		"existing",
+	)
 }
 
 func TestConcurrentStoreResolveAndDelete(t *testing.T) {

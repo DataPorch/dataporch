@@ -93,7 +93,12 @@ func TestValidateRejectsInvalidSecurityPaths(t *testing.T) {
 		{name: "empty secrets store", change: func(cfg *Config) { cfg.SecretsStorePath = "" }},
 		{name: "empty connections store", change: func(cfg *Config) { cfg.ConnectionsStorePath = "" }},
 		{name: "key equals secret store", change: func(cfg *Config) { cfg.SecretsStorePath = cfg.MasterKeyPath }},
-		{name: "secret equals connection store", change: func(cfg *Config) { cfg.ConnectionsStorePath = cfg.SecretsStorePath }},
+		{
+			name: "secret equals connection store",
+			change: func(cfg *Config) {
+				cfg.ConnectionsStorePath = cfg.SecretsStorePath
+			},
+		},
 	}
 
 	for _, tt := range tests {

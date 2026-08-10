@@ -26,7 +26,10 @@ type importClient interface {
 
 type importClientFunc func(context.Context, connection.ImportRequest) (connection.ImportResult, error)
 
-func (f importClientFunc) Import(ctx context.Context, request connection.ImportRequest) (connection.ImportResult, error) {
+func (f importClientFunc) Import(
+	ctx context.Context,
+	request connection.ImportRequest,
+) (connection.ImportResult, error) {
 	return f(ctx, request)
 }
 
@@ -141,7 +144,12 @@ func importConnection(args []string, dependencies commandDependencies) error {
 	if result.Updated {
 		verb = "updated"
 	}
-	fmt.Fprintf(dependencies.stdout, "Database %q was %s successfully and its connection has not been tested.\n", *databaseID, verb)
+	fmt.Fprintf(
+		dependencies.stdout,
+		"Database %q was %s successfully and its connection has not been tested.\n",
+		*databaseID,
+		verb,
+	)
 	return nil
 }
 

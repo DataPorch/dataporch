@@ -113,6 +113,11 @@ func assertMode(t *testing.T, path string, want fs.FileMode) {
 		t.Fatalf("Stat(%s) error = %v", path, err)
 	}
 	if got := info.Mode().Perm(); got != want {
-		t.Errorf("permissions for %s = %o, want %o", path, got, want)
+		t.Errorf(
+			"permissions for %s = %o, want %o",
+			path,
+			got,
+			want,
+		)
 	}
 }

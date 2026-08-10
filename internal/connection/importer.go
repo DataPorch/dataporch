@@ -56,14 +56,26 @@ type Importer struct {
 	warn        CleanupWarning
 }
 
-func NewImporter(adapters AdapterResolver, secrets SecretWriter, definitions DefinitionRepository, registrar DefinitionRegistrar, warn CleanupWarning) (*Importer, error) {
+func NewImporter(
+	adapters AdapterResolver,
+	secrets SecretWriter,
+	definitions DefinitionRepository,
+	registrar DefinitionRegistrar,
+	warn CleanupWarning,
+) (*Importer, error) {
 	if adapters == nil || secrets == nil || definitions == nil || registrar == nil {
 		return nil, ErrImportUnavailable
 	}
 	if warn == nil {
 		warn = func(ID, string) {}
 	}
-	return &Importer{adapters: adapters, secrets: secrets, definitions: definitions, registrar: registrar, warn: warn}, nil
+	return &Importer{
+		adapters:    adapters,
+		secrets:     secrets,
+		definitions: definitions,
+		registrar:   registrar,
+		warn:        warn,
+	}, nil
 }
 
 func (i *Importer) Import(ctx context.Context, request ImportRequest) (ImportResult, error) {

@@ -81,7 +81,12 @@ func (m *Manager) Prepare(ctx context.Context, id ID) (ResolvedDefinition, error
 		return ResolvedDefinition{}, fmt.Errorf("%w: %s", ErrDatabaseUnavailable, id)
 	}
 
-	resolved := ResolvedDefinition{ID: definition.ID, Kind: definition.Kind, Settings: cloneStrings(definition.Settings), Secrets: make(map[string][]byte, len(definition.SecretRefs))}
+	resolved := ResolvedDefinition{
+		ID:       definition.ID,
+		Kind:     definition.Kind,
+		Settings: cloneStrings(definition.Settings),
+		Secrets:  make(map[string][]byte, len(definition.SecretRefs)),
+	}
 	names := make([]string, 0, len(definition.SecretRefs))
 	for name := range definition.SecretRefs {
 		names = append(names, name)

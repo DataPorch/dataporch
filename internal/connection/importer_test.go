@@ -12,8 +12,15 @@ import (
 func TestImporterAddsNormalizedDefinitionWithoutAuthentication(t *testing.T) {
 	t.Parallel()
 
-	importer, dependencies := newImporter(t, ParsedConnection{Settings: map[string]string{"host": "postgres.internal", "username": "reader"}, Secrets: map[string][]byte{"password": []byte("canary")}})
-	result, err := importer.Import(t.Context(), ImportRequest{ID: "finance", Kind: "postgres", ConnectionString: []byte("postgres://reader:canary@postgres.internal/finance")})
+	importer, dependencies := newImporter(t, ParsedConnection{
+		Settings: map[string]string{"host": "postgres.internal", "username": "reader"},
+		Secrets:  map[string][]byte{"password": []byte("canary")},
+	})
+	result, err := importer.Import(t.Context(), ImportRequest{
+		ID:               "finance",
+		Kind:             "postgres",
+		ConnectionString: []byte("postgres://reader:canary@postgres.internal/finance"),
+	})
 	if err != nil {
 		t.Fatalf("Import() error = %v", err)
 	}
@@ -29,10 +36,22 @@ func TestImporterAddsNormalizedDefinitionWithoutAuthentication(t *testing.T) {
 func TestImporterDeletesOldOwnedSecretAfterReplacement(t *testing.T) {
 	t.Parallel()
 
-	importer, dependencies := newImporter(t, ParsedConnection{Settings: map[string]string{"host": "new.internal"}, Secrets: map[string][]byte{"password": []byte("new")}})
-	dependencies.repository.definitions["finance"] = Definition{ID: "finance", Kind: "postgres", Settings: map[string]string{"host": "old.internal"}, SecretRefs: map[string]secret.Reference{"password": "local://old"}}
+	importer, dependencies := newImporter(t, ParsedConnection{
+		Settings: map[string]string{"host": "new.internal"},
+		Secrets:  map[string][]byte{"password": []byte("new")},
+	})
+	dependencies.repository.definitions["finance"] = Definition{
+		ID:         "finance",
+		Kind:       "postgres",
+		Settings:   map[string]string{"host": "old.internal"},
+		SecretRefs: map[string]secret.Reference{"password": "local://old"},
+	}
 
-	result, err := importer.Import(t.Context(), ImportRequest{ID: "finance", Kind: "postgres", ConnectionString: []byte("private")})
+	result, err := importer.Import(t.Context(), ImportRequest{
+		ID:               "finance",
+		Kind:             "postgres",
+		ConnectionString: []byte("private"),
+	})
 	if err != nil {
 		t.Fatalf("Import() error = %v", err)
 	}
@@ -50,7 +69,11 @@ func TestImporterCleansNewSecretsAfterPersistenceFailure(t *testing.T) {
 	importer, dependencies := newImporter(t, ParsedConnection{Secrets: map[string][]byte{"password": []byte("canary")}})
 	dependencies.repository.upsertErr = errors.New("write failed")
 
-	if _, err := importer.Import(t.Context(), ImportRequest{ID: "finance", Kind: "postgres", ConnectionString: []byte("private")}); !errors.Is(err, ErrImportUnavailable) {
+	if _, err := importer.Import(t.Context(), ImportRequest{
+		ID:               "finance",
+		Kind:             "postgres",
+		ConnectionString: []byte("private"),
+	}); !errors.Is(err, ErrImportUnavailable) {
 		t.Fatalf("Import() error = %v, want ErrImportUnavailable", err)
 	}
 	if !dependencies.writer.deleted["local://new-password"] {
@@ -65,7 +88,11 @@ func TestImporterSanitizesParserError(t *testing.T) {
 	importer, _ := newImporter(t, ParsedConnection{})
 	importer.adapters = adapterResolverStub{adapter: &adapterStub{kind: "postgres", err: errors.New(canary)}}
 
-	_, err := importer.Import(t.Context(), ImportRequest{ID: "finance", Kind: "postgres", ConnectionString: []byte(canary)})
+	_, err := importer.Import(t.Context(), ImportRequest{
+		ID:               "finance",
+		Kind:             "postgres",
+		ConnectionString: []byte(canary),
+	})
 	if !errors.Is(err, ErrInvalidConnectionString) {
 		t.Fatalf("Import() error = %v, want ErrInvalidConnectionString", err)
 	}
@@ -84,7 +111,13 @@ func newImporter(t *testing.T, parsed ParsedConnection) (*Importer, importerDepe
 
 	repository := &definitionRepositoryStub{definitions: map[ID]Definition{}}
 	writer := &secretWriterStub{deleted: map[secret.Reference]bool{}}
-	importer, err := NewImporter(adapterResolverStub{adapter: &adapterStub{kind: "postgres", parsed: parsed}}, writer, repository, registrarStub{}, nil)
+	importer, err := NewImporter(
+		adapterResolverStub{adapter: &adapterStub{kind: "postgres", parsed: parsed}},
+		writer,
+		repository,
+		registrarStub{},
+		nil,
+	)
 	if err != nil {
 		t.Fatalf("NewImporter() error = %v", err)
 	}

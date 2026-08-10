@@ -20,7 +20,11 @@ type securityComponents struct {
 	adminServer *localadmin.Server
 }
 
-func newSecurityComponents(cfg config.Config, logger *slog.Logger, adapters ...connection.Adapter) (securityComponents, error) {
+func newSecurityComponents(
+	cfg config.Config,
+	logger *slog.Logger,
+	adapters ...connection.Adapter,
+) (securityComponents, error) {
 	connector, err := connection.New(adapters...)
 	if err != nil {
 		return securityComponents{}, err
@@ -32,9 +36,21 @@ func newSecurityComponents(cfg config.Config, logger *slog.Logger, adapters ...c
 	if err != nil {
 		return securityComponents{}, err
 	}
-	importer, err := connection.NewImporter(connector, writer, repository, manager, func(databaseID connection.ID, category string) {
-		logger.Warn("connection import cleanup incomplete", "database_id", databaseID, "category", category)
-	})
+	importer, err := connection.NewImporter(
+		connector,
+		writer,
+		repository,
+		manager,
+		func(databaseID connection.ID, category string) {
+			logger.Warn(
+				"connection import cleanup incomplete",
+				"database_id",
+				databaseID,
+				"category",
+				category,
+			)
+		},
+	)
 	if err != nil {
 		return securityComponents{}, err
 	}
@@ -59,7 +75,10 @@ func openSecretStore(cfg config.Config, logger *slog.Logger) (connection.SecretR
 	return unavailable, unavailable
 }
 
-func openDefinitionStore(cfg config.Config, logger *slog.Logger) (connection.DefinitionRepository, []connection.Definition) {
+func openDefinitionStore(
+	cfg config.Config,
+	logger *slog.Logger,
+) (connection.DefinitionRepository, []connection.Definition) {
 	store, err := filestore.Open(cfg.ConnectionsStorePath)
 	if err != nil {
 		logUnavailable(logger, "connection_store", err)
@@ -74,7 +93,13 @@ func openDefinitionStore(cfg config.Config, logger *slog.Logger) (connection.Def
 }
 
 func logUnavailable(logger *slog.Logger, component string, err error) {
-	logger.Warn("security component unavailable", "component", component, "category", securityErrorCategory(err))
+	logger.Warn(
+		"security component unavailable",
+		"component",
+		component,
+		"category",
+		securityErrorCategory(err),
+	)
 }
 
 func securityErrorCategory(err error) string {

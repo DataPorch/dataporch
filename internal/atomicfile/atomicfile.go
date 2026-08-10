@@ -54,9 +54,14 @@ func Create(path string, data []byte, permission fs.FileMode) (err error) {
 }
 
 func Replace(path string, data []byte, permission fs.FileMode) error {
-	return replace(path, data, permission, func(directory, pattern string) (temporaryFile, error) {
-		return os.CreateTemp(directory, pattern)
-	})
+	return replace(
+		path,
+		data,
+		permission,
+		func(directory, pattern string) (temporaryFile, error) {
+			return os.CreateTemp(directory, pattern)
+		},
+	)
 }
 
 func replace(

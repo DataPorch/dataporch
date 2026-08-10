@@ -46,7 +46,13 @@ func New(
 	handler := &Handler{mux: http.NewServeMux()}
 	handler.mux.HandleFunc("GET /healthz", handler.health)
 	handler.mux.HandleFunc("GET /v1/resources", func(w http.ResponseWriter, r *http.Request) {
-		handler.listResources(w, r, lister, defaultLimit, logger)
+		handler.listResources(
+			w,
+			r,
+			lister,
+			defaultLimit,
+			logger,
+		)
 	})
 
 	return handler, nil
@@ -57,7 +63,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) health(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"}, nil)
+	writeJSON(
+		w,
+		http.StatusOK,
+		map[string]string{"status": "ok"},
+		nil,
+	)
 }
 
 func (h *Handler) listResources(

@@ -40,7 +40,13 @@ func TestReference(t *testing.T) {
 				t.Fatalf("Parts() error = %v", err)
 			}
 			if scheme != tt.scheme || locator != tt.locator {
-				t.Fatalf("Parts() = %q, %q; want %q, %q", scheme, locator, tt.scheme, tt.locator)
+				t.Fatalf(
+					"Parts() = %q, %q; want %q, %q",
+					scheme,
+					locator,
+					tt.scheme,
+					tt.locator,
+				)
 			}
 		})
 	}

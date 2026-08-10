@@ -50,8 +50,16 @@ func TestManagerPrepareResolvesAllNamedSecrets(t *testing.T) {
 func TestManagerFailureForADoesNotAffectB(t *testing.T) {
 	t.Parallel()
 
-	resolver := resolverStub{values: map[secret.Reference][]byte{"local://secret-b": []byte("b")}, errors: map[secret.Reference]error{"local://secret-a": errors.New("authentication failed")}}
-	manager, err := NewManager(resolver, []Definition{testDefinition("a", "local://secret-a"), testDefinition("b", "local://secret-b")})
+	resolver := resolverStub{
+		values: map[secret.Reference][]byte{"local://secret-b": []byte("b")},
+		errors: map[secret.Reference]error{
+			"local://secret-a": errors.New("authentication failed"),
+		},
+	}
+	manager, err := NewManager(resolver, []Definition{
+		testDefinition("a", "local://secret-a"),
+		testDefinition("b", "local://secret-b"),
+	})
 	if err != nil {
 		t.Fatalf("NewManager() error = %v", err)
 	}
@@ -77,5 +85,10 @@ func (r resolverStub) Resolve(_ context.Context, ref secret.Reference) ([]byte, 
 }
 
 func testDefinition(id ID, ref secret.Reference) Definition {
-	return Definition{ID: id, Kind: "postgres", Settings: map[string]string{"host": "postgres.internal"}, SecretRefs: map[string]secret.Reference{"password": ref}}
+	return Definition{
+		ID:         id,
+		Kind:       "postgres",
+		Settings:   map[string]string{"host": "postgres.internal"},
+		SecretRefs: map[string]secret.Reference{"password": ref},
+	}
 }

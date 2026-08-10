@@ -49,7 +49,14 @@ func (s *Server) Run(ctx context.Context) error {
 		return fmt.Errorf("setting admin socket permissions: %w", err)
 	}
 	defer os.Remove(s.path)
-	s.server = &http.Server{Handler: s.handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 16 << 10}
+	s.server = &http.Server{
+		Handler:           s.handler,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      15 * time.Second,
+		IdleTimeout:       30 * time.Second,
+		MaxHeaderBytes:    16 << 10,
+	}
 	done := make(chan struct{})
 	defer close(done)
 	go func() {

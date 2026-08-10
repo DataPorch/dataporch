@@ -46,14 +46,19 @@ func TestUnixClientImportsThroughLocalAdminSocket(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newUnixClient() error = %v", err)
 	}
-	result, err := client.Import(context.Background(), connection.ImportRequest{ID: "finance", Kind: "postgres", ConnectionString: []byte("postgres://reader:password@host/finance")})
+	result, err := client.Import(context.Background(), connection.ImportRequest{
+		ID:               "finance",
+		Kind:             "postgres",
+		ConnectionString: []byte("postgres://reader:password@host/finance"),
+	})
 	if err != nil {
 		t.Fatalf("Import() error = %v", err)
 	}
 	if !result.Updated || result.ID != "finance" || result.ConnectionTested {
 		t.Fatalf("Import() result = %#v", result)
 	}
-	if importer.got.ID != "finance" || importer.got.Kind != "postgres" || string(importer.got.ConnectionString) != "postgres://reader:password@host/finance" {
+	if importer.got.ID != "finance" || importer.got.Kind != "postgres" ||
+		string(importer.got.ConnectionString) != "postgres://reader:password@host/finance" {
 		t.Fatalf("handler request = %#v", importer.got)
 	}
 }
@@ -79,7 +84,11 @@ func TestUnixClientSendsExpectedRequest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newUnixClient() error = %v", err)
 	}
-	_, err = client.Import(context.Background(), connection.ImportRequest{ID: "finance", Kind: "postgres", ConnectionString: []byte("private")})
+	_, err = client.Import(context.Background(), connection.ImportRequest{
+		ID:               "finance",
+		Kind:             "postgres",
+		ConnectionString: []byte("private"),
+	})
 	if err != nil {
 		t.Fatalf("Import() error = %v", err)
 	}
@@ -106,7 +115,11 @@ func TestUnixClientSanitizesErrorResponse(t *testing.T) {
 			if err != nil {
 				t.Fatalf("newUnixClient() error = %v", err)
 			}
-			_, err = client.Import(context.Background(), connection.ImportRequest{ID: "finance", Kind: "postgres", ConnectionString: []byte(canary)})
+			_, err = client.Import(context.Background(), connection.ImportRequest{
+				ID:               "finance",
+				Kind:             "postgres",
+				ConnectionString: []byte(canary),
+			})
 			if err == nil || strings.Contains(err.Error(), canary) {
 				t.Fatalf("Import() error = %v, want safe error", err)
 			}
@@ -153,6 +166,10 @@ type socketImporter struct {
 }
 
 func (i *socketImporter) Import(_ context.Context, request connection.ImportRequest) (connection.ImportResult, error) {
-	i.got = connection.ImportRequest{ID: request.ID, Kind: request.Kind, ConnectionString: append([]byte(nil), request.ConnectionString...)}
+	i.got = connection.ImportRequest{
+		ID:               request.ID,
+		Kind:             request.Kind,
+		ConnectionString: append([]byte(nil), request.ConnectionString...),
+	}
 	return i.result, nil
 }

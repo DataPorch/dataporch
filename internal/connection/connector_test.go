@@ -5,7 +5,12 @@ import "testing"
 func TestConnectorResolvesParserAdapter(t *testing.T) {
 	t.Parallel()
 
-	adapter := &adapterStub{kind: "postgres", parsed: ParsedConnection{Settings: map[string]string{"host": "postgres.internal"}}}
+	adapter := &adapterStub{
+		kind: "postgres",
+		parsed: ParsedConnection{
+			Settings: map[string]string{"host": "postgres.internal"},
+		},
+	}
 	connector, err := New(adapter)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)

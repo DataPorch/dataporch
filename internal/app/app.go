@@ -136,7 +136,12 @@ func (a *App) Run(ctx context.Context) error {
 	defer cancel()
 	publicErrors := a.servePublic(listener)
 	adminErrors := a.serveAdmin(runCtx)
-	return a.waitForServers(ctx, cancel, publicErrors, adminErrors)
+	return a.waitForServers(
+		ctx,
+		cancel,
+		publicErrors,
+		adminErrors,
+	)
 }
 
 func (a *App) listenPublic(ctx context.Context) (net.Listener, error) {
@@ -160,7 +165,12 @@ func (a *App) serveAdmin(ctx context.Context) <-chan error {
 	return errors
 }
 
-func (a *App) waitForServers(ctx context.Context, cancel context.CancelFunc, publicErrors, adminErrors <-chan error) error {
+func (a *App) waitForServers(
+	ctx context.Context,
+	cancel context.CancelFunc,
+	publicErrors <-chan error,
+	adminErrors <-chan error,
+) error {
 	for {
 		select {
 		case err := <-publicErrors:
@@ -172,16 +182,31 @@ func (a *App) waitForServers(ctx context.Context, cancel context.CancelFunc, pub
 			return fmt.Errorf("serving http: %w", err)
 		case err := <-adminErrors:
 			if err != nil {
-				a.logger.WarnContext(ctx, "admin transport unavailable", "category", "unavailable")
+				a.logger.WarnContext(
+					ctx,
+					"admin transport unavailable",
+					"category",
+					"unavailable",
+				)
 			}
 			adminErrors = nil
 		case <-ctx.Done():
-			return a.shutdown(ctx, cancel, publicErrors, adminErrors)
+			return a.shutdown(
+				ctx,
+				cancel,
+				publicErrors,
+				adminErrors,
+			)
 		}
 	}
 }
 
-func (a *App) shutdown(ctx context.Context, cancel context.CancelFunc, publicErrors, adminErrors <-chan error) error {
+func (a *App) shutdown(
+	ctx context.Context,
+	cancel context.CancelFunc,
+	publicErrors <-chan error,
+	adminErrors <-chan error,
+) error {
 	cancel()
 	shutdownCtx, stop := context.WithTimeout(context.WithoutCancel(ctx), a.shutdownPeriod)
 	defer stop()

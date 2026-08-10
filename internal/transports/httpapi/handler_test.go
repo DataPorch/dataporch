@@ -27,7 +27,12 @@ func TestHandler_Health(t *testing.T) {
 	t.Parallel()
 
 	handler := newTestHandler(t)
-	request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/healthz", nil)
+	request := httptest.NewRequestWithContext(
+		t.Context(),
+		http.MethodGet,
+		"/healthz",
+		nil,
+	)
 	response := httptest.NewRecorder()
 
 	handler.ServeHTTP(response, request)

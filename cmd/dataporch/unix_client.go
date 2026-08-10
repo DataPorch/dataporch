@@ -45,7 +45,12 @@ func (c *unixClient) Import(ctx context.Context, request connection.ImportReques
 	}
 	defer clear(payload)
 
-	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://unix/v1/connections/import", bytes.NewReader(payload))
+	httpRequest, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodPost,
+		"http://unix/v1/connections/import",
+		bytes.NewReader(payload),
+	)
 	if err != nil {
 		return connection.ImportResult{}, errors.New("creating connection import request")
 	}
@@ -71,7 +76,11 @@ func (c *unixClient) Import(ctx context.Context, request connection.ImportReques
 	if (result.Status != "added" && result.Status != "updated") || result.DatabaseID == "" {
 		return connection.ImportResult{}, errors.New("invalid connection import response")
 	}
-	return connection.ImportResult{ID: result.DatabaseID, Updated: result.Status == "updated", ConnectionTested: result.ConnectionTested}, nil
+	return connection.ImportResult{
+		ID:               result.DatabaseID,
+		Updated:          result.Status == "updated",
+		ConnectionTested: result.ConnectionTested,
+	}, nil
 }
 
 func importResponseError(response *http.Response) error {

@@ -61,7 +61,10 @@ func TestStoreRejectsDuplicateIDsOnLoad(t *testing.T) {
 	t.Parallel()
 
 	path := filepath.Join(t.TempDir(), "connections.store")
-	data := []byte(`{"connections":[{"id":"finance","kind":"postgres","settings":{},"secretRefs":{}},{"id":"finance","kind":"postgres","settings":{},"secretRefs":{}}]}`)
+	data := []byte(
+		`{"connections":[{"id":"finance","kind":"postgres","settings":{},"secretRefs":{}},` +
+			`{"id":"finance","kind":"postgres","settings":{},"secretRefs":{}}]}`,
+	)
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
@@ -118,5 +121,10 @@ func newStore(t *testing.T) (*Store, string) {
 }
 
 func definition(id connection.ID, ref secret.Reference) connection.Definition {
-	return connection.Definition{ID: id, Kind: "postgres", Settings: map[string]string{"host": "postgres.internal"}, SecretRefs: map[string]secret.Reference{"password": ref}}
+	return connection.Definition{
+		ID:         id,
+		Kind:       "postgres",
+		Settings:   map[string]string{"host": "postgres.internal"},
+		SecretRefs: map[string]secret.Reference{"password": ref},
+	}
 }

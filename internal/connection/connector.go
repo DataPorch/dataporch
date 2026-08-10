@@ -18,6 +18,7 @@ type Kind string
 
 type Adapter interface {
 	Kind() Kind
+	ParseConnectionString([]byte) (ParsedConnection, error)
 }
 
 type Connector struct {

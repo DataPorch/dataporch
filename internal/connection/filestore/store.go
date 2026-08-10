@@ -15,7 +15,6 @@ import (
 )
 
 var (
-	ErrDefinitionNotFound = errors.New("connection filestore: definition not found")
 	ErrStoreCorrupt       = errors.New("connection filestore: store is corrupt")
 	ErrInvalidPermissions = errors.New("connection filestore: invalid file permissions")
 )
@@ -53,7 +52,7 @@ func (s *Store) Lookup(ctx context.Context, id connection.ID) (connection.Defini
 	definition, exists := s.definitions[id]
 	s.mu.RUnlock()
 	if !exists {
-		return connection.Definition{}, fmt.Errorf("%w: %s", ErrDefinitionNotFound, id)
+		return connection.Definition{}, fmt.Errorf("%w: %s", connection.ErrDefinitionNotFound, id)
 	}
 
 	return definition.Clone(), nil

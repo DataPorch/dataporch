@@ -13,6 +13,7 @@ import (
 var (
 	ErrDatabaseUnavailable = errors.New("connection: database unavailable")
 	ErrDatabaseNotFound    = errors.New("connection: database not found")
+	ErrDefinitionNotFound  = errors.New("connection: definition not found")
 	errResolverRequired    = errors.New("connection: secret resolver is required")
 )
 

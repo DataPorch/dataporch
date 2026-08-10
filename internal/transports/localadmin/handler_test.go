@@ -8,10 +8,14 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/adamraziv/dataporch/internal/connection"
+	"github.com/adamraziv/dataporch/internal/connection/filestore"
+	"github.com/adamraziv/dataporch/internal/secret/local"
 )
 
 func TestHandlerImportsConnection(t *testing.T) {
@@ -72,6 +76,78 @@ func TestHandlerSanitizesImportError(t *testing.T) {
 	}
 }
 
+func TestHandlerKeepsConnectionStringOutsidePersistenceAndOutput(t *testing.T) {
+	t.Parallel()
+
+	const canary = "dataporch-secret-canary-91f7c2"
+	connectionString := "postgres://reader:" + canary + "@postgres.internal/finance"
+	base := t.TempDir()
+	keyPath := filepath.Join(base, "master.key")
+	secretsPath := filepath.Join(base, "secrets.store")
+	connectionsPath := filepath.Join(base, "connections.store")
+	if err := local.Init(local.Paths{KeyPath: keyPath, StorePath: secretsPath}); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	secrets, err := local.Open(local.Paths{KeyPath: keyPath, StorePath: secretsPath})
+	if err != nil {
+		t.Fatalf("Open secrets() error = %v", err)
+	}
+	definitions, err := filestore.Open(connectionsPath)
+	if err != nil {
+		t.Fatalf("Open definitions() error = %v", err)
+	}
+	connector, err := connection.New(canaryAdapter{})
+	if err != nil {
+		t.Fatalf("New connector() error = %v", err)
+	}
+	manager, err := connection.NewManager(secrets, nil)
+	if err != nil {
+		t.Fatalf("NewManager() error = %v", err)
+	}
+	importer, err := connection.NewImporter(connector, secrets, definitions, manager, nil)
+	if err != nil {
+		t.Fatalf("NewImporter() error = %v", err)
+	}
+	logs := &bytes.Buffer{}
+	handler, err := NewHandler(importer, slog.New(slog.NewJSONHandler(logs, nil)))
+	if err != nil {
+		t.Fatalf("NewHandler() error = %v", err)
+	}
+	payload, err := json.Marshal(struct {
+		DatabaseID       connection.ID   `json:"databaseId"`
+		Kind             connection.Kind `json:"kind"`
+		ConnectionString []byte          `json:"connectionString"`
+	}{DatabaseID: "finance", Kind: "postgres", ConnectionString: []byte(connectionString)})
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/v1/connections/import", bytes.NewReader(payload)))
+	if response.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want 201", response.Code)
+	}
+
+	secretsData, err := os.ReadFile(secretsPath)
+	if err != nil {
+		t.Fatalf("ReadFile(secrets) error = %v", err)
+	}
+	connectionsData, err := os.ReadFile(connectionsPath)
+	if err != nil {
+		t.Fatalf("ReadFile(connections) error = %v", err)
+	}
+	for name, value := range map[string][]byte{
+		"encrypted secrets":    secretsData,
+		"connection store":     connectionsData,
+		"handler response":     response.Body.Bytes(),
+		"structured log":       logs.Bytes(),
+		"request return error": nil,
+	} {
+		if bytes.Contains(value, []byte(canary)) || bytes.Contains(value, []byte(connectionString)) {
+			t.Fatalf("%s leaked connection secret", name)
+		}
+	}
+}
+
 func testHandler(t *testing.T, importer Importer) http.Handler {
 	t.Helper()
 	handler, err := NewHandler(importer, slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)))
@@ -93,3 +169,14 @@ func (i *importerStub) Import(_ context.Context, request connection.ImportReques
 }
 
 var _ = json.Valid
+
+type canaryAdapter struct{}
+
+func (canaryAdapter) Kind() connection.Kind { return "postgres" }
+
+func (canaryAdapter) ParseConnectionString([]byte) (connection.ParsedConnection, error) {
+	return connection.ParsedConnection{
+		Settings: map[string]string{"host": "postgres.internal", "database": "finance", "username": "reader"},
+		Secrets:  map[string][]byte{"password": []byte("dataporch-secret-canary-91f7c2")},
+	}, nil
+}

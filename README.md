@@ -65,6 +65,38 @@ Use environment variables to configure DataPorch.
 | --- | --- | --- |
 | `DATAPORCH_HTTP_ADDRESS` | `127.0.0.1:8080` | Sets the HTTP listen address. |
 | `DATAPORCH_RESOURCE_LIMIT` | `100` | Sets the maximum number of resources in one response. |
+| `DATAPORCH_ADMIN_SOCKET_PATH` | `/run/dataporch/admin.sock` | Sets the local Unix socket for connection administration. |
+| `DATAPORCH_MASTER_KEY_PATH` | `/etc/dataporch/master.key` | Sets the local secret-store master key path. |
+| `DATAPORCH_SECRETS_STORE_PATH` | `/var/lib/dataporch/secrets.store` | Sets the encrypted local secret-store path. |
+| `DATAPORCH_CONNECTIONS_STORE_PATH` | `/var/lib/dataporch/connections.store` | Sets the normalized connection-definition store path. |
+
+## Local secrets and connection imports
+
+Initialize the local secret store once before adding connections:
+
+```bash
+dataporch secrets init
+```
+
+Start DataPorch normally. Add a database connection through its local admin socket:
+
+```bash
+dataporch connections import --id finance --kind postgres
+```
+
+The command reads the connection string from a hidden terminal prompt. It saves
+normalized non-secret settings and encrypted local secret references; it does
+not save the complete connection string. A successful import does not test,
+open, ping, or authenticate to the database. The new definition becomes
+available to the running process without a restart.
+
+The local admin path uses a Unix socket. It is not exposed through public TCP
+HTTP or MCP. Losing the master key makes locally stored secrets unrecoverable.
+Root or compromise of the DataPorch process is outside the protection provided
+by the local store.
+
+Postgres parsing and real database connections are deferred. This release does
+not include a concrete Postgres adapter or database health checks.
 
 The initial configuration uses an allow-all access policy and in-memory resources. Do not use these components for production access control or storage.
 

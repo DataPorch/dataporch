@@ -24,7 +24,8 @@ func TestImporterAddsNormalizedDefinitionWithoutAuthentication(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Import() error = %v", err)
 	}
-	if result.Updated || result.ConnectionTested || result.ID != "finance" {
+	isExpectedResult := !result.IsUpdated && !result.IsConnectionTested && result.ID == "finance"
+	if !isExpectedResult {
 		t.Fatalf("Import() = %#v, want new untested finance result", result)
 	}
 	definition := dependencies.repository.definitions["finance"]
@@ -55,8 +56,8 @@ func TestImporterDeletesOldOwnedSecretAfterReplacement(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Import() error = %v", err)
 	}
-	if !result.Updated {
-		t.Fatal("Import().Updated = false, want true")
+	if !result.IsUpdated {
+		t.Fatal("Import().IsUpdated = false, want true")
 	}
 	if !dependencies.writer.deleted["local://old"] {
 		t.Fatal("old secret was not deleted")

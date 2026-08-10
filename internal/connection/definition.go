@@ -34,7 +34,7 @@ type ResolvedDefinition struct {
 }
 
 func (d Definition) Validate() error {
-	if !validID(d.ID) {
+	if !isValidID(d.ID) {
 		return fmt.Errorf("%w: invalid database id", ErrInvalidDefinition)
 	}
 	if strings.TrimSpace(string(d.Kind)) == "" {
@@ -42,12 +42,12 @@ func (d Definition) Validate() error {
 	}
 
 	for name := range d.Settings {
-		if !validFieldName(name) {
+		if !isValidFieldName(name) {
 			return fmt.Errorf("%w: invalid setting name", ErrInvalidDefinition)
 		}
 	}
 	for name, ref := range d.SecretRefs {
-		if !validFieldName(name) {
+		if !isValidFieldName(name) {
 			return fmt.Errorf("%w: invalid secret name", ErrInvalidDefinition)
 		}
 		if _, exists := d.Settings[name]; exists {
@@ -83,37 +83,56 @@ func (d ResolvedDefinition) Clone() ResolvedDefinition {
 	}
 }
 
-func validID(id ID) bool {
+func isValidID(id ID) bool {
 	if len(id) == 0 || len(id) > maxIDLength {
 		return false
 	}
 	for _, character := range id {
-		if (character >= 'a' && character <= 'z') ||
-			(character >= 'A' && character <= 'Z') ||
-			(character >= '0' && character <= '9') ||
-			character == '.' || character == '_' || character == '-' {
-			continue
+		if !isValidIDCharacter(character) {
+			return false
 		}
-		return false
 	}
 	return true
 }
 
-func validFieldName(name string) bool {
-	if name == "" || !isLetter(rune(name[0])) {
+func isValidFieldName(name string) bool {
+	if name == "" || !isASCIILetter(rune(name[0])) {
 		return false
 	}
 	for _, character := range name[1:] {
-		if isLetter(character) || (character >= '0' && character <= '9') || character == '_' || character == '-' {
-			continue
+		if !isValidFieldCharacter(character) {
+			return false
 		}
-		return false
 	}
 	return true
 }
 
-func isLetter(character rune) bool {
-	return (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z')
+func isValidIDCharacter(character rune) bool {
+	switch character {
+	case '.', '_', '-':
+		return true
+	default:
+		return isASCIILetter(character) || isASCIIDigit(character)
+	}
+}
+
+func isValidFieldCharacter(character rune) bool {
+	switch character {
+	case '_', '-':
+		return true
+	default:
+		return isASCIILetter(character) || isASCIIDigit(character)
+	}
+}
+
+func isASCIILetter(character rune) bool {
+	isLowercase := character >= 'a' && character <= 'z'
+	isUppercase := character >= 'A' && character <= 'Z'
+	return isLowercase || isUppercase
+}
+
+func isASCIIDigit(character rune) bool {
+	return character >= '0' && character <= '9'
 }
 
 func cloneStrings(values map[string]string) map[string]string {

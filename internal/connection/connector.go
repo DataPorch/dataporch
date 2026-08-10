@@ -62,11 +62,15 @@ func isNilAdapter(adapter Adapter) bool {
 	}
 
 	value := reflect.ValueOf(adapter)
-	if value.Kind() != reflect.Chan && value.Kind() != reflect.Func &&
-		value.Kind() != reflect.Interface && value.Kind() != reflect.Map &&
-		value.Kind() != reflect.Pointer && value.Kind() != reflect.Slice {
+	switch value.Kind() {
+	case reflect.Chan,
+		reflect.Func,
+		reflect.Interface,
+		reflect.Map,
+		reflect.Pointer,
+		reflect.Slice:
+		return value.IsNil()
+	default:
 		return false
 	}
-
-	return value.IsNil()
 }

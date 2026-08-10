@@ -120,15 +120,15 @@ func (h *Handler) importConnection(w http.ResponseWriter, r *http.Request, impor
 	}
 	status := "added"
 	code := http.StatusCreated
-	if result.Updated {
+	if result.IsUpdated {
 		status = "updated"
 		code = http.StatusOK
 	}
 	writeJSON(w, code, struct {
-		Status           string        `json:"status"`
-		DatabaseID       connection.ID `json:"databaseId"`
-		ConnectionTested bool          `json:"connectionTested"`
-	}{Status: status, DatabaseID: result.ID, ConnectionTested: false})
+		Status             string        `json:"status"`
+		DatabaseID         connection.ID `json:"databaseId"`
+		IsConnectionTested bool          `json:"connectionTested"`
+	}{Status: status, DatabaseID: result.ID, IsConnectionTested: false})
 }
 
 func errorCategory(err error) string {

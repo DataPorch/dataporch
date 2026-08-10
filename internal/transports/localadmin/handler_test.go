@@ -31,7 +31,10 @@ func TestHandlerImportsConnection(t *testing.T) {
 	if response.Code != http.StatusCreated {
 		t.Fatalf("status = %d, want 201", response.Code)
 	}
-	if stub.got.ID != "finance" || stub.got.Kind != "postgres" || string(stub.got.ConnectionString) != "private" {
+	hasExpectedID := stub.got.ID == "finance"
+	hasExpectedKind := stub.got.Kind == "postgres"
+	hasExpectedConnectionString := string(stub.got.ConnectionString) == "private"
+	if !hasExpectedID || !hasExpectedKind || !hasExpectedConnectionString {
 		t.Fatalf("import request = %#v", stub.got)
 	}
 	if strings.Contains(response.Body.String(), "private") {

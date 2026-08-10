@@ -22,7 +22,7 @@ func TestUnixClientImportsThroughLocalAdminSocket(t *testing.T) {
 	t.Parallel()
 
 	path := filepath.Join(t.TempDir(), "admin.sock")
-	importer := &socketImporter{result: connection.ImportResult{ID: "finance", Updated: true}}
+	importer := &socketImporter{result: connection.ImportResult{ID: "finance", IsUpdated: true}}
 	handler, err := localadmin.NewHandler(importer, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatalf("NewHandler() error = %v", err)
@@ -54,11 +54,15 @@ func TestUnixClientImportsThroughLocalAdminSocket(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Import() error = %v", err)
 	}
-	if !result.Updated || result.ID != "finance" || result.ConnectionTested {
+	isExpectedResult := result.IsUpdated && result.ID == "finance" && !result.IsConnectionTested
+	if !isExpectedResult {
 		t.Fatalf("Import() result = %#v", result)
 	}
-	if importer.got.ID != "finance" || importer.got.Kind != "postgres" ||
-		string(importer.got.ConnectionString) != "postgres://reader:password@host/finance" {
+	hasExpectedID := importer.got.ID == "finance"
+	hasExpectedKind := importer.got.Kind == "postgres"
+	hasExpectedConnectionString := string(importer.got.ConnectionString) ==
+		"postgres://reader:password@host/finance"
+	if !hasExpectedID || !hasExpectedKind || !hasExpectedConnectionString {
 		t.Fatalf("handler request = %#v", importer.got)
 	}
 }
@@ -95,7 +99,10 @@ func TestUnixClientSendsExpectedRequest(t *testing.T) {
 	if gotMethod != http.MethodPost || gotPath != "/v1/connections/import" {
 		t.Fatalf("request = %s %s", gotMethod, gotPath)
 	}
-	if got.DatabaseID != "finance" || got.Kind != "postgres" || !bytes.Equal(got.ConnectionString, []byte("private")) {
+	hasExpectedID := got.DatabaseID == "finance"
+	hasExpectedKind := got.Kind == "postgres"
+	hasExpectedConnectionString := bytes.Equal(got.ConnectionString, []byte("private"))
+	if !hasExpectedID || !hasExpectedKind || !hasExpectedConnectionString {
 		t.Fatalf("decoded request = %#v", got)
 	}
 }

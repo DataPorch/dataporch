@@ -25,9 +25,9 @@ func Create(path string, data []byte, permission fs.FileMode) (err error) {
 		return fmt.Errorf("creating file %q: %w", path, err)
 	}
 
-	closed := false
+	isClosed := false
 	defer func() {
-		if !closed {
+		if !isClosed {
 			_ = file.Close()
 		}
 	}()
@@ -44,7 +44,7 @@ func Create(path string, data []byte, permission fs.FileMode) (err error) {
 	if err := file.Close(); err != nil {
 		return fmt.Errorf("closing file %q: %w", path, err)
 	}
-	closed = true
+	isClosed = true
 
 	if err := syncDirectory(filepath.Dir(path)); err != nil {
 		return fmt.Errorf("syncing directory for %q: %w", path, err)
@@ -82,13 +82,13 @@ func replace(
 		return errors.New("atomicfile: temporary-file creator returned nil")
 	}
 
-	closed := false
-	published := false
+	isClosed := false
+	isPublished := false
 	defer func() {
-		if !closed {
+		if !isClosed {
 			_ = file.Close()
 		}
-		if !published {
+		if !isPublished {
 			_ = os.Remove(file.Name())
 		}
 	}()
@@ -105,12 +105,12 @@ func replace(
 	if err := file.Close(); err != nil {
 		return fmt.Errorf("closing temporary file for %q: %w", path, err)
 	}
-	closed = true
+	isClosed = true
 
 	if err := os.Rename(file.Name(), path); err != nil {
 		return fmt.Errorf("replacing file %q: %w", path, err)
 	}
-	published = true
+	isPublished = true
 
 	if err := syncDirectory(filepath.Dir(path)); err != nil {
 		return fmt.Errorf("syncing directory for %q: %w", path, err)

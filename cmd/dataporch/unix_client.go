@@ -66,20 +66,22 @@ func (c *unixClient) Import(ctx context.Context, request connection.ImportReques
 		return connection.ImportResult{}, importResponseError(response)
 	}
 	var result struct {
-		Status           string        `json:"status"`
-		DatabaseID       connection.ID `json:"databaseId"`
-		ConnectionTested bool          `json:"connectionTested"`
+		Status             string        `json:"status"`
+		DatabaseID         connection.ID `json:"databaseId"`
+		IsConnectionTested bool          `json:"connectionTested"`
 	}
 	if err := json.NewDecoder(io.LimitReader(response.Body, 16<<10)).Decode(&result); err != nil {
 		return connection.ImportResult{}, errors.New("decoding connection import response")
 	}
-	if (result.Status != "added" && result.Status != "updated") || result.DatabaseID == "" {
+	isKnownStatus := result.Status == "added" || result.Status == "updated"
+	hasDatabaseID := result.DatabaseID != ""
+	if !isKnownStatus || !hasDatabaseID {
 		return connection.ImportResult{}, errors.New("invalid connection import response")
 	}
 	return connection.ImportResult{
-		ID:               result.DatabaseID,
-		Updated:          result.Status == "updated",
-		ConnectionTested: result.ConnectionTested,
+		ID:                 result.DatabaseID,
+		IsUpdated:          result.Status == "updated",
+		IsConnectionTested: result.IsConnectionTested,
 	}, nil
 }
 

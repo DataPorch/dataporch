@@ -23,9 +23,9 @@ type ImportRequest struct {
 }
 
 type ImportResult struct {
-	ID               ID
-	Updated          bool
-	ConnectionTested bool
+	ID                 ID
+	IsUpdated          bool
+	IsConnectionTested bool
 }
 
 type SecretWriter interface {
@@ -63,7 +63,11 @@ func NewImporter(
 	registrar DefinitionRegistrar,
 	warn CleanupWarning,
 ) (*Importer, error) {
-	if adapters == nil || secrets == nil || definitions == nil || registrar == nil {
+	hasAdapters := adapters != nil
+	hasSecrets := secrets != nil
+	hasDefinitions := definitions != nil
+	hasRegistrar := registrar != nil
+	if !hasAdapters || !hasSecrets || !hasDefinitions || !hasRegistrar {
 		return nil, ErrImportUnavailable
 	}
 	if warn == nil {
@@ -112,7 +116,7 @@ func (i *Importer) Import(ctx context.Context, request ImportRequest) (ImportRes
 	}
 
 	previous, lookupErr := i.definitions.Lookup(ctx, request.ID)
-	updated := lookupErr == nil
+	isUpdated := lookupErr == nil
 	if lookupErr != nil && !errors.Is(lookupErr, ErrDefinitionNotFound) {
 		i.deleteNew(ctx, refs)
 		return ImportResult{}, fmt.Errorf("%w: loading existing definition", ErrImportUnavailable)
@@ -124,7 +128,7 @@ func (i *Importer) Import(ctx context.Context, request ImportRequest) (ImportRes
 	if err := i.registrar.Register(definition); err != nil {
 		return ImportResult{}, fmt.Errorf("%w: registering definition", ErrImportUnavailable)
 	}
-	if updated {
+	if isUpdated {
 		for _, ref := range previous.SecretRefs {
 			if err := i.secrets.Delete(ctx, ref); err != nil {
 				i.warn(request.ID, oldSecretCleanupFailed)
@@ -132,7 +136,11 @@ func (i *Importer) Import(ctx context.Context, request ImportRequest) (ImportRes
 			}
 		}
 	}
-	return ImportResult{ID: request.ID, Updated: updated, ConnectionTested: false}, nil
+	return ImportResult{
+		ID:                 request.ID,
+		IsUpdated:          isUpdated,
+		IsConnectionTested: false,
+	}, nil
 }
 
 func validateParsed(request ImportRequest, parsed ParsedConnection) error {

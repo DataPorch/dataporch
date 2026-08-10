@@ -26,7 +26,10 @@ func TestStoreUpsertPreservesOtherDefinitions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("List() error = %v", err)
 	}
-	if len(definitions) != 2 || definitions[0].ID != "a" || definitions[1].ID != "b" {
+	if len(definitions) != 2 {
+		t.Fatalf("List() = %#v, want sorted a,b", definitions)
+	}
+	if definitions[0].ID != "a" || definitions[1].ID != "b" {
 		t.Fatalf("List() = %#v, want definitions a and b", definitions)
 	}
 }

@@ -114,7 +114,7 @@ func TestConnectionsImportPrintsUpdatedMessage(t *testing.T) {
 	t.Parallel()
 
 	dependencies := testCommandDependencies(t)
-	dependencies.newClient = resultClientFactory(connection.ImportResult{ID: "finance", Updated: true})
+	dependencies.newClient = resultClientFactory(connection.ImportResult{ID: "finance", IsUpdated: true})
 	if err := run([]string{"connections", "import", "--id", "finance", "--kind", "postgres"}, dependencies); err != nil {
 		t.Fatalf("run() error = %v", err)
 	}
@@ -140,9 +140,10 @@ func TestConnectionsImportDoesNotEchoCanary(t *testing.T) {
 	if err == nil {
 		t.Fatal("run() error = nil, want error")
 	}
-	if strings.Contains(dependencies.stdout.(*bytes.Buffer).String(), canary) ||
-		strings.Contains(dependencies.stderr.(*bytes.Buffer).String(), canary) ||
-		strings.Contains(err.Error(), canary) {
+	stdoutContainsCanary := strings.Contains(dependencies.stdout.(*bytes.Buffer).String(), canary)
+	stderrContainsCanary := strings.Contains(dependencies.stderr.(*bytes.Buffer).String(), canary)
+	errorContainsCanary := strings.Contains(err.Error(), canary)
+	if stdoutContainsCanary || stderrContainsCanary || errorContainsCanary {
 		t.Fatal("connection string leaked")
 	}
 }

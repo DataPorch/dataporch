@@ -103,7 +103,10 @@ func importConnection(args []string, dependencies commandDependencies) error {
 	if *kind == "" {
 		return errDatabaseKindRequired
 	}
-	if dependencies.stdin == nil || dependencies.isTerminal == nil || dependencies.readPassword == nil {
+	hasStdin := dependencies.stdin != nil
+	hasTerminalCheck := dependencies.isTerminal != nil
+	hasPasswordReader := dependencies.readPassword != nil
+	if !hasStdin || !hasTerminalCheck || !hasPasswordReader {
 		return errTerminalRequired
 	}
 	fd := int(dependencies.stdin.Fd())
@@ -141,7 +144,7 @@ func importConnection(args []string, dependencies commandDependencies) error {
 		return fmt.Errorf("importing connection: %w", err)
 	}
 	verb := "added"
-	if result.Updated {
+	if result.IsUpdated {
 		verb = "updated"
 	}
 	fmt.Fprintf(

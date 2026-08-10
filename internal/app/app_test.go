@@ -123,7 +123,7 @@ func TestAppLiveImportRegistersWithoutRestart(t *testing.T) {
 		Secrets:  map[string][]byte{"password": []byte("dataporch-secret-canary-91f7c2")},
 	}}
 
-	application, err := New(cfg, slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)), adapter)
+	application, err := newWithAdapters(cfg, slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)), adapter)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -178,7 +178,7 @@ func TestAppImportDoesNotCallAdapterAuthentication(t *testing.T) {
 		Secrets:  map[string][]byte{"password": []byte("private")},
 	}}
 
-	application, err := New(cfg, slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)), adapter)
+	application, err := newWithAdapters(cfg, slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)), adapter)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}

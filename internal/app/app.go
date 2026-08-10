@@ -41,7 +41,15 @@ type App struct {
 	shutdownPeriod time.Duration
 }
 
-func New(cfg config.Config, logger *slog.Logger, adapters ...connection.Adapter) (*App, error) {
+func New(cfg config.Config, logger *slog.Logger) (*App, error) {
+	return newWithAdapters(cfg, logger)
+}
+
+func newWithAdapters(
+	cfg config.Config,
+	logger *slog.Logger,
+	adapters ...connection.Adapter,
+) (*App, error) {
 	if logger == nil {
 		return nil, errLoggerRequired
 	}

@@ -15,6 +15,7 @@ const maxRequestBody = 64 << 10
 
 var (
 	errImporterRequired = errors.New("local admin: importer is required")
+	errInvalidRequest   = errors.New("local admin: invalid request")
 	errLoggerRequired   = errors.New("local admin: logger is required")
 )
 
@@ -22,7 +23,17 @@ type Importer interface {
 	Import(context.Context, connection.ImportRequest) (connection.ImportResult, error)
 }
 
-type Handler struct{ mux *http.ServeMux }
+type Handler struct {
+	mux      *http.ServeMux
+	importer Importer
+	logger   *slog.Logger
+}
+
+type importRequest struct {
+	DatabaseID       connection.ID   `json:"databaseId"`
+	Kind             connection.Kind `json:"kind"`
+	ConnectionString []byte          `json:"connectionString"`
+}
 
 func NewHandler(importer Importer, logger *slog.Logger) (http.Handler, error) {
 	if importer == nil {
@@ -31,93 +42,105 @@ func NewHandler(importer Importer, logger *slog.Logger) (http.Handler, error) {
 	if logger == nil {
 		return nil, errLoggerRequired
 	}
-	handler := &Handler{mux: http.NewServeMux()}
-	handler.mux.HandleFunc("POST /v1/connections/import", func(w http.ResponseWriter, r *http.Request) {
-		handler.importConnection(
-			w,
-			r,
-			importer,
-			logger,
-		)
-	})
+	handler := &Handler{
+		mux:      http.NewServeMux(),
+		importer: importer,
+		logger:   logger,
+	}
+	handler.mux.HandleFunc("POST /v1/connections/import", handler.importConnection)
 	return handler, nil
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) { h.mux.ServeHTTP(w, r) }
 
-func (h *Handler) importConnection(w http.ResponseWriter, r *http.Request, importer Importer, logger *slog.Logger) {
+func (h *Handler) importConnection(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBody)
-	var request struct {
-		DatabaseID       connection.ID   `json:"databaseId"`
-		Kind             connection.Kind `json:"kind"`
-		ConnectionString []byte          `json:"connectionString"`
-	}
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&request); err != nil {
-		var tooLarge *http.MaxBytesError
-		if errors.As(err, &tooLarge) {
-			writeError(
-				w,
-				http.StatusRequestEntityTooLarge,
-				"request_too_large",
-				"request is too large",
-			)
-			return
-		}
-		writeError(
-			w,
-			http.StatusBadRequest,
-			"invalid_request",
-			"request is invalid",
-		)
-		return
-	}
-	if err := decoder.Decode(&struct{}{}); err != io.EOF {
-		writeError(
-			w,
-			http.StatusBadRequest,
-			"invalid_request",
-			"request is invalid",
-		)
+	request, err := decodeImportRequest(r.Body)
+	if err != nil {
+		writeRequestError(w, err)
 		return
 	}
 	defer clear(request.ConnectionString)
 
-	result, err := importer.Import(r.Context(), connection.ImportRequest{
+	result, err := h.importer.Import(r.Context(), connection.ImportRequest{
 		ID:               request.DatabaseID,
 		Kind:             request.Kind,
 		ConnectionString: request.ConnectionString,
 	})
 	if err != nil {
-		logger.ErrorContext(
-			r.Context(),
-			"importing connection",
-			"database_id",
-			request.DatabaseID,
-			"kind",
-			request.Kind,
-			"category",
-			errorCategory(err),
-		)
-		if errors.Is(err, connection.ErrInvalidConnectionString) {
-			writeError(
-				w,
-				http.StatusBadRequest,
-				"invalid_connection_string",
-				"connection string is invalid",
-			)
-			return
-		}
+		h.writeImportError(w, r, request, err)
+		return
+	}
+	writeImportResult(w, result)
+}
+
+func (h *Handler) writeImportError(
+	w http.ResponseWriter,
+	r *http.Request,
+	request importRequest,
+	err error,
+) {
+	h.logger.ErrorContext(
+		r.Context(),
+		"importing connection",
+		"database_id",
+		request.DatabaseID,
+		"kind",
+		request.Kind,
+		"category",
+		errorCategory(err),
+	)
+	if errors.Is(err, connection.ErrInvalidConnectionString) {
 		writeError(
 			w,
-			http.StatusServiceUnavailable,
-			"database_unavailable",
-			"requested database is unavailable",
+			http.StatusBadRequest,
+			"invalid_connection_string",
+			"connection string is invalid",
 		)
 		return
 	}
+	writeError(
+		w,
+		http.StatusServiceUnavailable,
+		"database_unavailable",
+		"requested database is unavailable",
+	)
+}
+
+func decodeImportRequest(reader io.Reader) (importRequest, error) {
+	var request importRequest
+	decoder := json.NewDecoder(reader)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&request); err != nil {
+		return importRequest{}, err
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return importRequest{}, errInvalidRequest
+	}
+	return request, nil
+}
+
+func writeRequestError(w http.ResponseWriter, err error) {
+	var tooLarge *http.MaxBytesError
+	if errors.As(err, &tooLarge) {
+		writeError(
+			w,
+			http.StatusRequestEntityTooLarge,
+			"request_too_large",
+			"request is too large",
+		)
+		return
+	}
+	writeError(
+		w,
+		http.StatusBadRequest,
+		"invalid_request",
+		"request is invalid",
+	)
+}
+
+func writeImportResult(w http.ResponseWriter, result connection.ImportResult) {
 	status := "added"
 	code := http.StatusCreated
 	if result.IsUpdated {
@@ -137,18 +160,21 @@ func errorCategory(err error) string {
 	}
 	return "database_unavailable"
 }
+
 func writeError(w http.ResponseWriter, status int, code, message string) {
 	writeJSON(w, status, struct {
 		Code    string `json:"code"`
 		Message string `json:"message"`
 	}{Code: code, Message: message})
 }
+
 func writeJSON(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(value)
 }
+
 func clear(value []byte) {
 	for i := range value {
 		value[i] = 0

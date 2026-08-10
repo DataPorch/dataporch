@@ -95,8 +95,15 @@ HTTP or MCP. Losing the master key makes locally stored secrets unrecoverable.
 Root or compromise of the DataPorch process is outside the protection provided
 by the local store.
 
-Postgres parsing and real database connections are deferred. This release does
-not include a concrete Postgres adapter or database health checks.
+Postgres imports accept `postgres://` and `postgresql://` URIs with a username,
+password, one TCP host, a database, an optional explicit port, and an optional
+`sslmode` value of `disable`, `allow`, `prefer`, `require`, `verify-ca`, or
+`verify-full`. An omitted port stays omitted; DataPorch does not insert a
+default port.
+
+Import parses and stores the normalized definition only. Real Postgres
+connections, authentication checks, health checks, queries, and resource
+discovery remain deferred.
 
 The initial configuration uses an allow-all access policy and in-memory resources. Do not use these components for production access control or storage.
 
@@ -123,6 +130,7 @@ cmd/dataporch/                 Program entry point
 internal/app/                  Dependency setup and process lifecycle
 internal/config/               Environment configuration
 internal/connection/           Built-in database adapter resolution
+internal/connection/postgres/  PostgreSQL connection URI import adapter
 internal/catalog/              Resource metadata
 internal/catalog/memory/       In-memory resource catalog
 internal/execution/            Validated application operations

@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
+	"maps"
 	"net"
 	"net/http"
 	"os"
@@ -15,6 +17,7 @@ import (
 
 	"github.com/adamraziv/dataporch/internal/config"
 	"github.com/adamraziv/dataporch/internal/connection"
+	"github.com/adamraziv/dataporch/internal/secret/local"
 )
 
 func TestNew(t *testing.T) {
@@ -117,56 +120,75 @@ func TestAppCreatesAndRemovesAdminSocket(t *testing.T) {
 func TestAppLiveImportRegistersWithoutRestart(t *testing.T) {
 	t.Parallel()
 
-	cfg := initializedTestConfig(t)
-	adapter := &adapterStub{kind: "postgres", parsed: connection.ParsedConnection{
-		Settings: map[string]string{"host": "postgres.internal", "database": "finance", "username": "app_reader"},
-		Secrets:  map[string][]byte{"password": []byte("dataporch-secret-canary-91f7c2")},
-	}}
+	const (
+		databaseID       = "finance"
+		password         = "dataporch-secret-canary-91f7c2"
+		connectionString = "postgresql://app_reader:" + password +
+			"@postgres-import-test.invalid:6543/finance?sslmode=verify-full"
+	)
 
-	application, err := newWithAdapters(cfg, slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)), adapter)
+	cfg := initializedTestConfig(t)
+
+	var logs bytes.Buffer
+
+	application, err := New(cfg, slog.New(slog.NewTextHandler(&logs, nil)))
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
 
 	ctx, cancel := context.WithCancel(t.Context())
+	t.Cleanup(cancel)
 
 	done := make(chan error, 1)
 	go func() { done <- application.Run(ctx) }()
-
-	defer func() {
-		cancel()
-
-		if err := <-done; err != nil {
-			t.Errorf("Run() error = %v", err)
-		}
-	}()
 
 	waitForFile(t, cfg.AdminSocketPath)
 
 	response, err := importOverSocket(
 		cfg.AdminSocketPath,
-		"finance",
+		databaseID,
 		"postgres",
-		"postgres://reader:password@host/finance",
+		connectionString,
 	)
 	if err != nil {
 		t.Fatalf("importOverSocket() error = %v", err)
+	}
+
+	responseBody, readErr := io.ReadAll(response.Body)
+	closeErr := response.Body.Close()
+
+	if readErr != nil {
+		t.Fatalf("ReadAll() error = %v", readErr)
+	}
+
+	if closeErr != nil {
+		t.Fatalf("response Body.Close() error = %v", closeErr)
 	}
 
 	if response.StatusCode != http.StatusCreated {
 		t.Fatalf("status = %d, want 201", response.StatusCode)
 	}
 
-	_ = response.Body.Close()
+	cancel()
 
-	definition, err := application.manager.Lookup("finance")
+	if err := <-done; err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	definition, err := application.manager.Lookup(databaseID)
 	if err != nil {
 		t.Fatalf("Lookup() error = %v", err)
 	}
 
-	if definition.Kind != "postgres" || adapter.parseCalls != 1 {
-		t.Fatalf("definition/parse calls = %#v/%d", definition, adapter.parseCalls)
-	}
+	assertImportedPostgresDefinition(t, cfg, definition, password)
+	assertImportArtifactsDoNotContain(t, importArtifacts{
+		cfg:              cfg,
+		definition:       definition,
+		responseBody:     responseBody,
+		logs:             logs.Bytes(),
+		password:         password,
+		connectionString: connectionString,
+	})
 }
 
 func TestAppImportDoesNotCallAdapterAuthentication(t *testing.T) {
@@ -251,6 +273,115 @@ func initializedTestConfig(t *testing.T) config.Config {
 	}
 
 	return cfg
+}
+
+type importArtifacts struct {
+	cfg              config.Config
+	definition       connection.Definition
+	responseBody     []byte
+	logs             []byte
+	password         string
+	connectionString string
+}
+
+func assertImportedPostgresDefinition(
+	t *testing.T,
+	cfg config.Config,
+	definition connection.Definition,
+	password string,
+) {
+	t.Helper()
+
+	wantSettings := map[string]string{
+		"username": "app_reader",
+		"host":     "postgres-import-test.invalid",
+		"port":     "6543",
+		"database": "finance",
+		"sslmode":  "verify-full",
+	}
+	if definition.Kind != "postgres" || !maps.Equal(definition.Settings, wantSettings) {
+		t.Fatal("definition does not match the normalized Postgres settings")
+	}
+
+	passwordRef, exists := definition.SecretRefs["password"]
+	if len(definition.SecretRefs) != 1 || !exists {
+		t.Fatal("definition must contain a password secret reference only")
+	}
+
+	scheme, _, err := passwordRef.Parts()
+	if err != nil {
+		t.Fatalf("password reference Parts() error = %v", err)
+	}
+
+	if scheme != "local" {
+		t.Fatalf("password reference scheme = %q, want local", scheme)
+	}
+
+	secretStore, err := local.Open(local.Paths{
+		KeyPath:   cfg.MasterKeyPath,
+		StorePath: cfg.SecretsStorePath,
+	})
+	if err != nil {
+		t.Fatalf("local.Open() error = %v", err)
+	}
+
+	resolvedPassword, err := secretStore.Resolve(t.Context(), passwordRef)
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	defer clear(resolvedPassword)
+
+	wantPassword := []byte(password)
+	defer clear(wantPassword)
+
+	if !bytes.Equal(resolvedPassword, wantPassword) {
+		t.Fatal("resolved password does not match imported password")
+	}
+}
+
+func assertImportArtifactsDoNotContain(t *testing.T, artifacts importArtifacts) {
+	t.Helper()
+
+	definitionData, err := json.Marshal(artifacts.definition)
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+
+	persistedDefinitions, err := os.ReadFile(artifacts.cfg.ConnectionsStorePath)
+	if err != nil {
+		t.Fatalf("ReadFile(connections) error = %v", err)
+	}
+
+	persistedSecrets, err := os.ReadFile(artifacts.cfg.SecretsStorePath)
+	if err != nil {
+		t.Fatalf("ReadFile(secrets) error = %v", err)
+	}
+
+	for source, data := range map[string][]byte{
+		"manager definition": definitionData,
+		"connection store":   persistedDefinitions,
+		"secret store":       persistedSecrets,
+		"socket response":    artifacts.responseBody,
+		"logs":               artifacts.logs,
+	} {
+		assertSensitiveValuesAbsent(
+			t,
+			source,
+			data,
+			artifacts.password,
+			artifacts.connectionString,
+		)
+	}
+}
+
+func assertSensitiveValuesAbsent(t *testing.T, source string, data []byte, values ...string) {
+	t.Helper()
+
+	for _, value := range values {
+		if bytes.Contains(data, []byte(value)) {
+			t.Fatalf("%s contains sensitive connection input", source)
+		}
+	}
 }
 
 func waitForFile(t *testing.T, path string) {

@@ -112,13 +112,14 @@ func newImporter(t *testing.T, parsed ParsedConnection) (*Importer, importerDepe
 
 	repository := &definitionRepositoryStub{definitions: map[ID]Definition{}}
 	writer := &secretWriterStub{deleted: map[secret.Reference]bool{}}
-	importer, err := NewImporter(
-		adapterResolverStub{adapter: &adapterStub{kind: "postgres", parsed: parsed}},
-		writer,
-		repository,
-		registrarStub{},
-		nil,
-	)
+	importer, err := NewImporter(ImporterDependencies{
+		Adapters: adapterResolverStub{
+			adapter: &adapterStub{kind: "postgres", parsed: parsed},
+		},
+		Secrets:     writer,
+		Definitions: repository,
+		Registrar:   registrarStub{},
+	})
 	if err != nil {
 		t.Fatalf("NewImporter() error = %v", err)
 	}

@@ -48,6 +48,14 @@ type AdapterResolver interface {
 
 type CleanupWarning func(databaseID ID, category string)
 
+type ImporterDependencies struct {
+	Adapters    AdapterResolver
+	Secrets     SecretWriter
+	Definitions DefinitionRepository
+	Registrar   DefinitionRegistrar
+	Warn        CleanupWarning
+}
+
 type Importer struct {
 	adapters    AdapterResolver
 	secrets     SecretWriter
@@ -56,29 +64,23 @@ type Importer struct {
 	warn        CleanupWarning
 }
 
-func NewImporter(
-	adapters AdapterResolver,
-	secrets SecretWriter,
-	definitions DefinitionRepository,
-	registrar DefinitionRegistrar,
-	warn CleanupWarning,
-) (*Importer, error) {
-	hasAdapters := adapters != nil
-	hasSecrets := secrets != nil
-	hasDefinitions := definitions != nil
-	hasRegistrar := registrar != nil
+func NewImporter(dependencies ImporterDependencies) (*Importer, error) {
+	hasAdapters := dependencies.Adapters != nil
+	hasSecrets := dependencies.Secrets != nil
+	hasDefinitions := dependencies.Definitions != nil
+	hasRegistrar := dependencies.Registrar != nil
 	if !hasAdapters || !hasSecrets || !hasDefinitions || !hasRegistrar {
 		return nil, ErrImportUnavailable
 	}
-	if warn == nil {
-		warn = func(ID, string) {}
+	if dependencies.Warn == nil {
+		dependencies.Warn = func(ID, string) {}
 	}
 	return &Importer{
-		adapters:    adapters,
-		secrets:     secrets,
-		definitions: definitions,
-		registrar:   registrar,
-		warn:        warn,
+		adapters:    dependencies.Adapters,
+		secrets:     dependencies.Secrets,
+		definitions: dependencies.Definitions,
+		registrar:   dependencies.Registrar,
+		warn:        dependencies.Warn,
 	}, nil
 }
 

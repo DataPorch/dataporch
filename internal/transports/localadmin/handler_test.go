@@ -118,13 +118,12 @@ func TestHandlerKeepsConnectionStringOutsidePersistenceAndOutput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewManager() error = %v", err)
 	}
-	importer, err := connection.NewImporter(
-		connector,
-		secrets,
-		definitions,
-		manager,
-		nil,
-	)
+	importer, err := connection.NewImporter(connection.ImporterDependencies{
+		Adapters:    connector,
+		Secrets:     secrets,
+		Definitions: definitions,
+		Registrar:   manager,
+	})
 	if err != nil {
 		t.Fatalf("NewImporter() error = %v", err)
 	}

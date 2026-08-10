@@ -36,12 +36,12 @@ func newSecurityComponents(
 	if err != nil {
 		return securityComponents{}, err
 	}
-	importer, err := connection.NewImporter(
-		connector,
-		writer,
-		repository,
-		manager,
-		func(databaseID connection.ID, category string) {
+	importer, err := connection.NewImporter(connection.ImporterDependencies{
+		Adapters:    connector,
+		Secrets:     writer,
+		Definitions: repository,
+		Registrar:   manager,
+		Warn: func(databaseID connection.ID, category string) {
 			logger.Warn(
 				"connection import cleanup incomplete",
 				"database_id",
@@ -50,7 +50,7 @@ func newSecurityComponents(
 				category,
 			)
 		},
-	)
+	})
 	if err != nil {
 		return securityComponents{}, err
 	}

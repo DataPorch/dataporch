@@ -23,7 +23,10 @@ type ResourceLister interface {
 }
 
 type Handler struct {
-	mux *http.ServeMux
+	mux          *http.ServeMux
+	lister       ResourceLister
+	defaultLimit int
+	logger       *slog.Logger
 }
 
 func New(
@@ -43,17 +46,14 @@ func New(
 		return nil, errLoggerRequired
 	}
 
-	handler := &Handler{mux: http.NewServeMux()}
+	handler := &Handler{
+		mux:          http.NewServeMux(),
+		lister:       lister,
+		defaultLimit: defaultLimit,
+		logger:       logger,
+	}
 	handler.mux.HandleFunc("GET /healthz", handler.health)
-	handler.mux.HandleFunc("GET /v1/resources", func(w http.ResponseWriter, r *http.Request) {
-		handler.listResources(
-			w,
-			r,
-			lister,
-			defaultLimit,
-			logger,
-		)
-	})
+	handler.mux.HandleFunc("GET /v1/resources", handler.listResources)
 
 	return handler, nil
 }
@@ -74,11 +74,8 @@ func (h *Handler) health(w http.ResponseWriter, _ *http.Request) {
 func (h *Handler) listResources(
 	w http.ResponseWriter,
 	r *http.Request,
-	lister ResourceLister,
-	defaultLimit int,
-	logger *slog.Logger,
 ) {
-	limit := defaultLimit
+	limit := h.defaultLimit
 
 	if value := r.URL.Query().Get("limit"); value != "" {
 		parsed, err := strconv.Atoi(value)
@@ -87,7 +84,7 @@ func (h *Handler) listResources(
 				w,
 				http.StatusBadRequest,
 				map[string]string{"error": "limit must be an integer"},
-				logger,
+				h.logger,
 			)
 
 			return
@@ -96,20 +93,20 @@ func (h *Handler) listResources(
 		limit = parsed
 	}
 
-	resources, err := lister.ListResources(r.Context(), limit)
+	resources, err := h.lister.ListResources(r.Context(), limit)
 	if err != nil {
 		if errors.Is(err, execution.ErrInvalidLimit) {
 			writeJSON(
 				w,
 				http.StatusBadRequest,
 				map[string]string{"error": "limit is outside the allowed range"},
-				logger,
+				h.logger,
 			)
 
 			return
 		}
 
-		logger.ErrorContext(
+		h.logger.ErrorContext(
 			r.Context(),
 			"listing resources",
 			slog.Any("error", err),
@@ -118,7 +115,7 @@ func (h *Handler) listResources(
 			w,
 			http.StatusInternalServerError,
 			map[string]string{"error": "internal server error"},
-			logger,
+			h.logger,
 		)
 
 		return
@@ -130,7 +127,7 @@ func (h *Handler) listResources(
 		struct {
 			Resources []catalog.Resource `json:"resources"`
 		}{Resources: resources},
-		logger,
+		h.logger,
 	)
 }
 

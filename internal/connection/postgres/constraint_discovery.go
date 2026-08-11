@@ -32,12 +32,13 @@ SELECT
     con.confmatchtype::text,
     con.confupdtype::text,
     con.confdeltype::text,
-    CASE WHEN con.contype = 'u' THEN con.connullsnotdistinct END,
+    CASE WHEN con.contype = 'u' THEN constraint_index.indnullsnotdistinct END,
     CASE WHEN con.contype = 'c'
       THEN pg_catalog.pg_get_expr(con.conbin, con.conrelid, true)
     END,
     con.convalidated
 FROM pg_catalog.pg_constraint AS con
+LEFT JOIN pg_catalog.pg_index AS constraint_index ON constraint_index.indexrelid = con.conindid
 LEFT JOIN pg_catalog.pg_class AS referenced_class ON referenced_class.oid = con.confrelid
 LEFT JOIN pg_catalog.pg_namespace AS referenced_ns
   ON referenced_ns.oid = referenced_class.relnamespace

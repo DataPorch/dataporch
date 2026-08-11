@@ -69,7 +69,10 @@ SELECT
     element_type.typname,
     base_ns.nspname,
     base_type.typname,
-    NOT a.attnotnull,
+    NOT (
+      a.attnotnull
+      OR (t.typtype = 'd' AND t.typnotnull)
+    ),
     pg_catalog.pg_get_expr(default_value.adbin, default_value.adrelid, true),
     a.attidentity::text,
     a.attgenerated::text,
@@ -97,7 +100,10 @@ LIMIT $5`
 )
 
 //nolint:gocyclo // Column discovery validates access, maps metadata, and attaches constraints in one bounded call.
-func (d *Discoverer) ListColumns(ctx context.Context, request execution.ColumnDiscoveryRequest) (execution.ColumnDiscoveryPage, error) {
+func (d *Discoverer) ListColumns(
+	ctx context.Context,
+	request execution.ColumnDiscoveryRequest,
+) (execution.ColumnDiscoveryPage, error) {
 	client, err := d.open(ctx, request.SourceID)
 	if err != nil {
 		return execution.ColumnDiscoveryPage{}, err
@@ -106,16 +112,35 @@ func (d *Discoverer) ListColumns(ctx context.Context, request execution.ColumnDi
 	queryCtx, cancel := d.queryContext(ctx)
 	defer cancel()
 
-	if err := checkSchema(ctx, queryCtx, client.pool, request.Schema); err != nil {
+	if err := checkSchema(
+		ctx,
+		queryCtx,
+		client.pool,
+		request.Schema,
+	); err != nil {
 		return execution.ColumnDiscoveryPage{}, err
 	}
 
-	relationOID, relationKindValue, err := resolveRelation(ctx, queryCtx, client.pool, request.Schema, request.Table)
+	relationOID, relationKindValue, err := resolveRelation(
+		ctx,
+		queryCtx,
+		client.pool,
+		request.Schema,
+		request.Table,
+	)
 	if err != nil {
 		return execution.ColumnDiscoveryPage{}, err
 	}
 
-	rows, err := client.pool.Query(queryCtx, listColumnsSQL, relationOID, request.Search, request.AfterOrdinal, request.IncludeDescriptions, request.Limit+1)
+	rows, err := client.pool.Query(
+		queryCtx,
+		listColumnsSQL,
+		relationOID,
+		request.Search,
+		request.AfterOrdinal,
+		request.IncludeDescriptions,
+		request.Limit+1,
+	)
 	if err != nil {
 		return execution.ColumnDiscoveryPage{}, classifyQueryError(ctx, queryCtx, err)
 	}
@@ -172,7 +197,13 @@ func (d *Discoverer) ListColumns(ctx context.Context, request execution.ColumnDi
 	return page, nil
 }
 
-func resolveRelation(parentCtx, queryCtx context.Context, pool runtimePool, schema, table string) (uint32, execution.RelationKind, error) {
+func resolveRelation(
+	parentCtx context.Context,
+	queryCtx context.Context,
+	pool runtimePool,
+	schema string,
+	table string,
+) (uint32, execution.RelationKind, error) {
 	rows, err := pool.Query(queryCtx, resolveRelationSQL, schema, table)
 	if err != nil {
 		return 0, "", classifyQueryError(parentCtx, queryCtx, err)
@@ -364,13 +395,18 @@ func columnGenerated(code string, expression *string) (*execution.Generated, err
 	switch code {
 	case "":
 		return nil, nil
-	case "s":
+	case "s", "v":
 		value := ""
 		if expression != nil {
 			value = *expression
 		}
 
-		return &execution.Generated{Kind: "stored", Expression: value}, nil
+		kind := "stored"
+		if code == "v" {
+			kind = "virtual"
+		}
+
+		return &execution.Generated{Kind: kind, Expression: value}, nil
 	default:
 		return nil, fmt.Errorf("%w: unknown generated code", execution.ErrInternal)
 	}

@@ -6,7 +6,7 @@ GOVULNCHECK ?= govulncheck
 
 .DEFAULT_GOAL := help
 
-.PHONY: audit build check clean fmt fmt-check help lint lint-fix run test test-integration test-race tidy tidy-check vet
+.PHONY: audit build check clean fmt fmt-check help lint lint-fix lint-integration run test test-integration test-race tidy tidy-check vet
 
 build:
 	@mkdir -p $(BUILD_DIR)
@@ -41,6 +41,9 @@ fmt-check:
 lint:
 	$(GOLANGCI_LINT) run ./...
 
+lint-integration:
+	$(GOLANGCI_LINT) run --build-tags=integration ./...
+
 lint-fix:
 	$(GOLANGCI_LINT) run --fix ./...
 
@@ -74,6 +77,7 @@ help:
 		'  fmt-check    Check Go source formatting.' \
 		'  lint         Run configured lint checks.' \
 		'  lint-fix     Apply safe lint fixes.' \
+		'  lint-integration  Lint ordinary and integration-tagged Go files.' \
 		'  run          Run DataPorch locally.' \
 		'  test         Run unit tests.' \
 		'  test-integration  Run PostgreSQL integration tests (requires DATAPORCH_TEST_POSTGRES_DSN).' \

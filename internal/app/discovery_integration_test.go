@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -25,8 +26,56 @@ import (
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+type integrationHarness struct {
+	t                *testing.T
+	dsn              string
+	readerDSN        string
+	names            integrationDatabaseNames
+	admin            *pgx.Conn
+	session          *mcpsdk.ClientSession
+	runtime          *countingPostgresRuntime
+	logs             *strings.Builder
+	foreignAvailable bool
+}
+
+type integrationSnapshot struct {
+	Sources     execution.ListDataSourcesResult
+	Schemas     []execution.Schema
+	Tables      []execution.Table
+	Columns     []execution.Column
+	Constraints []execution.Constraint
+}
+
 func TestDiscoveryImportToMCPPostgresIntegration(t *testing.T) {
 	t.Parallel()
+
+	harness := newIntegrationHarness(t)
+	sources := harness.assertDataSources()
+
+	allSchemas := harness.listSchemas()
+
+	allTables := harness.listTables()
+	allColumns, allConstraints := harness.listColumns()
+
+	harness.assertLiteralSearch()
+
+	harness.assertCompositeColumns()
+
+	harness.assertColumnGrant()
+
+	harness.assertDiscoveryFailures()
+
+	harness.assertNoSecrets(integrationSnapshot{
+		Sources:     sources,
+		Schemas:     allSchemas,
+		Tables:      allTables,
+		Columns:     allColumns,
+		Constraints: allConstraints,
+	})
+}
+
+func newIntegrationHarness(t *testing.T) *integrationHarness {
+	t.Helper()
 
 	dsn := os.Getenv("DATAPORCH_TEST_POSTGRES_DSN")
 	if dsn == "" {
@@ -34,308 +83,631 @@ func TestDiscoveryImportToMCPPostgresIntegration(t *testing.T) {
 	}
 
 	names := integrationNames(t)
-	admin, err := pgx.Connect(t.Context(), dsn)
-	if err != nil {
-		t.Fatalf("pgx.Connect() error = %v", err)
-	}
-	t.Cleanup(func() { _ = admin.Close(context.Background()) })
-
+	admin := connectIntegrationAdmin(t, dsn)
 	t.Cleanup(func() { cleanupIntegrationDatabase(t, admin, names) })
 	foreignAvailable := setupIntegrationDatabase(t, admin, names)
 
 	cfg := testConfigFor(t)
 	cfg.ResourceLimit = 3
+
 	cfg.HTTPAddress = freeTCPAddress(t)
 	if err := InitializeSecrets(cfg); err != nil {
 		t.Fatalf("InitializeSecrets() error = %v", err)
 	}
 
-	var logs strings.Builder
+	logs := &strings.Builder{}
+
 	var runtime *countingPostgresRuntime
-	application, err := newWithDependencies(cfg, slog.New(slog.NewTextHandler(&logs, nil)), appDependencies{
-		adapters: []connection.Adapter{postgres.New()},
-		newPostgresRuntime: func(preparer postgres.DefinitionPreparer) (postgresRuntime, error) {
-			opener, err := postgres.NewOpener(preparer)
-			if err != nil {
-				return nil, err
-			}
-			runtime = &countingPostgresRuntime{opener: opener}
-			return runtime, nil
+
+	application, err := newWithDependencies(
+		cfg,
+		slog.New(slog.NewTextHandler(logs, nil)),
+		appDependencies{
+			adapters: []connection.Adapter{postgres.New()},
+			newPostgresRuntime: func(
+				preparer postgres.DefinitionPreparer,
+			) (postgresRuntime, error) {
+				opener, err := postgres.NewOpener(preparer)
+				if err != nil {
+					return nil, err
+				}
+
+				runtime = &countingPostgresRuntime{opener: opener}
+
+				return runtime, nil
+			},
 		},
-	})
+	)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
 
+	startIntegrationApplication(
+		t,
+		application,
+		cfg.AdminSocketPath,
+		cfg.HTTPAddress,
+	)
+	readerDSN := importIntegrationSource(
+		t,
+		cfg.AdminSocketPath,
+		dsn,
+		names,
+	)
+	session := connectIntegrationMCP(t, cfg.HTTPAddress)
+
+	return &integrationHarness{
+		t:                t,
+		dsn:              dsn,
+		readerDSN:        readerDSN,
+		names:            names,
+		admin:            admin,
+		session:          session,
+		runtime:          runtime,
+		logs:             logs,
+		foreignAvailable: foreignAvailable,
+	}
+}
+
+func connectIntegrationAdmin(t *testing.T, dsn string) *pgx.Conn {
+	t.Helper()
+
+	admin, err := pgx.Connect(t.Context(), dsn)
+	if err != nil {
+		t.Fatalf("pgx.Connect() error = %v", err)
+	}
+
+	t.Cleanup(func() {
+		if err := admin.Close(context.Background()); err != nil {
+			t.Errorf("admin.Close() error = %v", err)
+		}
+	})
+
+	return admin
+}
+
+func startIntegrationApplication(
+	t *testing.T,
+	application *App,
+	adminSocketPath string,
+	httpAddress string,
+) {
+	t.Helper()
+
 	appContext, cancel := context.WithCancel(t.Context())
+
 	serverDone := make(chan error, 1)
 	go func() { serverDone <- application.Run(appContext) }()
+
 	t.Cleanup(func() {
 		cancel()
+
 		if err := <-serverDone; err != nil {
 			t.Errorf("Run() error = %v", err)
 		}
 	})
 
-	waitForFile(t, cfg.AdminSocketPath)
-	waitForHealth(t, cfg.HTTPAddress)
+	waitForFile(t, adminSocketPath)
+	waitForHealth(t, httpAddress)
+}
+
+func importIntegrationSource(
+	t *testing.T,
+	adminSocketPath string,
+	dsn string,
+	names integrationDatabaseNames,
+) string {
+	t.Helper()
 
 	readerDSN := readerConnectionString(t, dsn, names.role, names.password)
+
 	reader, err := pgx.Connect(t.Context(), readerDSN)
 	if err != nil {
 		t.Fatalf("reader pgx.Connect() error = %v", err)
 	}
+
 	if err := reader.Close(t.Context()); err != nil {
 		t.Fatalf("reader.Close() error = %v", err)
 	}
-	response, err := importOverSocket(cfg.AdminSocketPath, string(names.sourceID), "postgres", readerDSN)
+
+	response, err := importOverSocket(
+		adminSocketPath,
+		string(names.sourceID),
+		"postgres",
+		readerDSN,
+	)
 	if err != nil {
 		t.Fatalf("importOverSocket() error = %v", err)
 	}
+
 	if response.Body != nil {
-		defer response.Body.Close()
+		if err := response.Body.Close(); err != nil {
+			t.Errorf("response.Body.Close() error = %v", err)
+		}
 	}
+
 	if response.StatusCode != http.StatusCreated {
 		t.Fatalf("import status = %d, want %d", response.StatusCode, http.StatusCreated)
 	}
 
-	client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "dataporch-integration", Version: "test"}, nil)
-	session, err := client.Connect(t.Context(), &mcpsdk.StreamableClientTransport{
-		Endpoint:             "http://" + cfg.HTTPAddress + "/mcp",
-		HTTPClient:           &http.Client{Timeout: 30 * time.Second},
-		DisableStandaloneSSE: true,
-	}, nil)
+	return readerDSN
+}
+
+func connectIntegrationMCP(t *testing.T, address string) *mcpsdk.ClientSession {
+	t.Helper()
+
+	client := mcpsdk.NewClient(
+		&mcpsdk.Implementation{
+			Name:    "dataporch-integration",
+			Version: "test",
+		},
+		nil,
+	)
+
+	session, err := client.Connect(
+		t.Context(),
+		&mcpsdk.StreamableClientTransport{
+			Endpoint:             "http://" + address + "/mcp",
+			HTTPClient:           &http.Client{Timeout: 30 * time.Second},
+			DisableStandaloneSSE: true,
+		},
+		nil,
+	)
 	if err != nil {
 		t.Fatalf("MCP Connect() error = %v", err)
 	}
-	defer session.Close()
 
-	sources := callDiscoveryTool[execution.ListDataSourcesResult](t, session, "data_source.list", nil)
-	if len(sources.Sources) != 1 || sources.Sources[0].ID != names.sourceID {
-		t.Fatalf("data sources = %#v, want imported source %q", sources.Sources, names.sourceID)
-	}
-	if len(sources.Sources[0].Capabilities) != 1 || sources.Sources[0].Capabilities[0] != execution.CapabilityRelationalDatabase {
-		t.Fatalf("source capabilities = %#v, want relational_database", sources.Sources[0].Capabilities)
-	}
-	if got := runtime.openCount(); got != 0 {
-		t.Fatalf("opens after data_source.list = %d, want zero", got)
+	t.Cleanup(func() {
+		if err := session.Close(); err != nil {
+			t.Errorf("session.Close() error = %v", err)
+		}
+	})
+
+	return session
+}
+
+func (h *integrationHarness) assertDataSources() execution.ListDataSourcesResult {
+	h.t.Helper()
+
+	sources := callDiscoveryTool[execution.ListDataSourcesResult](
+		h.t,
+		h.session,
+		"data_source.list",
+		nil,
+	)
+	if len(sources.Sources) != 1 || sources.Sources[0].ID != h.names.sourceID {
+		h.t.Fatalf(
+			"data sources = %#v, want imported source %q",
+			sources.Sources,
+			h.names.sourceID,
+		)
 	}
 
-	schemaRequest := map[string]any{
-		"source_id": names.sourceID,
-		"search":    names.suffix,
+	capabilities := sources.Sources[0].Capabilities
+	if len(capabilities) != 1 || capabilities[0] != execution.CapabilityRelationalDatabase {
+		h.t.Fatalf("source capabilities = %#v, want relational_database", capabilities)
+	}
+
+	if got := h.runtime.openCount(); got != 0 {
+		h.t.Fatalf("opens after data_source.list = %d, want zero", got)
+	}
+
+	return sources
+}
+
+func (h *integrationHarness) listSchemas() []execution.Schema {
+	h.t.Helper()
+
+	request := map[string]any{
+		"source_id": h.names.sourceID,
+		"search":    h.names.suffix,
 		"limit":     2,
 	}
-	schemas := callDiscoveryTool[execution.ListRelationalSchemasResult](t, session, "relational_database.list_schemas", schemaRequest)
-	allSchemas := append([]execution.Schema(nil), schemas.Schemas...)
-	if schemas.NextCursor != "" {
-		schemaRequest["cursor"] = schemas.NextCursor
-		nextSchemas := callDiscoveryTool[execution.ListRelationalSchemasResult](t, session, "relational_database.list_schemas", schemaRequest)
-		allSchemas = append(allSchemas, nextSchemas.Schemas...)
+	page := callDiscoveryTool[execution.ListRelationalSchemasResult](
+		h.t,
+		h.session,
+		"relational_database.list_schemas",
+		request,
+	)
+
+	schemas := append([]execution.Schema(nil), page.Schemas...)
+	if page.NextCursor != "" {
+		request["cursor"] = page.NextCursor
+		nextPage := callDiscoveryTool[execution.ListRelationalSchemasResult](
+			h.t,
+			h.session,
+			"relational_database.list_schemas",
+			request,
+		)
+		schemas = append(schemas, nextPage.Schemas...)
 	}
-	if len(allSchemas) != 3 {
-		t.Fatalf("schemas = %#v, want three accessible schemas", allSchemas)
+
+	if len(schemas) != 3 {
+		h.t.Fatalf("schemas = %#v, want three accessible schemas", schemas)
 	}
-	assertSchemaNames(t, allSchemas, names.accessibleSchema, names.mixedSchema, names.secondarySchema)
-	if runtime.openCount() == 0 {
-		t.Fatal("relational schema discovery did not open the database")
+
+	assertSchemaNames(
+		h.t,
+		schemas,
+		h.names.accessibleSchema,
+		h.names.mixedSchema,
+		h.names.secondarySchema,
+	)
+
+	if h.runtime.openCount() == 0 {
+		h.t.Fatal("relational schema discovery did not open the database")
 	}
-	for _, schema := range allSchemas {
+
+	for _, schema := range schemas {
 		if schema.Description != nil {
-			t.Fatalf("schema description returned without flag: %#v", schema)
+			h.t.Fatalf("schema description returned without flag: %#v", schema)
 		}
 	}
-	describedSchemas := callDiscoveryTool[execution.ListRelationalSchemasResult](t, session, "relational_database.list_schemas", map[string]any{
-		"source_id":            names.sourceID,
-		"search":               names.accessibleSchema,
-		"include_descriptions": true,
-	})
-	if len(describedSchemas.Schemas) != 1 || describedSchemas.Schemas[0].Description == nil {
-		t.Fatalf("described schemas = %#v, want requested schema description", describedSchemas.Schemas)
+
+	described := callDiscoveryTool[execution.ListRelationalSchemasResult](
+		h.t,
+		h.session,
+		"relational_database.list_schemas",
+		map[string]any{
+			"source_id":            h.names.sourceID,
+			"search":               h.names.accessibleSchema,
+			"include_descriptions": true,
+		},
+	)
+	if len(described.Schemas) != 1 || described.Schemas[0].Description == nil {
+		h.t.Fatalf(
+			"described schemas = %#v, want requested schema description",
+			described.Schemas,
+		)
 	}
 
-	tableRequest := map[string]any{
-		"source_id": names.sourceID,
-		"schema":    names.accessibleSchema,
+	return schemas
+}
+
+func (h *integrationHarness) listTables() []execution.Table {
+	h.t.Helper()
+
+	request := map[string]any{
+		"source_id": h.names.sourceID,
+		"schema":    h.names.accessibleSchema,
 		"limit":     3,
 	}
-	tables := callDiscoveryTool[execution.ListRelationalTablesResult](t, session, "relational_database.list_tables", tableRequest)
-	allTables := append([]execution.Table(nil), tables.Tables...)
-	for tables.NextCursor != "" {
-		tableRequest["cursor"] = tables.NextCursor
-		tables = callDiscoveryTool[execution.ListRelationalTablesResult](t, session, "relational_database.list_tables", tableRequest)
-		allTables = append(allTables, tables.Tables...)
+	page := callDiscoveryTool[execution.ListRelationalTablesResult](
+		h.t,
+		h.session,
+		"relational_database.list_tables",
+		request,
+	)
+
+	tables := append([]execution.Table(nil), page.Tables...)
+	for page.NextCursor != "" {
+		request["cursor"] = page.NextCursor
+		page = callDiscoveryTool[execution.ListRelationalTablesResult](
+			h.t,
+			h.session,
+			"relational_database.list_tables",
+			request,
+		)
+		tables = append(tables, page.Tables...)
 	}
-	assertTableKind(t, allTables, names.ordinaryTable, execution.RelationKindTable)
-	assertTableKind(t, allTables, names.partitionedTable, execution.RelationKindPartitionedTable)
-	assertTableKind(t, allTables, names.view, execution.RelationKindView)
-	assertTableKind(t, allTables, names.materializedView, execution.RelationKindMaterializedView)
-	if hasTable(allTables, names.deniedTable) {
-		t.Fatalf("tables include unreadable relation %q: %#v", names.deniedTable, allTables)
+
+	assertTableKind(h.t, tables, h.names.ordinaryTable, execution.RelationKindTable)
+	assertTableKind(
+		h.t,
+		tables,
+		h.names.partitionedTable,
+		execution.RelationKindPartitionedTable,
+	)
+	assertTableKind(h.t, tables, h.names.view, execution.RelationKindView)
+	assertTableKind(
+		h.t,
+		tables,
+		h.names.materializedView,
+		execution.RelationKindMaterializedView,
+	)
+
+	if hasTable(tables, h.names.deniedTable) {
+		h.t.Fatalf("tables include unreadable relation %q: %#v", h.names.deniedTable, tables)
 	}
-	if foreignAvailable {
-		assertTableKind(t, allTables, names.foreignTable, execution.RelationKindForeignTable)
+
+	if h.foreignAvailable {
+		assertTableKind(
+			h.t,
+			tables,
+			h.names.foreignTable,
+			execution.RelationKindForeignTable,
+		)
 	}
-	for _, table := range allTables {
+
+	for _, table := range tables {
 		if table.Description != nil {
-			t.Fatalf("table description returned without flag: %#v", table)
+			h.t.Fatalf("table description returned without flag: %#v", table)
 		}
 	}
-	describedTables := callDiscoveryTool[execution.ListRelationalTablesResult](t, session, "relational_database.list_tables", map[string]any{
-		"source_id":            names.sourceID,
-		"schema":               names.accessibleSchema,
-		"search":               names.ordinaryTable,
-		"include_descriptions": true,
-	})
-	if len(describedTables.Tables) != 1 || describedTables.Tables[0].Description == nil {
-		t.Fatalf("described tables = %#v, want requested table description", describedTables.Tables)
-	}
 
-	mixedTables := callDiscoveryTool[execution.ListRelationalTablesResult](t, session, "relational_database.list_tables", map[string]any{
-		"source_id": names.sourceID,
-		"schema":    names.mixedSchema,
-	})
-	if !hasTable(mixedTables.Tables, names.mixedTable) {
-		t.Fatalf("mixed-case tables = %#v, want %q", mixedTables.Tables, names.mixedTable)
+	h.assertDescribedTable()
+	h.assertMixedCaseTable()
+
+	return tables
+}
+
+func (h *integrationHarness) assertDescribedTable() {
+	h.t.Helper()
+
+	described := callDiscoveryTool[execution.ListRelationalTablesResult](
+		h.t,
+		h.session,
+		"relational_database.list_tables",
+		map[string]any{
+			"source_id":            h.names.sourceID,
+			"schema":               h.names.accessibleSchema,
+			"search":               h.names.ordinaryTable,
+			"include_descriptions": true,
+		},
+	)
+	if len(described.Tables) != 1 || described.Tables[0].Description == nil {
+		h.t.Fatalf(
+			"described tables = %#v, want requested table description",
+			described.Tables,
+		)
 	}
-	columnRequest := map[string]any{
-		"source_id": names.sourceID,
-		"schema":    names.accessibleSchema,
-		"table":     names.ordinaryTable,
+}
+
+func (h *integrationHarness) assertMixedCaseTable() {
+	h.t.Helper()
+
+	tables := callDiscoveryTool[execution.ListRelationalTablesResult](
+		h.t,
+		h.session,
+		"relational_database.list_tables",
+		map[string]any{
+			"source_id": h.names.sourceID,
+			"schema":    h.names.mixedSchema,
+		},
+	)
+	if !hasTable(tables.Tables, h.names.mixedTable) {
+		h.t.Fatalf("mixed-case tables = %#v, want %q", tables.Tables, h.names.mixedTable)
+	}
+}
+
+func (h *integrationHarness) listColumns() ([]execution.Column, []execution.Constraint) {
+	h.t.Helper()
+
+	request := map[string]any{
+		"source_id": h.names.sourceID,
+		"schema":    h.names.accessibleSchema,
+		"table":     h.names.ordinaryTable,
 		"limit":     3,
 	}
-	columns := callDiscoveryTool[execution.ListRelationalColumnsResult](t, session, "relational_database.list_columns", columnRequest)
-	allColumns := append([]execution.Column(nil), columns.Columns...)
-	allConstraints := append([]execution.Constraint(nil), columns.Constraints...)
-	for columns.NextCursor != "" {
-		columnRequest["cursor"] = columns.NextCursor
-		columns = callDiscoveryTool[execution.ListRelationalColumnsResult](t, session, "relational_database.list_columns", columnRequest)
-		allColumns = append(allColumns, columns.Columns...)
-		allConstraints = append(allConstraints, columns.Constraints...)
+	page := callDiscoveryTool[execution.ListRelationalColumnsResult](
+		h.t,
+		h.session,
+		"relational_database.list_columns",
+		request,
+	)
+	columns := append([]execution.Column(nil), page.Columns...)
+
+	constraints := append([]execution.Constraint(nil), page.Constraints...)
+	for page.NextCursor != "" {
+		request["cursor"] = page.NextCursor
+		page = callDiscoveryTool[execution.ListRelationalColumnsResult](
+			h.t,
+			h.session,
+			"relational_database.list_columns",
+			request,
+		)
+		columns = append(columns, page.Columns...)
+		constraints = append(constraints, page.Constraints...)
 	}
-	if len(allColumns) < 8 {
-		t.Fatalf("columns = %#v, want metadata-rich ordinary table", allColumns)
+
+	if len(columns) < 8 {
+		h.t.Fatalf("columns = %#v, want metadata-rich ordinary table", columns)
 	}
-	if len(allConstraints) < 3 {
-		t.Fatalf("constraints = %#v, want primary, foreign, and check constraints", allConstraints)
+
+	if len(constraints) < 3 {
+		h.t.Fatalf("constraints = %#v, want primary, foreign, and check constraints", constraints)
 	}
-	if !hasColumn(allColumns, "generated_amount") {
-		t.Fatalf("columns omit generated column: %#v", allColumns)
-	}
-	assertColumnMetadata(t, allColumns)
-	if !hasConstraint(allConstraints, "orders_"+names.suffix+"_pkey", "primary_key") || !hasConstraint(allConstraints, "orders_"+names.suffix+"_customer_id_fkey", "foreign_key") {
-		t.Fatalf("constraints omit expected keys: %#v", allConstraints)
-	}
-	if !hasConstraint(allConstraints, "orders_"+names.suffix+"_amount_check", "check") {
-		t.Fatalf("constraints omit check constraint: %#v", allConstraints)
-	}
-	for _, column := range allColumns {
+
+	assertColumnMetadata(h.t, columns)
+	h.assertOrdinaryConstraints(constraints)
+
+	for _, column := range columns {
 		if column.Description != nil {
-			t.Fatalf("column description returned without flag: %#v", column)
+			h.t.Fatalf("column description returned without flag: %#v", column)
 		}
 	}
-	describedColumns := callDiscoveryTool[execution.ListRelationalColumnsResult](t, session, "relational_database.list_columns", map[string]any{
-		"source_id":            names.sourceID,
-		"schema":               names.accessibleSchema,
-		"table":                names.ordinaryTable,
-		"include_descriptions": true,
-	})
-	if !hasDescribedColumn(describedColumns.Columns, "amount") {
-		t.Fatalf("described columns = %#v, want amount description", describedColumns.Columns)
+
+	h.assertDescribedColumn()
+
+	return columns, constraints
+}
+
+func (h *integrationHarness) assertOrdinaryConstraints(constraints []execution.Constraint) {
+	h.t.Helper()
+
+	primaryName := "orders_" + h.names.suffix + "_pkey"
+	foreignName := "orders_" + h.names.suffix + "_customer_id_fkey"
+	primaryIsPresent := hasConstraint(constraints, primaryName, "primary_key")
+
+	foreignIsPresent := hasConstraint(constraints, foreignName, "foreign_key")
+	if !primaryIsPresent || !foreignIsPresent {
+		h.t.Fatalf("constraints omit expected keys: %#v", constraints)
 	}
 
-	literalSearch := callDiscoveryTool[execution.ListRelationalTablesResult](t, session, "relational_database.list_tables", map[string]any{
-		"source_id": names.sourceID,
-		"schema":    names.accessibleSchema,
-		"search":    `%_*`,
-	})
-	if len(literalSearch.Tables) != 0 {
-		t.Fatalf("literal search tables = %#v, want no wildcard interpretation", literalSearch.Tables)
+	checkName := "orders_" + h.names.suffix + "_amount_check"
+	if !hasConstraint(constraints, checkName, "check") {
+		h.t.Fatalf("constraints omit check constraint: %#v", constraints)
 	}
+}
 
-	compositeRequest := map[string]any{
-		"source_id": names.sourceID,
-		"schema":    names.accessibleSchema,
-		"table":     names.compositeChild,
+func (h *integrationHarness) assertDescribedColumn() {
+	h.t.Helper()
+
+	described := callDiscoveryTool[execution.ListRelationalColumnsResult](
+		h.t,
+		h.session,
+		"relational_database.list_columns",
+		map[string]any{
+			"source_id":            h.names.sourceID,
+			"schema":               h.names.accessibleSchema,
+			"table":                h.names.ordinaryTable,
+			"include_descriptions": true,
+		},
+	)
+	if !hasDescribedColumn(described.Columns, "amount") {
+		h.t.Fatalf("described columns = %#v, want amount description", described.Columns)
+	}
+}
+
+func (h *integrationHarness) assertLiteralSearch() {
+	h.t.Helper()
+
+	result := callDiscoveryTool[execution.ListRelationalTablesResult](
+		h.t,
+		h.session,
+		"relational_database.list_tables",
+		map[string]any{
+			"source_id": h.names.sourceID,
+			"schema":    h.names.accessibleSchema,
+			"search":    `%_*`,
+		},
+	)
+	if len(result.Tables) != 0 {
+		h.t.Fatalf("literal search tables = %#v, want no wildcard interpretation", result.Tables)
+	}
+}
+
+func (h *integrationHarness) assertCompositeColumns() {
+	h.t.Helper()
+
+	request := map[string]any{
+		"source_id": h.names.sourceID,
+		"schema":    h.names.accessibleSchema,
+		"table":     h.names.compositeChild,
 		"limit":     3,
 	}
-	compositeColumns := callDiscoveryTool[execution.ListRelationalColumnsResult](t, session, "relational_database.list_columns", compositeRequest)
-	compositeConstraints := append([]execution.Constraint(nil), compositeColumns.Constraints...)
-	for compositeColumns.NextCursor != "" {
-		compositeRequest["cursor"] = compositeColumns.NextCursor
-		compositeColumns = callDiscoveryTool[execution.ListRelationalColumnsResult](t, session, "relational_database.list_columns", compositeRequest)
-		compositeConstraints = append(compositeConstraints, compositeColumns.Constraints...)
-	}
-	assertCompositeConstraints(t, compositeConstraints, names)
+	page := callDiscoveryTool[execution.ListRelationalColumnsResult](
+		h.t,
+		h.session,
+		"relational_database.list_columns",
+		request,
+	)
 
-	columnGrant := callDiscoveryTool[execution.ListRelationalColumnsResult](t, session, "relational_database.list_columns", map[string]any{
-		"source_id": names.sourceID,
-		"schema":    names.accessibleSchema,
-		"table":     names.columnGrantTable,
-	})
-	if len(columnGrant.Columns) != 1 || columnGrant.Columns[0].Name != "visible_value" {
-		t.Fatalf("column-grant columns = %#v, want only visible_value", columnGrant.Columns)
-	}
-
-	missingFailure := callDiscoveryToolFailure(t, session, "relational_database.list_tables", map[string]any{
-		"source_id": names.sourceID,
-		"schema":    "missing_" + names.suffix,
-	})
-	if missingFailure.Category != execution.ErrorCategorySchemaNotFound {
-		t.Fatalf("missing schema failure = %#v, want schema_not_found", missingFailure)
-	}
-	deniedFailure := callDiscoveryToolFailure(t, session, "relational_database.list_tables", map[string]any{
-		"source_id": names.sourceID,
-		"schema":    names.deniedSchema,
-	})
-	if deniedFailure.Category != execution.ErrorCategoryDatabasePermissionDenied {
-		t.Fatalf("denied schema failure = %#v, want database_permission_denied", deniedFailure)
-	}
-	missingRelationFailure := callDiscoveryToolFailure(t, session, "relational_database.list_columns", map[string]any{
-		"source_id": names.sourceID,
-		"schema":    names.accessibleSchema,
-		"table":     "missing_" + names.suffix,
-	})
-	if missingRelationFailure.Category != execution.ErrorCategoryRelationNotFound {
-		t.Fatalf("missing relation failure = %#v, want relation_not_found", missingRelationFailure)
-	}
-	deniedRelationFailure := callDiscoveryToolFailure(t, session, "relational_database.list_columns", map[string]any{
-		"source_id": names.sourceID,
-		"schema":    names.accessibleSchema,
-		"table":     names.deniedTable,
-	})
-	if deniedRelationFailure.Category != execution.ErrorCategoryDatabasePermissionDenied {
-		t.Fatalf("denied relation failure = %#v, want database_permission_denied", deniedRelationFailure)
+	constraints := append([]execution.Constraint(nil), page.Constraints...)
+	for page.NextCursor != "" {
+		request["cursor"] = page.NextCursor
+		page = callDiscoveryTool[execution.ListRelationalColumnsResult](
+			h.t,
+			h.session,
+			"relational_database.list_columns",
+			request,
+		)
+		constraints = append(constraints, page.Constraints...)
 	}
 
-	observed, err := json.Marshal(struct {
-		Sources     execution.ListDataSourcesResult
-		Schemas     []execution.Schema
-		Tables      []execution.Table
-		Columns     []execution.Column
-		Constraints []execution.Constraint
-	}{sources, allSchemas, allTables, allColumns, allConstraints})
+	assertCompositeConstraints(h.t, constraints, h.names)
+}
+
+func (h *integrationHarness) assertColumnGrant() {
+	h.t.Helper()
+
+	result := callDiscoveryTool[execution.ListRelationalColumnsResult](
+		h.t,
+		h.session,
+		"relational_database.list_columns",
+		map[string]any{
+			"source_id": h.names.sourceID,
+			"schema":    h.names.accessibleSchema,
+			"table":     h.names.columnGrantTable,
+		},
+	)
+	if len(result.Columns) != 1 || result.Columns[0].Name != "visible_value" {
+		h.t.Fatalf("column-grant columns = %#v, want only visible_value", result.Columns)
+	}
+}
+
+func (h *integrationHarness) assertDiscoveryFailures() {
+	h.t.Helper()
+
+	tests := []struct {
+		name      string
+		tool      string
+		arguments map[string]any
+		expected  execution.ErrorCategory
+	}{
+		{
+			name: "missing schema",
+			tool: "relational_database.list_tables",
+			arguments: map[string]any{
+				"source_id": h.names.sourceID,
+				"schema":    "missing_" + h.names.suffix,
+			},
+			expected: execution.ErrorCategorySchemaNotFound,
+		},
+		{
+			name: "denied schema",
+			tool: "relational_database.list_tables",
+			arguments: map[string]any{
+				"source_id": h.names.sourceID,
+				"schema":    h.names.deniedSchema,
+			},
+			expected: execution.ErrorCategoryDatabasePermissionDenied,
+		},
+		{
+			name: "missing relation",
+			tool: "relational_database.list_columns",
+			arguments: map[string]any{
+				"source_id": h.names.sourceID,
+				"schema":    h.names.accessibleSchema,
+				"table":     "missing_" + h.names.suffix,
+			},
+			expected: execution.ErrorCategoryRelationNotFound,
+		},
+		{
+			name: "denied relation",
+			tool: "relational_database.list_columns",
+			arguments: map[string]any{
+				"source_id": h.names.sourceID,
+				"schema":    h.names.accessibleSchema,
+				"table":     h.names.deniedTable,
+			},
+			expected: execution.ErrorCategoryDatabasePermissionDenied,
+		},
+	}
+	for _, test := range tests {
+		h.t.Run(test.name, func(t *testing.T) {
+			failure := callDiscoveryToolFailure(
+				t,
+				h.session,
+				test.tool,
+				test.arguments,
+			)
+			if failure.Category != test.expected {
+				t.Fatalf("failure = %#v, want category %q", failure, test.expected)
+			}
+		})
+	}
+}
+
+func (h *integrationHarness) assertNoSecrets(snapshot integrationSnapshot) {
+	h.t.Helper()
+
+	observed, err := json.Marshal(snapshot)
 	if err != nil {
-		t.Fatalf("Marshal(observed) error = %v", err)
+		h.t.Fatalf("Marshal(observed) error = %v", err)
 	}
-	assertIntegrationSecretsAbsent(
-		t,
-		observed,
-		dsn,
-		readerDSN,
-		names.password,
-		names.role,
-	)
-	assertIntegrationSecretsAbsent(
-		t,
-		[]byte(logs.String()),
-		dsn,
-		readerDSN,
-		names.password,
-		names.role,
-	)
-	if runtime.openCount() == 0 {
-		t.Fatal("relational discovery did not increment opener count")
+
+	canaries := []string{
+		h.dsn,
+		h.readerDSN,
+		h.names.password,
+		h.names.role,
+	}
+	assertIntegrationSecretsAbsent(h.t, observed, canaries...)
+	assertIntegrationSecretsAbsent(h.t, []byte(h.logs.String()), canaries...)
+
+	if h.runtime.openCount() == 0 {
+		h.t.Fatal("relational discovery did not increment opener count")
 	}
 }
 
@@ -413,12 +785,16 @@ func integrationNames(t *testing.T) integrationDatabaseNames {
 	if _, err := cryptorand.Read(random); err != nil {
 		t.Fatalf("crypto/rand.Read() error = %v", err)
 	}
+
 	prefix := strings.ToLower(strings.NewReplacer("/", "_", "-", "_").Replace(t.Name()))
+
 	prefix = strings.Trim(prefix, "_")
 	if len(prefix) > 20 {
 		prefix = prefix[:20]
 	}
+
 	suffix := prefix + "_" + hex.EncodeToString(random)
+
 	return integrationDatabaseNames{
 		suffix:           suffix,
 		sourceID:         connection.ID("integration_" + hex.EncodeToString(random)),
@@ -445,57 +821,273 @@ func integrationNames(t *testing.T) integrationDatabaseNames {
 func setupIntegrationDatabase(t *testing.T, admin *pgx.Conn, names integrationDatabaseNames) bool {
 	t.Helper()
 
+	accessible, role := setupIntegrationSchemas(t, admin, names)
+
+	relations, orders := setupIntegrationMetadataRelations(t, admin, names, accessible)
+
+	relations = append(
+		relations,
+		setupIntegrationPartitions(t, admin, names, accessible)...,
+	)
+
+	relations = append(
+		relations,
+		setupIntegrationTableKinds(t, admin, names, accessible, orders)...,
+	)
+	for _, relation := range relations {
+		execIntegrationSQL(t, admin, fmt.Sprintf("GRANT SELECT ON %s TO %s", relation, role))
+	}
+
+	execIntegrationSQL(
+		t,
+		admin,
+		fmt.Sprintf(
+			"GRANT SELECT (visible_value) ON %s.%s TO %s",
+			accessible,
+			integrationIdentifier(names.columnGrantTable),
+			role,
+		),
+	)
+	execIntegrationSQL(
+		t,
+		admin,
+		fmt.Sprintf(
+			"GRANT USAGE ON TYPE %s.order_state, %s.customer_code TO %s",
+			accessible,
+			accessible,
+			role,
+		),
+	)
+
+	foreignAvailable := true
+	if err := setupOptionalForeignTable(t, admin, names); err != nil {
+		foreignAvailable = false
+
+		t.Logf("skipping optional postgres_fdw relation: %v", err)
+	}
+
+	return foreignAvailable
+}
+
+func setupIntegrationSchemas(
+	t *testing.T,
+	admin *pgx.Conn,
+	names integrationDatabaseNames,
+) (string, string) {
+	t.Helper()
+
 	accessible := integrationIdentifier(names.accessibleSchema)
 	role := integrationIdentifier(names.role)
-	execIntegrationSQL(t, admin, fmt.Sprintf("CREATE ROLE %s LOGIN PASSWORD %s", role, integrationLiteral(names.password)))
+	execIntegrationSQL(
+		t,
+		admin,
+		fmt.Sprintf(
+			"CREATE ROLE %s LOGIN PASSWORD %s",
+			role,
+			integrationLiteral(names.password),
+		),
+	)
+
 	adminConfig, err := pgx.ParseConfig(os.Getenv("DATAPORCH_TEST_POSTGRES_DSN"))
 	if err != nil {
 		t.Fatalf("pgx.ParseConfig() error = %v", err)
 	}
-	execIntegrationSQL(t, admin, fmt.Sprintf("GRANT CONNECT ON DATABASE %s TO %s", integrationIdentifier(adminConfig.Database), role))
-	for _, schema := range []string{names.accessibleSchema, names.secondarySchema, names.mixedSchema, names.deniedSchema} {
-		execIntegrationSQL(t, admin, fmt.Sprintf("CREATE SCHEMA %s", integrationIdentifier(schema)))
+
+	grantConnect := fmt.Sprintf(
+		"GRANT CONNECT ON DATABASE %s TO %s",
+		integrationIdentifier(adminConfig.Database),
+		role,
+	)
+	execIntegrationSQL(t, admin, grantConnect)
+
+	schemas := []string{
+		names.accessibleSchema,
+		names.secondarySchema,
+		names.mixedSchema,
+		names.deniedSchema,
 	}
-	execIntegrationSQL(t, admin, fmt.Sprintf("GRANT USAGE ON SCHEMA %s, %s, %s TO %s", accessible, integrationIdentifier(names.secondarySchema), integrationIdentifier(names.mixedSchema), role))
+	for _, schema := range schemas {
+		execIntegrationSQL(t, admin, "CREATE SCHEMA "+integrationIdentifier(schema))
+	}
+
+	grantSchemaUsage := fmt.Sprintf(
+		"GRANT USAGE ON SCHEMA %s, %s, %s TO %s",
+		accessible,
+		integrationIdentifier(names.secondarySchema),
+		integrationIdentifier(names.mixedSchema),
+		role,
+	)
+	execIntegrationSQL(t, admin, grantSchemaUsage)
+
+	return accessible, role
+}
+
+func setupIntegrationMetadataRelations(
+	t *testing.T,
+	admin *pgx.Conn,
+	names integrationDatabaseNames,
+	accessible string,
+) ([]string, string) {
+	t.Helper()
 
 	customers := accessible + "." + integrationIdentifier("customers_"+names.suffix)
 	orders := accessible + "." + integrationIdentifier(names.ordinaryTable)
-	execIntegrationSQL(t, admin, fmt.Sprintf("CREATE TYPE %s.order_state AS ENUM ('open', 'closed')", accessible))
-	execIntegrationSQL(t, admin, fmt.Sprintf("CREATE DOMAIN %s.customer_code AS text CHECK (VALUE <> '')", accessible))
-	execIntegrationSQL(t, admin, fmt.Sprintf("CREATE TABLE %s (id bigint PRIMARY KEY, name text UNIQUE)", customers))
-	execIntegrationSQL(t, admin, fmt.Sprintf("CREATE TABLE %s (id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, customer_id bigint REFERENCES %s(id), amount numeric(12,2) NOT NULL DEFAULT 0 CHECK (amount >= 0), code %s.customer_code, state %s.order_state DEFAULT 'open', tags text[], created_at timestamp(3), generated_amount numeric GENERATED ALWAYS AS (amount * 2) STORED)", orders, customers, accessible, accessible))
+	execIntegrationSQL(
+		t,
+		admin,
+		fmt.Sprintf("CREATE TYPE %s.order_state AS ENUM ('open', 'closed')", accessible),
+	)
+	execIntegrationSQL(
+		t,
+		admin,
+		fmt.Sprintf("CREATE DOMAIN %s.customer_code AS text CHECK (VALUE <> '')", accessible),
+	)
+	execIntegrationSQL(
+		t,
+		admin,
+		fmt.Sprintf("CREATE TABLE %s (id bigint PRIMARY KEY, name text UNIQUE)", customers),
+	)
+
+	createOrders := fmt.Sprintf(
+		"CREATE TABLE %s ("+
+			"id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, "+
+			"customer_id bigint REFERENCES %s(id), "+
+			"amount numeric(12,2) NOT NULL DEFAULT 0 CHECK (amount >= 0), "+
+			"code %s.customer_code, state %s.order_state DEFAULT 'open', "+
+			"tags text[], created_at timestamp(3), "+
+			"generated_amount numeric GENERATED ALWAYS AS (amount * 2) STORED)",
+		orders,
+		customers,
+		accessible,
+		accessible,
+	)
+	execIntegrationSQL(t, admin, createOrders)
+
 	compositeParent := accessible + "." + integrationIdentifier(names.compositeParent)
 	compositeChild := accessible + "." + integrationIdentifier(names.compositeChild)
-	execIntegrationSQL(t, admin, fmt.Sprintf("CREATE TABLE %s (tenant_id bigint NOT NULL, parent_id bigint NOT NULL, code text NOT NULL, CONSTRAINT %s PRIMARY KEY (tenant_id, parent_id), CONSTRAINT %s UNIQUE (tenant_id, code))", compositeParent, integrationIdentifier(names.compositeParent+"_pkey"), integrationIdentifier(names.compositeParent+"_unique")))
-	execIntegrationSQL(t, admin, fmt.Sprintf("CREATE TABLE %s (tenant_id bigint NOT NULL, parent_id bigint NOT NULL, code text NOT NULL, amount numeric NOT NULL, CONSTRAINT %s PRIMARY KEY (tenant_id, parent_id), CONSTRAINT %s UNIQUE (tenant_id, code), CONSTRAINT %s FOREIGN KEY (tenant_id, parent_id) REFERENCES %s (tenant_id, parent_id), CONSTRAINT %s CHECK (amount >= 0))", compositeChild, integrationIdentifier(names.compositeChild+"_pkey"), integrationIdentifier(names.compositeChild+"_unique"), integrationIdentifier(names.compositeChild+"_parent_fkey"), compositeParent, integrationIdentifier(names.compositeChild+"_amount_check")))
-	execIntegrationSQL(t, admin, fmt.Sprintf("COMMENT ON SCHEMA %s IS 'schema description'", accessible))
-	execIntegrationSQL(t, admin, fmt.Sprintf("COMMENT ON TABLE %s IS 'orders description'", orders))
-	execIntegrationSQL(t, admin, fmt.Sprintf("COMMENT ON COLUMN %s.amount IS 'amount description'", orders))
+	createCompositeParent := fmt.Sprintf(
+		"CREATE TABLE %s ("+
+			"tenant_id bigint NOT NULL, parent_id bigint NOT NULL, code text NOT NULL, "+
+			"CONSTRAINT %s PRIMARY KEY (tenant_id, parent_id), "+
+			"CONSTRAINT %s UNIQUE (tenant_id, code))",
+		compositeParent,
+		integrationIdentifier(names.compositeParent+"_pkey"),
+		integrationIdentifier(names.compositeParent+"_unique"),
+	)
+	execIntegrationSQL(t, admin, createCompositeParent)
+
+	createCompositeChild := fmt.Sprintf(
+		"CREATE TABLE %s ("+
+			"tenant_id bigint NOT NULL, parent_id bigint NOT NULL, "+
+			"code text NOT NULL, amount numeric NOT NULL, "+
+			"CONSTRAINT %s PRIMARY KEY (tenant_id, parent_id), "+
+			"CONSTRAINT %s UNIQUE (tenant_id, code), "+
+			"CONSTRAINT %s FOREIGN KEY (tenant_id, parent_id) "+
+			"REFERENCES %s (tenant_id, parent_id), "+
+			"CONSTRAINT %s CHECK (amount >= 0))",
+		compositeChild,
+		integrationIdentifier(names.compositeChild+"_pkey"),
+		integrationIdentifier(names.compositeChild+"_unique"),
+		integrationIdentifier(names.compositeChild+"_parent_fkey"),
+		compositeParent,
+		integrationIdentifier(names.compositeChild+"_amount_check"),
+	)
+	execIntegrationSQL(t, admin, createCompositeChild)
+	execIntegrationSQL(
+		t,
+		admin,
+		fmt.Sprintf("COMMENT ON SCHEMA %s IS 'schema description'", accessible),
+	)
+	execIntegrationSQL(
+		t,
+		admin,
+		fmt.Sprintf("COMMENT ON TABLE %s IS 'orders description'", orders),
+	)
+	execIntegrationSQL(
+		t,
+		admin,
+		fmt.Sprintf("COMMENT ON COLUMN %s.amount IS 'amount description'", orders),
+	)
+
+	return []string{orders, customers, compositeParent, compositeChild}, orders
+}
+
+func setupIntegrationPartitions(
+	t *testing.T,
+	admin *pgx.Conn,
+	names integrationDatabaseNames,
+	accessible string,
+) []string {
+	t.Helper()
 
 	partitioned := accessible + "." + integrationIdentifier(names.partitionedTable)
 	partition := accessible + "." + integrationIdentifier(names.partitionedTable+"_2026")
-	execIntegrationSQL(t, admin, fmt.Sprintf("CREATE TABLE %s (id bigint, happened_at date, PRIMARY KEY (id, happened_at)) PARTITION BY RANGE (happened_at)", partitioned))
-	execIntegrationSQL(t, admin, fmt.Sprintf("CREATE TABLE %s PARTITION OF %s FOR VALUES FROM ('2026-01-01') TO ('2027-01-01')", partition, partitioned))
+	createPartitioned := fmt.Sprintf(
+		"CREATE TABLE %s (id bigint, happened_at date, "+
+			"PRIMARY KEY (id, happened_at)) PARTITION BY RANGE (happened_at)",
+		partitioned,
+	)
+	execIntegrationSQL(t, admin, createPartitioned)
+
+	createPartition := fmt.Sprintf(
+		"CREATE TABLE %s PARTITION OF %s "+
+			"FOR VALUES FROM ('2026-01-01') TO ('2027-01-01')",
+		partition,
+		partitioned,
+	)
+	execIntegrationSQL(t, admin, createPartition)
+
+	return []string{partitioned, partition}
+}
+
+func setupIntegrationTableKinds(
+	t *testing.T,
+	admin *pgx.Conn,
+	names integrationDatabaseNames,
+	accessible string,
+	orders string,
+) []string {
+	t.Helper()
 
 	view := accessible + "." + integrationIdentifier(names.view)
 	materialized := accessible + "." + integrationIdentifier(names.materializedView)
-	execIntegrationSQL(t, admin, fmt.Sprintf("CREATE VIEW %s AS SELECT id, amount FROM %s", view, orders))
-	execIntegrationSQL(t, admin, fmt.Sprintf("CREATE MATERIALIZED VIEW %s AS SELECT id, amount FROM %s", materialized, orders))
-	execIntegrationSQL(t, admin, fmt.Sprintf("CREATE TABLE %s.%s (id bigint, secret_value text)", accessible, integrationIdentifier(names.deniedTable)))
-	execIntegrationSQL(t, admin, fmt.Sprintf("CREATE TABLE %s.%s (visible_value text, hidden_value text)", accessible, integrationIdentifier(names.columnGrantTable)))
-	execIntegrationSQL(t, admin, fmt.Sprintf("CREATE TABLE %s.%s (id bigint)", integrationIdentifier(names.mixedSchema), integrationIdentifier(names.mixedTable)))
+	mixed := integrationIdentifier(names.mixedSchema) + "." + integrationIdentifier(names.mixedTable)
 
-	for _, relation := range []string{orders, customers, compositeParent, compositeChild, partitioned, partition, view, materialized, integrationIdentifier(names.mixedSchema) + "." + integrationIdentifier(names.mixedTable)} {
-		execIntegrationSQL(t, admin, fmt.Sprintf("GRANT SELECT ON %s TO %s", relation, role))
-	}
-	execIntegrationSQL(t, admin, fmt.Sprintf("GRANT SELECT (visible_value) ON %s.%s TO %s", accessible, integrationIdentifier(names.columnGrantTable), role))
-	execIntegrationSQL(t, admin, fmt.Sprintf("GRANT USAGE ON TYPE %s.order_state, %s.customer_code TO %s", accessible, accessible, role))
-	foreignAvailable := true
-	if err := setupOptionalForeignTable(t, admin, names); err != nil {
-		foreignAvailable = false
-		t.Logf("skipping optional postgres_fdw relation: %v", err)
-	}
-	return foreignAvailable
+	execIntegrationSQL(
+		t,
+		admin,
+		fmt.Sprintf("CREATE VIEW %s AS SELECT id, amount FROM %s", view, orders),
+	)
+	execIntegrationSQL(
+		t,
+		admin,
+		fmt.Sprintf("CREATE MATERIALIZED VIEW %s AS SELECT id, amount FROM %s", materialized, orders),
+	)
+	execIntegrationSQL(
+		t,
+		admin,
+		fmt.Sprintf(
+			"CREATE TABLE %s.%s (id bigint, secret_value text)",
+			accessible,
+			integrationIdentifier(names.deniedTable),
+		),
+	)
+	execIntegrationSQL(
+		t,
+		admin,
+		fmt.Sprintf(
+			"CREATE TABLE %s.%s (visible_value text, hidden_value text)",
+			accessible,
+			integrationIdentifier(names.columnGrantTable),
+		),
+	)
+	execIntegrationSQL(
+		t,
+		admin,
+		fmt.Sprintf("CREATE TABLE %s (id bigint)", mixed),
+	)
+
+	return []string{view, materialized, mixed}
 }
 
 func setupOptionalForeignTable(t *testing.T, admin *pgx.Conn, names integrationDatabaseNames) error {
@@ -504,17 +1096,46 @@ func setupOptionalForeignTable(t *testing.T, admin *pgx.Conn, names integrationD
 	if _, err := admin.Exec(t.Context(), "CREATE EXTENSION IF NOT EXISTS postgres_fdw"); err != nil {
 		return fmt.Errorf("creating postgres_fdw extension: %w", err)
 	}
+
 	parsed, err := pgx.ParseConfig(os.Getenv("DATAPORCH_TEST_POSTGRES_DSN"))
 	if err != nil {
 		return fmt.Errorf("parsing integration DSN: %w", err)
 	}
+
 	server := integrationIdentifier(names.server)
 	foreign := integrationIdentifier(names.accessibleSchema) + "." + integrationIdentifier(names.foreignTable)
+	port := integrationLiteral(strconv.FormatUint(uint64(parsed.Port), 10))
+
 	statements := []string{
-		fmt.Sprintf("CREATE SERVER %s FOREIGN DATA WRAPPER postgres_fdw OPTIONS (host %s, port %s, dbname %s)", server, integrationLiteral(parsed.Host), integrationLiteral(fmt.Sprint(parsed.Port)), integrationLiteral(parsed.Database)),
-		fmt.Sprintf("CREATE USER MAPPING FOR %s SERVER %s OPTIONS (user %s, password %s)", integrationIdentifier(names.role), server, integrationLiteral(parsed.User), integrationLiteral(parsed.Password)),
-		fmt.Sprintf("CREATE FOREIGN TABLE %s (id bigint) SERVER %s OPTIONS (schema_name %s, table_name %s)", foreign, server, integrationLiteral(names.accessibleSchema), integrationLiteral("customers_"+names.suffix)),
-		fmt.Sprintf("GRANT USAGE ON FOREIGN SERVER %s TO %s", server, integrationIdentifier(names.role)),
+		fmt.Sprintf(
+			"CREATE SERVER %s FOREIGN DATA WRAPPER postgres_fdw "+
+				"OPTIONS (host %s, port %s, dbname %s)",
+			server,
+			integrationLiteral(parsed.Host),
+			port,
+			integrationLiteral(parsed.Database),
+		),
+		fmt.Sprintf(
+			"CREATE USER MAPPING FOR %s SERVER %s "+
+				"OPTIONS (user %s, password %s)",
+			integrationIdentifier(names.role),
+			server,
+			integrationLiteral(parsed.User),
+			integrationLiteral(parsed.Password),
+		),
+		fmt.Sprintf(
+			"CREATE FOREIGN TABLE %s (id bigint) SERVER %s "+
+				"OPTIONS (schema_name %s, table_name %s)",
+			foreign,
+			server,
+			integrationLiteral(names.accessibleSchema),
+			integrationLiteral("customers_"+names.suffix),
+		),
+		fmt.Sprintf(
+			"GRANT USAGE ON FOREIGN SERVER %s TO %s",
+			server,
+			integrationIdentifier(names.role),
+		),
 		fmt.Sprintf("GRANT SELECT ON %s TO %s", foreign, integrationIdentifier(names.role)),
 	}
 	for _, statement := range statements {
@@ -522,19 +1143,21 @@ func setupOptionalForeignTable(t *testing.T, admin *pgx.Conn, names integrationD
 			return err
 		}
 	}
+
 	return nil
 }
 
 func cleanupIntegrationDatabase(t *testing.T, admin *pgx.Conn, names integrationDatabaseNames) {
 	t.Helper()
+
 	for _, statement := range []string{
 		fmt.Sprintf("DROP SERVER IF EXISTS %s CASCADE", integrationIdentifier(names.server)),
 		fmt.Sprintf("DROP SCHEMA IF EXISTS %s CASCADE", integrationIdentifier(names.accessibleSchema)),
 		fmt.Sprintf("DROP SCHEMA IF EXISTS %s CASCADE", integrationIdentifier(names.secondarySchema)),
 		fmt.Sprintf("DROP SCHEMA IF EXISTS %s CASCADE", integrationIdentifier(names.mixedSchema)),
 		fmt.Sprintf("DROP SCHEMA IF EXISTS %s CASCADE", integrationIdentifier(names.deniedSchema)),
-		fmt.Sprintf("DROP OWNED BY %s", integrationIdentifier(names.role)),
-		fmt.Sprintf("DROP ROLE IF EXISTS %s", integrationIdentifier(names.role)),
+		"DROP OWNED BY " + integrationIdentifier(names.role),
+		"DROP ROLE IF EXISTS " + integrationIdentifier(names.role),
 	} {
 		if _, err := admin.Exec(context.Background(), statement); err != nil {
 			t.Errorf("cleanup statement failed: %v", err)
@@ -542,51 +1165,73 @@ func cleanupIntegrationDatabase(t *testing.T, admin *pgx.Conn, names integration
 	}
 }
 
-func callDiscoveryTool[T any](t *testing.T, session *mcpsdk.ClientSession, name string, arguments map[string]any) T {
+func callDiscoveryTool[T any](
+	t *testing.T,
+	session *mcpsdk.ClientSession,
+	name string,
+	arguments map[string]any,
+) T {
 	t.Helper()
+
 	if arguments == nil {
 		arguments = map[string]any{}
 	}
+
 	result, err := session.CallTool(t.Context(), &mcpsdk.CallToolParams{Name: name, Arguments: arguments})
 	if err != nil {
 		t.Fatalf("CallTool(%q) error = %v", name, err)
 	}
+
 	if result.IsError {
 		if len(result.Content) == 1 {
 			if text, ok := result.Content[0].(*mcpsdk.TextContent); ok {
 				t.Fatalf("CallTool(%q) returned tool error: %s", name, text.Text)
 			}
 		}
+
 		t.Fatalf("CallTool(%q) returned tool error: %#v", name, result.Content)
 	}
+
 	encoded, err := json.Marshal(result.StructuredContent)
 	if err != nil {
 		t.Fatalf("Marshal(%q structured content) error = %v", name, err)
 	}
+
 	var output T
 	if err := json.Unmarshal(encoded, &output); err != nil {
 		t.Fatalf("Unmarshal(%q result) error = %v", name, err)
 	}
+
 	return output
 }
 
-func callDiscoveryToolFailure(t *testing.T, session *mcpsdk.ClientSession, name string, arguments map[string]any) execution.Failure {
+func callDiscoveryToolFailure(
+	t *testing.T,
+	session *mcpsdk.ClientSession,
+	name string,
+	arguments map[string]any,
+) execution.Failure {
 	t.Helper()
+
 	result, err := session.CallTool(t.Context(), &mcpsdk.CallToolParams{Name: name, Arguments: arguments})
 	if err != nil {
 		t.Fatalf("CallTool(%q) error = %v", name, err)
 	}
+
 	if !result.IsError || len(result.Content) != 1 || result.StructuredContent != nil {
 		t.Fatalf("CallTool(%q) result = %#v, want safe tool error", name, result)
 	}
+
 	text, ok := result.Content[0].(*mcpsdk.TextContent)
 	if !ok {
 		t.Fatalf("CallTool(%q) content type = %T, want text", name, result.Content[0])
 	}
+
 	var failure execution.Failure
 	if err := json.Unmarshal([]byte(text.Text), &failure); err != nil {
 		t.Fatalf("CallTool(%q) error text = %q: %v", name, text.Text, err)
 	}
+
 	return failure
 }
 
@@ -614,14 +1259,17 @@ func (r *countingPostgresRuntime) openCount() int64 {
 
 func assertSchemaNames(t *testing.T, schemas []execution.Schema, expected ...string) {
 	t.Helper()
+
 	for _, name := range expected {
 		found := false
+
 		for _, schema := range schemas {
 			if schema.Name == name {
 				found = true
 				break
 			}
 		}
+
 		if !found {
 			t.Fatalf("schemas = %#v, missing %q", schemas, name)
 		}
@@ -630,14 +1278,17 @@ func assertSchemaNames(t *testing.T, schemas []execution.Schema, expected ...str
 
 func assertTableKind(t *testing.T, tables []execution.Table, name string, kind execution.RelationKind) {
 	t.Helper()
+
 	for _, table := range tables {
 		if table.Name == name {
 			if table.Kind != kind {
 				t.Fatalf("table %q kind = %q, want %q", name, table.Kind, kind)
 			}
+
 			return
 		}
 	}
+
 	t.Fatalf("tables = %#v, missing %q", tables, name)
 }
 
@@ -647,60 +1298,112 @@ func hasTable(tables []execution.Table, name string) bool {
 			return true
 		}
 	}
-	return false
-}
 
-func hasColumn(columns []execution.Column, name string) bool {
-	for _, column := range columns {
-		if column.Name == name {
-			return true
-		}
-	}
 	return false
 }
 
 func assertColumnMetadata(t *testing.T, columns []execution.Column) {
 	t.Helper()
 
-	checks := map[string]func(execution.Column) bool{
-		"id": func(column execution.Column) bool {
-			return column.Identity != nil && column.Identity.Generation == "always"
-		},
-		"amount": func(column execution.Column) bool {
-			return !column.Nullable && column.DefaultExpression != nil && column.Type.Precision != nil && *column.Type.Precision == 12 && column.Type.Scale != nil && *column.Type.Scale == 2
-		},
-		"code": func(column execution.Column) bool {
-			return column.Type.Category == execution.TypeCategoryDomain && column.Type.DomainBaseType != nil && column.Type.DomainBaseType.Name == "text"
-		},
-		"state": func(column execution.Column) bool {
-			return column.Type.Category == execution.TypeCategoryEnum && column.DefaultExpression != nil
-		},
-		"tags": func(column execution.Column) bool {
-			return column.Type.Category == execution.TypeCategoryArray && column.Type.IsArray && column.Type.ElementType != nil && column.Type.ElementType.Name == "text"
-		},
-		"created_at": func(column execution.Column) bool {
-			return column.Type.TemporalPrecision != nil && *column.Type.TemporalPrecision == 3
-		},
-		"generated_amount": func(column execution.Column) bool {
-			return column.Generated != nil && column.Generated.Kind == "stored" && strings.Contains(column.Generated.Expression, "amount")
-		},
+	assertIdentityColumnMetadata(t, columnByName(t, columns, "id"))
+	assertAmountColumnMetadata(t, columnByName(t, columns, "amount"))
+	assertDomainColumnMetadata(t, columnByName(t, columns, "code"))
+	assertEnumColumnMetadata(t, columnByName(t, columns, "state"))
+	assertArrayColumnMetadata(t, columnByName(t, columns, "tags"))
+	assertTemporalColumnMetadata(t, columnByName(t, columns, "created_at"))
+	assertGeneratedColumnMetadata(t, columnByName(t, columns, "generated_amount"))
+}
+
+func assertIdentityColumnMetadata(t *testing.T, column execution.Column) {
+	t.Helper()
+
+	if column.Identity == nil || column.Identity.Generation != "always" {
+		t.Fatalf("column %q metadata = %#v, want always identity", column.Name, column)
+	}
+}
+
+func assertAmountColumnMetadata(t *testing.T, column execution.Column) {
+	t.Helper()
+
+	metadataIsMissing := column.DefaultExpression == nil ||
+		column.Type.Precision == nil ||
+		column.Type.Scale == nil
+	if column.Nullable || metadataIsMissing {
+		t.Fatalf("column %q metadata = %#v, want numeric metadata", column.Name, column)
 	}
 
-	for name, check := range checks {
-		found := false
-		for _, column := range columns {
-			if column.Name == name {
-				found = true
-				if !check(column) {
-					t.Fatalf("column %q metadata = %#v, want structured metadata", name, column)
-				}
-				break
-			}
-		}
-		if !found {
-			t.Fatalf("columns = %#v, missing %q", columns, name)
+	if *column.Type.Precision != 12 || *column.Type.Scale != 2 {
+		t.Fatalf("column %q metadata = %#v, want numeric(12,2)", column.Name, column)
+	}
+}
+
+func assertDomainColumnMetadata(t *testing.T, column execution.Column) {
+	t.Helper()
+
+	domainBaseIsMissing := column.Type.DomainBaseType == nil
+	if column.Type.Category != execution.TypeCategoryDomain || domainBaseIsMissing {
+		t.Fatalf("column %q metadata = %#v, want domain metadata", column.Name, column)
+	}
+
+	if column.Type.DomainBaseType.Name != "text" {
+		t.Fatalf("column %q metadata = %#v, want text domain base", column.Name, column)
+	}
+}
+
+func assertEnumColumnMetadata(t *testing.T, column execution.Column) {
+	t.Helper()
+
+	if column.Type.Category != execution.TypeCategoryEnum || column.DefaultExpression == nil {
+		t.Fatalf("column %q metadata = %#v, want enum metadata", column.Name, column)
+	}
+}
+
+func assertArrayColumnMetadata(t *testing.T, column execution.Column) {
+	t.Helper()
+
+	arrayMetadataIsMissing := column.Type.ElementType == nil
+	if column.Type.Category != execution.TypeCategoryArray || !column.Type.IsArray || arrayMetadataIsMissing {
+		t.Fatalf("column %q metadata = %#v, want array metadata", column.Name, column)
+	}
+
+	if column.Type.ElementType.Name != "text" {
+		t.Fatalf("column %q metadata = %#v, want text array element", column.Name, column)
+	}
+}
+
+func assertTemporalColumnMetadata(t *testing.T, column execution.Column) {
+	t.Helper()
+
+	precision := column.Type.TemporalPrecision
+	if precision == nil || *precision != 3 {
+		t.Fatalf("column %q metadata = %#v, want temporal precision", column.Name, column)
+	}
+}
+
+func assertGeneratedColumnMetadata(t *testing.T, column execution.Column) {
+	t.Helper()
+
+	if column.Generated == nil || column.Generated.Kind != "stored" {
+		t.Fatalf("column %q metadata = %#v, want stored generation", column.Name, column)
+	}
+
+	if !strings.Contains(column.Generated.Expression, "amount") {
+		t.Fatalf("column %q metadata = %#v, want generated expression", column.Name, column)
+	}
+}
+
+func columnByName(t *testing.T, columns []execution.Column, name string) execution.Column {
+	t.Helper()
+
+	for _, column := range columns {
+		if column.Name == name {
+			return column
 		}
 	}
+
+	t.Fatalf("columns = %#v, missing %q", columns, name)
+
+	return execution.Column{}
 }
 
 func assertCompositeConstraints(t *testing.T, constraints []execution.Constraint, names integrationDatabaseNames) {
@@ -718,15 +1421,18 @@ func assertCompositeConstraints(t *testing.T, constraints []execution.Constraint
 
 	for name, want := range wants {
 		var found *execution.Constraint
+
 		for index := range constraints {
 			if constraints[index].Name == name {
 				found = &constraints[index]
 				break
 			}
 		}
+
 		if found == nil || found.Kind != want.kind || !sameStrings(found.Columns, want.columns) {
 			t.Fatalf("constraints = %#v, missing complete %q", constraints, name)
 		}
+
 		if want.kind == "foreign_key" {
 			if found.Referenced == nil || !sameStrings(found.Referenced.Columns, want.columns) {
 				t.Fatalf("foreign constraint = %#v, want referenced columns %v", found, want.columns)
@@ -755,6 +1461,7 @@ func hasDescribedColumn(columns []execution.Column, name string) bool {
 			return column.Description != nil
 		}
 	}
+
 	return false
 }
 
@@ -764,11 +1471,13 @@ func hasConstraint(constraints []execution.Constraint, name, kind string) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
 func execIntegrationSQL(t *testing.T, admin *pgx.Conn, statement string) {
 	t.Helper()
+
 	if _, err := admin.Exec(t.Context(), statement); err != nil {
 		t.Fatalf("integration SQL failed: %v", err)
 	}
@@ -784,6 +1493,7 @@ func integrationLiteral(value string) string {
 
 func assertIntegrationSecretsAbsent(t *testing.T, data []byte, values ...string) {
 	t.Helper()
+
 	if containsSensitiveValue(data, values...) {
 		t.Fatal("integration output contains sensitive value")
 	}
@@ -801,40 +1511,70 @@ func containsSensitiveValue(data []byte, values ...string) bool {
 
 func readerConnectionString(t *testing.T, dsn, role, password string) string {
 	t.Helper()
+
 	parsed, err := url.Parse(dsn)
 	if err != nil {
 		t.Fatalf("url.Parse() error = %v", err)
 	}
+
 	parsed.User = url.UserPassword(role, password)
+
 	return parsed.String()
 }
 
 func freeTCPAddress(t *testing.T) string {
 	t.Helper()
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+
+	listener, err := (&net.ListenConfig{}).Listen(
+		t.Context(),
+		"tcp",
+		"127.0.0.1:0",
+	)
 	if err != nil {
-		t.Fatalf("net.Listen() error = %v", err)
+		t.Fatalf("net.ListenConfig.Listen() error = %v", err)
 	}
+
 	address := listener.Addr().String()
 	if err := listener.Close(); err != nil {
 		t.Fatalf("listener.Close() error = %v", err)
 	}
+
 	return address
 }
 
 func waitForHealth(t *testing.T, address string) {
 	t.Helper()
+
 	client := &http.Client{Timeout: 100 * time.Millisecond}
+
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		response, err := client.Get("http://" + address + "/healthz")
+		request, err := http.NewRequestWithContext(
+			t.Context(),
+			http.MethodGet,
+			"http://"+address+"/healthz",
+			nil,
+		)
+		if err != nil {
+			t.Fatalf("http.NewRequestWithContext() error = %v", err)
+		}
+
+		response, err := client.Do(request)
 		if err == nil {
-			_ = response.Body.Close()
-			if response.StatusCode == http.StatusOK {
+			statusCode := response.StatusCode
+			if err := response.Body.Close(); err != nil {
+				t.Errorf("health response close error = %v", err)
+
+				return
+			}
+
+			if statusCode == http.StatusOK {
 				return
 			}
 		}
+
 		time.Sleep(20 * time.Millisecond)
 	}
+
 	t.Fatalf("health endpoint %q did not become ready", address)
 }

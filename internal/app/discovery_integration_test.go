@@ -36,6 +36,7 @@ type integrationHarness struct {
 	runtime          *countingPostgresRuntime
 	logs             *strings.Builder
 	foreignAvailable bool
+	serverVersion    int
 }
 
 type integrationSnapshot struct {
@@ -53,6 +54,7 @@ func TestDiscoveryImportToMCPPostgresIntegration(t *testing.T) {
 	sources := harness.assertDataSources()
 
 	allSchemas := harness.listSchemas()
+	harness.assertControlIdentifierTraversal(allSchemas)
 
 	allTables := harness.listTables()
 	allColumns, allConstraints := harness.listColumns()
@@ -85,7 +87,8 @@ func newIntegrationHarness(t *testing.T) *integrationHarness {
 	names := integrationNames(t)
 	admin := connectIntegrationAdmin(t, dsn)
 	t.Cleanup(func() { cleanupIntegrationDatabase(t, admin, names) })
-	foreignAvailable := setupIntegrationDatabase(t, admin, names)
+	serverVersion := integrationServerVersion(t, admin)
+	foreignAvailable := setupIntegrationDatabase(t, admin, names, serverVersion)
 
 	cfg := testConfigFor(t)
 	cfg.ResourceLimit = 3
@@ -146,7 +149,22 @@ func newIntegrationHarness(t *testing.T) *integrationHarness {
 		runtime:          runtime,
 		logs:             logs,
 		foreignAvailable: foreignAvailable,
+		serverVersion:    serverVersion,
 	}
+}
+
+func integrationServerVersion(t *testing.T, admin *pgx.Conn) int {
+	t.Helper()
+
+	var version int
+	if err := admin.QueryRow(
+		t.Context(),
+		"SELECT current_setting('server_version_num')::integer",
+	).Scan(&version); err != nil {
+		t.Fatalf("querying PostgreSQL server version: %v", err)
+	}
+
+	return version
 }
 
 func connectIntegrationAdmin(t *testing.T, dsn string) *pgx.Conn {
@@ -322,14 +340,15 @@ func (h *integrationHarness) listSchemas() []execution.Schema {
 		schemas = append(schemas, nextPage.Schemas...)
 	}
 
-	if len(schemas) != 3 {
-		h.t.Fatalf("schemas = %#v, want three accessible schemas", schemas)
+	if len(schemas) != 4 {
+		h.t.Fatalf("schemas = %#v, want four accessible schemas", schemas)
 	}
 
 	assertSchemaNames(
 		h.t,
 		schemas,
 		h.names.accessibleSchema,
+		h.names.controlSchema,
 		h.names.mixedSchema,
 		h.names.secondarySchema,
 	)
@@ -362,6 +381,43 @@ func (h *integrationHarness) listSchemas() []execution.Schema {
 	}
 
 	return schemas
+}
+
+func (h *integrationHarness) assertControlIdentifierTraversal(schemas []execution.Schema) {
+	h.t.Helper()
+
+	schema := schemaByName(h.t, schemas, h.names.controlSchema)
+
+	tables := callDiscoveryTool[execution.ListRelationalTablesResult](
+		h.t,
+		h.session,
+		"relational_database.list_tables",
+		map[string]any{
+			"source_id": h.names.sourceID,
+			"schema":    schema.Name,
+		},
+	)
+	if len(tables.Tables) != 1 || tables.Tables[0].Name != h.names.controlTable {
+		h.t.Fatalf(
+			"control identifier tables = %#v, want %q",
+			tables.Tables,
+			h.names.controlTable,
+		)
+	}
+
+	columns := callDiscoveryTool[execution.ListRelationalColumnsResult](
+		h.t,
+		h.session,
+		"relational_database.list_columns",
+		map[string]any{
+			"source_id": h.names.sourceID,
+			"schema":    schema.Name,
+			"table":     tables.Tables[0].Name,
+		},
+	)
+	if len(columns.Columns) != 1 || columns.Columns[0].Name != "id" {
+		h.t.Fatalf("control identifier columns = %#v, want id", columns.Columns)
+	}
 }
 
 func (h *integrationHarness) listTables() []execution.Table {
@@ -508,7 +564,7 @@ func (h *integrationHarness) listColumns() ([]execution.Column, []execution.Cons
 		h.t.Fatalf("constraints = %#v, want primary, foreign, and check constraints", constraints)
 	}
 
-	assertColumnMetadata(h.t, columns)
+	assertColumnMetadata(h.t, columns, h.expectedGeneratedKind())
 	h.assertOrdinaryConstraints(constraints)
 
 	for _, column := range columns {
@@ -520,6 +576,14 @@ func (h *integrationHarness) listColumns() ([]execution.Column, []execution.Cons
 	h.assertDescribedColumn()
 
 	return columns, constraints
+}
+
+func (h *integrationHarness) expectedGeneratedKind() string {
+	if h.serverVersion >= 180000 {
+		return "virtual"
+	}
+
+	return "stored"
 }
 
 func (h *integrationHarness) assertOrdinaryConstraints(constraints []execution.Constraint) {
@@ -764,6 +828,7 @@ type integrationDatabaseNames struct {
 	accessibleSchema string
 	secondarySchema  string
 	mixedSchema      string
+	controlSchema    string
 	deniedSchema     string
 	ordinaryTable    string
 	partitionedTable string
@@ -772,6 +837,7 @@ type integrationDatabaseNames struct {
 	deniedTable      string
 	columnGrantTable string
 	mixedTable       string
+	controlTable     string
 	foreignTable     string
 	server           string
 	compositeParent  string
@@ -803,6 +869,7 @@ func integrationNames(t *testing.T) integrationDatabaseNames {
 		accessibleSchema: "dp_access_" + suffix,
 		secondarySchema:  "dp_second_" + suffix,
 		mixedSchema:      "DpMixed_" + suffix,
+		controlSchema:    "dp_control_" + suffix + "\narchive",
 		deniedSchema:     "dp_denied_" + suffix,
 		ordinaryTable:    "orders_" + suffix,
 		partitionedTable: "events_" + suffix,
@@ -811,6 +878,7 @@ func integrationNames(t *testing.T) integrationDatabaseNames {
 		deniedTable:      "hidden_" + suffix,
 		columnGrantTable: "column_grant_" + suffix,
 		mixedTable:       "MixedOrders_" + suffix,
+		controlTable:     "Control\tOrders_" + suffix,
 		foreignTable:     "foreign_" + suffix,
 		server:           "dp_server_" + suffix,
 		compositeParent:  "composite_parent_" + suffix,
@@ -818,12 +886,23 @@ func integrationNames(t *testing.T) integrationDatabaseNames {
 	}
 }
 
-func setupIntegrationDatabase(t *testing.T, admin *pgx.Conn, names integrationDatabaseNames) bool {
+func setupIntegrationDatabase(
+	t *testing.T,
+	admin *pgx.Conn,
+	names integrationDatabaseNames,
+	serverVersion int,
+) bool {
 	t.Helper()
 
 	accessible, role := setupIntegrationSchemas(t, admin, names)
 
-	relations, orders := setupIntegrationMetadataRelations(t, admin, names, accessible)
+	relations, orders := setupIntegrationMetadataRelations(
+		t,
+		admin,
+		names,
+		accessible,
+		serverVersion,
+	)
 
 	relations = append(
 		relations,
@@ -834,6 +913,9 @@ func setupIntegrationDatabase(t *testing.T, admin *pgx.Conn, names integrationDa
 		relations,
 		setupIntegrationTableKinds(t, admin, names, accessible, orders)...,
 	)
+
+	relations = append(relations, setupIntegrationControlRelation(t, admin, names))
+
 	for _, relation := range relations {
 		execIntegrationSQL(t, admin, fmt.Sprintf("GRANT SELECT ON %s TO %s", relation, role))
 	}
@@ -904,6 +986,7 @@ func setupIntegrationSchemas(
 		names.accessibleSchema,
 		names.secondarySchema,
 		names.mixedSchema,
+		names.controlSchema,
 		names.deniedSchema,
 	}
 	for _, schema := range schemas {
@@ -911,10 +994,11 @@ func setupIntegrationSchemas(
 	}
 
 	grantSchemaUsage := fmt.Sprintf(
-		"GRANT USAGE ON SCHEMA %s, %s, %s TO %s",
+		"GRANT USAGE ON SCHEMA %s, %s, %s, %s TO %s",
 		accessible,
 		integrationIdentifier(names.secondarySchema),
 		integrationIdentifier(names.mixedSchema),
+		integrationIdentifier(names.controlSchema),
 		role,
 	)
 	execIntegrationSQL(t, admin, grantSchemaUsage)
@@ -927,6 +1011,7 @@ func setupIntegrationMetadataRelations(
 	admin *pgx.Conn,
 	names integrationDatabaseNames,
 	accessible string,
+	serverVersion int,
 ) ([]string, string) {
 	t.Helper()
 
@@ -940,7 +1025,10 @@ func setupIntegrationMetadataRelations(
 	execIntegrationSQL(
 		t,
 		admin,
-		fmt.Sprintf("CREATE DOMAIN %s.customer_code AS text CHECK (VALUE <> '')", accessible),
+		fmt.Sprintf(
+			"CREATE DOMAIN %s.customer_code AS text NOT NULL CHECK (VALUE <> '')",
+			accessible,
+		),
 	)
 	execIntegrationSQL(
 		t,
@@ -948,18 +1036,23 @@ func setupIntegrationMetadataRelations(
 		fmt.Sprintf("CREATE TABLE %s (id bigint PRIMARY KEY, name text UNIQUE)", customers),
 	)
 
+	generatedColumn := "generated_amount numeric GENERATED ALWAYS AS (amount * 2) STORED"
+	if serverVersion >= 180000 {
+		generatedColumn = "generated_amount numeric GENERATED ALWAYS AS (amount * 2)"
+	}
+
 	createOrders := fmt.Sprintf(
 		"CREATE TABLE %s ("+
 			"id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, "+
 			"customer_id bigint REFERENCES %s(id), "+
 			"amount numeric(12,2) NOT NULL DEFAULT 0 CHECK (amount >= 0), "+
 			"code %s.customer_code, state %s.order_state DEFAULT 'open', "+
-			"tags text[], created_at timestamp(3), "+
-			"generated_amount numeric GENERATED ALWAYS AS (amount * 2) STORED)",
+			"tags text[], created_at timestamp(3), %s)",
 		orders,
 		customers,
 		accessible,
 		accessible,
+		generatedColumn,
 	)
 	execIntegrationSQL(t, admin, createOrders)
 
@@ -1090,6 +1183,20 @@ func setupIntegrationTableKinds(
 	return []string{view, materialized, mixed}
 }
 
+func setupIntegrationControlRelation(
+	t *testing.T,
+	admin *pgx.Conn,
+	names integrationDatabaseNames,
+) string {
+	t.Helper()
+
+	relation := integrationIdentifier(names.controlSchema) +
+		"." + integrationIdentifier(names.controlTable)
+	execIntegrationSQL(t, admin, "CREATE TABLE "+relation+" (id bigint)")
+
+	return relation
+}
+
 func setupOptionalForeignTable(t *testing.T, admin *pgx.Conn, names integrationDatabaseNames) error {
 	t.Helper()
 
@@ -1155,6 +1262,7 @@ func cleanupIntegrationDatabase(t *testing.T, admin *pgx.Conn, names integration
 		fmt.Sprintf("DROP SCHEMA IF EXISTS %s CASCADE", integrationIdentifier(names.accessibleSchema)),
 		fmt.Sprintf("DROP SCHEMA IF EXISTS %s CASCADE", integrationIdentifier(names.secondarySchema)),
 		fmt.Sprintf("DROP SCHEMA IF EXISTS %s CASCADE", integrationIdentifier(names.mixedSchema)),
+		fmt.Sprintf("DROP SCHEMA IF EXISTS %s CASCADE", integrationIdentifier(names.controlSchema)),
 		fmt.Sprintf("DROP SCHEMA IF EXISTS %s CASCADE", integrationIdentifier(names.deniedSchema)),
 		"DROP OWNED BY " + integrationIdentifier(names.role),
 		"DROP ROLE IF EXISTS " + integrationIdentifier(names.role),
@@ -1276,6 +1384,20 @@ func assertSchemaNames(t *testing.T, schemas []execution.Schema, expected ...str
 	}
 }
 
+func schemaByName(t *testing.T, schemas []execution.Schema, name string) execution.Schema {
+	t.Helper()
+
+	for _, schema := range schemas {
+		if schema.Name == name {
+			return schema
+		}
+	}
+
+	t.Fatalf("schemas = %#v, missing %q", schemas, name)
+
+	return execution.Schema{}
+}
+
 func assertTableKind(t *testing.T, tables []execution.Table, name string, kind execution.RelationKind) {
 	t.Helper()
 
@@ -1302,7 +1424,7 @@ func hasTable(tables []execution.Table, name string) bool {
 	return false
 }
 
-func assertColumnMetadata(t *testing.T, columns []execution.Column) {
+func assertColumnMetadata(t *testing.T, columns []execution.Column, expectedGeneratedKind string) {
 	t.Helper()
 
 	assertIdentityColumnMetadata(t, columnByName(t, columns, "id"))
@@ -1311,7 +1433,11 @@ func assertColumnMetadata(t *testing.T, columns []execution.Column) {
 	assertEnumColumnMetadata(t, columnByName(t, columns, "state"))
 	assertArrayColumnMetadata(t, columnByName(t, columns, "tags"))
 	assertTemporalColumnMetadata(t, columnByName(t, columns, "created_at"))
-	assertGeneratedColumnMetadata(t, columnByName(t, columns, "generated_amount"))
+	assertGeneratedColumnMetadata(
+		t,
+		columnByName(t, columns, "generated_amount"),
+		expectedGeneratedKind,
+	)
 }
 
 func assertIdentityColumnMetadata(t *testing.T, column execution.Column) {
@@ -1348,6 +1474,10 @@ func assertDomainColumnMetadata(t *testing.T, column execution.Column) {
 	if column.Type.DomainBaseType.Name != "text" {
 		t.Fatalf("column %q metadata = %#v, want text domain base", column.Name, column)
 	}
+
+	if column.Nullable {
+		t.Fatalf("column %q metadata = %#v, want NOT NULL domain", column.Name, column)
+	}
 }
 
 func assertEnumColumnMetadata(t *testing.T, column execution.Column) {
@@ -1380,11 +1510,20 @@ func assertTemporalColumnMetadata(t *testing.T, column execution.Column) {
 	}
 }
 
-func assertGeneratedColumnMetadata(t *testing.T, column execution.Column) {
+func assertGeneratedColumnMetadata(
+	t *testing.T,
+	column execution.Column,
+	expectedKind string,
+) {
 	t.Helper()
 
-	if column.Generated == nil || column.Generated.Kind != "stored" {
-		t.Fatalf("column %q metadata = %#v, want stored generation", column.Name, column)
+	if column.Generated == nil || column.Generated.Kind != expectedKind {
+		t.Fatalf(
+			"column %q metadata = %#v, want %s generation",
+			column.Name,
+			column,
+			expectedKind,
+		)
 	}
 
 	if !strings.Contains(column.Generated.Expression, "amount") {

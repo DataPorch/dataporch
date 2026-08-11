@@ -30,9 +30,27 @@ func TestListConstraintsMapsCompleteCompositeAndForeignKeys(t *testing.T) {
 	t.Parallel()
 
 	pool := &testCatalogPool{results: []testCatalogResult{{rows: &testCatalogRows{values: [][]any{
-		{"accounts_pkey", "p", true, false, []string{"tenant_id", "account_id"}, nil, nil, []string{}, "", "", "", nil, nil, true},
-		{"accounts_owner_fk", "f", false, true, []string{"tenant_id", "owner_id"}, "security", "users", []string{"tenant_id", "id"}, "s", "c", "n", nil, nil, true},
-		{"accounts_code_check", "c", false, false, []string{"code"}, nil, nil, []string{}, "", "", "", nil, "code <> ''", false},
+		{
+			"accounts_pkey", "p", true, false,
+			[]string{"tenant_id", "account_id"},
+			nil, nil,
+			[]string{},
+			"", "", "", nil, nil, true,
+		},
+		{
+			"accounts_owner_fk", "f", false, true,
+			[]string{"tenant_id", "owner_id"},
+			"security", "users",
+			[]string{"tenant_id", "id"},
+			"s", "c", "n", nil, nil, true,
+		},
+		{
+			"accounts_code_check", "c", false, false,
+			[]string{"code"},
+			nil, nil,
+			[]string{},
+			"", "", "", nil, "code <> ''", false,
+		},
 	}}}}}
 
 	discoverer, err := newDiscoverer(&testClientOpener{client: &Client{pool: pool}}, time.Second)
@@ -59,11 +77,22 @@ func TestListConstraintsMapsCompleteCompositeAndForeignKeys(t *testing.T) {
 	}
 
 	foreign := constraints[1]
-	if foreign.Kind != "foreign_key" || foreign.Referenced == nil || foreign.Referenced.Schema != "security" || foreign.Referenced.Columns[1] != "id" || foreign.MatchType != "simple" || foreign.UpdateAction != "cascade" || foreign.DeleteAction != "set_null" {
+
+	foreignIsComplete := foreign.Kind == "foreign_key" &&
+		foreign.Referenced != nil &&
+		foreign.Referenced.Schema == "security" &&
+		foreign.Referenced.Columns[1] == "id" &&
+		foreign.MatchType == "simple" &&
+		foreign.UpdateAction == "cascade" &&
+		foreign.DeleteAction == "set_null"
+	if !foreignIsComplete {
 		t.Fatalf("foreign constraint = %#v", foreign)
 	}
 
-	if constraints[2].CheckExpression == nil || *constraints[2].CheckExpression != "code <> ''" || constraints[2].Validated {
+	check := constraints[2]
+	if check.CheckExpression == nil ||
+		*check.CheckExpression != "code <> ''" ||
+		check.Validated {
 		t.Fatalf("check constraint = %#v", constraints[2])
 	}
 

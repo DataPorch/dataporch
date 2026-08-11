@@ -39,7 +39,10 @@ WHERE n.nspname = $1
 ORDER BY c.relname COLLATE "C"
 LIMIT $5`
 
-func (d *Discoverer) ListTables(ctx context.Context, request execution.TableDiscoveryRequest) (execution.TableDiscoveryPage, error) {
+func (d *Discoverer) ListTables(
+	ctx context.Context,
+	request execution.TableDiscoveryRequest,
+) (execution.TableDiscoveryPage, error) {
 	client, err := d.open(ctx, request.SourceID)
 	if err != nil {
 		return execution.TableDiscoveryPage{}, err
@@ -52,7 +55,15 @@ func (d *Discoverer) ListTables(ctx context.Context, request execution.TableDisc
 		return execution.TableDiscoveryPage{}, err
 	}
 
-	rows, err := client.pool.Query(queryCtx, listTablesSQL, request.Schema, request.IncludeDescriptions, request.Search, request.AfterName, request.Limit+1)
+	rows, err := client.pool.Query(
+		queryCtx,
+		listTablesSQL,
+		request.Schema,
+		request.IncludeDescriptions,
+		request.Search,
+		request.AfterName,
+		request.Limit+1,
+	)
 	if err != nil {
 		return execution.TableDiscoveryPage{}, classifyQueryError(ctx, queryCtx, err)
 	}

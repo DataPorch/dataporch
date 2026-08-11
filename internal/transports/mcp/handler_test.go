@@ -51,18 +51,7 @@ func TestHandlerListsFourDiscoveryToolsAndNegotiatesLatestProtocol(t *testing.T)
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
-	client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "dataporch-test", Version: "dev"}, nil)
-
-	session, err := client.Connect(t.Context(), &mcpsdk.StreamableClientTransport{Endpoint: server.URL, HTTPClient: server.Client(), DisableStandaloneSSE: true}, nil)
-	if err != nil {
-		t.Fatalf("Connect() error = %v", err)
-	}
-
-	t.Cleanup(func() {
-		if err := session.Close(); err != nil {
-			t.Errorf("session.Close() error = %v", err)
-		}
-	})
+	session := connectTestSession(t, server, "dev")
 
 	if got := session.InitializeResult().ProtocolVersion; got != "2026-07-28" {
 		t.Fatalf("protocol version = %q, want 2026-07-28", got)
@@ -73,7 +62,12 @@ func TestHandlerListsFourDiscoveryToolsAndNegotiatesLatestProtocol(t *testing.T)
 		t.Fatalf("ListTools() error = %v", err)
 	}
 
-	wantNames := []string{"data_source.list", "relational_database.list_columns", "relational_database.list_schemas", "relational_database.list_tables"}
+	wantNames := []string{
+		"data_source.list",
+		"relational_database.list_columns",
+		"relational_database.list_schemas",
+		"relational_database.list_tables",
+	}
 
 	gotNames := make([]string, len(result.Tools))
 	for index, tool := range result.Tools {
@@ -89,7 +83,14 @@ func TestHandlerListsFourDiscoveryToolsAndNegotiatesLatestProtocol(t *testing.T)
 			t.Fatal("old list_resources tool is still registered")
 		}
 
-		if tool.Annotations == nil || !tool.Annotations.ReadOnlyHint || !tool.Annotations.IdempotentHint || tool.Annotations.DestructiveHint == nil || *tool.Annotations.DestructiveHint || tool.Annotations.OpenWorldHint == nil || *tool.Annotations.OpenWorldHint {
+		annotationsAreSafe := tool.Annotations != nil &&
+			tool.Annotations.ReadOnlyHint &&
+			tool.Annotations.IdempotentHint &&
+			tool.Annotations.DestructiveHint != nil &&
+			!*tool.Annotations.DestructiveHint &&
+			tool.Annotations.OpenWorldHint != nil &&
+			!*tool.Annotations.OpenWorldHint
+		if !annotationsAreSafe {
 			t.Fatalf("annotations for %q = %#v", tool.Name, tool.Annotations)
 		}
 
@@ -114,7 +115,20 @@ func TestHandlerListsFourDiscoveryToolsAndNegotiatesLatestProtocol(t *testing.T)
 		schemas[tool.Name] = schema
 	}
 
-	if !hasRequired(schemas["relational_database.list_schemas"], "source_id") || !hasRequired(schemas["relational_database.list_tables"], "source_id", "schema") || !hasRequired(schemas["relational_database.list_columns"], "source_id", "schema", "table") {
+	schemasAreComplete := hasRequired(
+		schemas["relational_database.list_schemas"],
+		"source_id",
+	) && hasRequired(
+		schemas["relational_database.list_tables"],
+		"source_id",
+		"schema",
+	) && hasRequired(
+		schemas["relational_database.list_columns"],
+		"source_id",
+		"schema",
+		"table",
+	)
+	if !schemasAreComplete {
 		t.Fatalf("required fields missing from inferred schemas: %#v", schemas)
 	}
 }
@@ -123,7 +137,17 @@ func TestHandlerReturnsStructuredAndTextSuccess(t *testing.T) {
 	t.Parallel()
 
 	logger := slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil))
-	service := &recordingDiscoverer{sourcesResult: execution.ListDataSourcesResult{Sources: []execution.DataSource{{ID: "analytics", Kind: "postgres", Capabilities: []execution.Capability{execution.CapabilityRelationalDatabase}}}}}
+	service := &recordingDiscoverer{
+		sourcesResult: execution.ListDataSourcesResult{
+			Sources: []execution.DataSource{
+				{
+					ID:           "analytics",
+					Kind:         "postgres",
+					Capabilities: []execution.Capability{execution.CapabilityRelationalDatabase},
+				},
+			},
+		},
+	}
 
 	handler, err := New(service, logger)
 	if err != nil {
@@ -133,20 +157,15 @@ func TestHandlerReturnsStructuredAndTextSuccess(t *testing.T) {
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
-	client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "dataporch-test", Version: "dev"}, nil)
+	session := connectTestSession(t, server, "dev")
 
-	session, err := client.Connect(t.Context(), &mcpsdk.StreamableClientTransport{Endpoint: server.URL, HTTPClient: server.Client(), DisableStandaloneSSE: true}, nil)
-	if err != nil {
-		t.Fatalf("Connect() error = %v", err)
-	}
-
-	t.Cleanup(func() {
-		if err := session.Close(); err != nil {
-			t.Errorf("session.Close() error = %v", err)
-		}
-	})
-
-	result, err := session.CallTool(t.Context(), &mcpsdk.CallToolParams{Name: "data_source.list", Arguments: map[string]any{}})
+	result, err := session.CallTool(
+		t.Context(),
+		&mcpsdk.CallToolParams{
+			Name:      "data_source.list",
+			Arguments: map[string]any{},
+		},
+	)
 	if err != nil || result.IsError {
 		t.Fatalf("CallTool() result/error = %#v/%v", result, err)
 	}
@@ -184,29 +203,34 @@ func TestHandlerSeparatesProtocolAndToolErrors(t *testing.T) {
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
-	client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "dataporch-test", Version: serverVersion}, nil)
+	session := connectTestSession(t, server, serverVersion)
 
-	session, err := client.Connect(t.Context(), &mcpsdk.StreamableClientTransport{Endpoint: server.URL, HTTPClient: server.Client(), DisableStandaloneSSE: true}, nil)
-	if err != nil {
-		t.Fatalf("Connect() error = %v", err)
-	}
-
-	t.Cleanup(func() {
-		if err := session.Close(); err != nil {
-			t.Errorf("session.Close() error = %v", err)
-		}
-	})
-
-	validationResult, err := session.CallTool(t.Context(), &mcpsdk.CallToolParams{Name: "relational_database.list_schemas", Arguments: map[string]any{}})
+	validationResult, err := session.CallTool(
+		t.Context(),
+		&mcpsdk.CallToolParams{
+			Name:      "relational_database.list_schemas",
+			Arguments: map[string]any{},
+		},
+	)
 	if err != nil {
 		t.Fatalf("schema validation error = %v, want tool error", err)
 	}
 
-	if validationResult == nil || !validationResult.IsError || validationResult.StructuredContent != nil || len(validationResult.Content) != 1 {
+	validationIsSafe := validationResult != nil &&
+		validationResult.IsError &&
+		validationResult.StructuredContent == nil &&
+		len(validationResult.Content) == 1
+	if !validationIsSafe {
 		t.Fatalf("schema validation result = %#v, want safe tool error", validationResult)
 	}
 
-	unknownResult, err := session.CallTool(t.Context(), &mcpsdk.CallToolParams{Name: "unknown.tool", Arguments: map[string]any{}})
+	unknownResult, err := session.CallTool(
+		t.Context(),
+		&mcpsdk.CallToolParams{
+			Name:      "unknown.tool",
+			Arguments: map[string]any{},
+		},
+	)
 	if err == nil || unknownResult != nil {
 		t.Fatalf("unknown tool result/error = %#v/%v, want protocol error", unknownResult, err)
 	}
@@ -235,12 +259,14 @@ func TestHandlerSeparatesProtocolAndToolErrors(t *testing.T) {
 		t.Fatalf("ReadAll() error = %v", err)
 	}
 
-	if response.StatusCode != http.StatusBadRequest || !bytes.Contains(body, []byte("malformed payload")) || bytes.Contains(body, []byte(`"result"`)) {
+	responseIsSafe := response.StatusCode == http.StatusBadRequest &&
+		bytes.Contains(body, []byte("malformed payload")) &&
+		!bytes.Contains(body, []byte(`"result"`))
+	if !responseIsSafe {
 		t.Fatalf("malformed response = %d/%s, want JSON-RPC protocol error", response.StatusCode, body)
 	}
 }
 
-//nolint:gocyclo // This transport test covers safe failures and request cancellation end to end.
 func TestHandlerReturnsSafeToolErrorsAndPropagatesCancellation(t *testing.T) {
 	t.Parallel()
 
@@ -255,20 +281,15 @@ func TestHandlerReturnsSafeToolErrorsAndPropagatesCancellation(t *testing.T) {
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
-	client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "dataporch-test", Version: "dev"}, nil)
+	session := connectTestSession(t, server, "dev")
 
-	session, err := client.Connect(t.Context(), &mcpsdk.StreamableClientTransport{Endpoint: server.URL, HTTPClient: server.Client(), DisableStandaloneSSE: true}, nil)
-	if err != nil {
-		t.Fatalf("Connect() error = %v", err)
-	}
-
-	t.Cleanup(func() {
-		if err := session.Close(); err != nil {
-			t.Errorf("session.Close() error = %v", err)
-		}
-	})
-
-	result, err := session.CallTool(t.Context(), &mcpsdk.CallToolParams{Name: "data_source.list", Arguments: map[string]any{}})
+	result, err := session.CallTool(
+		t.Context(),
+		&mcpsdk.CallToolParams{
+			Name:      "data_source.list",
+			Arguments: map[string]any{},
+		},
+	)
 	if err != nil || !result.IsError || result.StructuredContent != nil || len(result.Content) != 1 {
 		t.Fatalf("error result/error = %#v/%v", result, err)
 	}
@@ -278,7 +299,10 @@ func TestHandlerReturnsSafeToolErrorsAndPropagatesCancellation(t *testing.T) {
 		t.Fatalf("content type = %T, want TextContent", result.Content[0])
 	}
 
-	if textContent.Text == "" || bytes.Contains([]byte(textContent.Text), []byte("private")) || bytes.Contains([]byte(textContent.Text), []byte("secret")) {
+	textIsUnsafe := textContent.Text == "" ||
+		bytes.Contains([]byte(textContent.Text), []byte("private")) ||
+		bytes.Contains([]byte(textContent.Text), []byte("secret"))
+	if textIsUnsafe {
 		t.Fatalf("unsafe error text = %q", textContent.Text)
 	}
 
@@ -296,18 +320,7 @@ func TestHandlerReturnsSafeToolErrorsAndPropagatesCancellation(t *testing.T) {
 	cancelServer := httptest.NewServer(cancelHandler)
 	defer cancelServer.Close()
 
-	cancelClient := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "dataporch-test", Version: "dev"}, nil)
-
-	cancelSession, err := cancelClient.Connect(t.Context(), &mcpsdk.StreamableClientTransport{Endpoint: cancelServer.URL, HTTPClient: cancelServer.Client(), DisableStandaloneSSE: true}, nil)
-	if err != nil {
-		t.Fatalf("Connect(cancel) error = %v", err)
-	}
-
-	t.Cleanup(func() {
-		if err := cancelSession.Close(); err != nil {
-			t.Errorf("cancelSession.Close() error = %v", err)
-		}
-	})
+	cancelSession := connectTestSession(t, cancelServer, "dev")
 
 	ctx, cancel := context.WithCancel(t.Context())
 	callDone := make(chan struct{})
@@ -326,6 +339,43 @@ func TestHandlerReturnsSafeToolErrorsAndPropagatesCancellation(t *testing.T) {
 	case <-callDone:
 		t.Fatal("call returned before execution observed cancellation")
 	}
+}
+
+func connectTestSession(
+	t *testing.T,
+	server *httptest.Server,
+	version string,
+) *mcpsdk.ClientSession {
+	t.Helper()
+
+	client := mcpsdk.NewClient(
+		&mcpsdk.Implementation{
+			Name:    "dataporch-test",
+			Version: version,
+		},
+		nil,
+	)
+
+	session, err := client.Connect(
+		t.Context(),
+		&mcpsdk.StreamableClientTransport{
+			Endpoint:             server.URL,
+			HTTPClient:           server.Client(),
+			DisableStandaloneSSE: true,
+		},
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("Connect() error = %v", err)
+	}
+
+	t.Cleanup(func() {
+		if err := session.Close(); err != nil {
+			t.Errorf("session.Close() error = %v", err)
+		}
+	})
+
+	return session
 }
 
 func hasRequired(schema map[string]any, fields ...string) bool {
@@ -362,7 +412,10 @@ type recordingDiscoverer struct {
 	cancelOnce          sync.Once
 }
 
-func (d *recordingDiscoverer) ListDataSources(ctx context.Context, _ execution.ListDataSourcesRequest) (execution.ListDataSourcesResult, error) {
+func (d *recordingDiscoverer) ListDataSources(
+	ctx context.Context,
+	_ execution.ListDataSourcesRequest,
+) (execution.ListDataSourcesResult, error) {
 	if d.waitForCancellation {
 		d.startOnce.Do(func() { close(d.started) })
 		<-ctx.Done()
@@ -374,14 +427,23 @@ func (d *recordingDiscoverer) ListDataSources(ctx context.Context, _ execution.L
 	return d.sourcesResult, d.sourcesErr
 }
 
-func (d *recordingDiscoverer) ListRelationalSchemas(context.Context, execution.ListRelationalSchemasRequest) (execution.ListRelationalSchemasResult, error) {
+func (d *recordingDiscoverer) ListRelationalSchemas(
+	context.Context,
+	execution.ListRelationalSchemasRequest,
+) (execution.ListRelationalSchemasResult, error) {
 	return execution.ListRelationalSchemasResult{}, nil
 }
 
-func (d *recordingDiscoverer) ListRelationalTables(context.Context, execution.ListRelationalTablesRequest) (execution.ListRelationalTablesResult, error) {
+func (d *recordingDiscoverer) ListRelationalTables(
+	context.Context,
+	execution.ListRelationalTablesRequest,
+) (execution.ListRelationalTablesResult, error) {
 	return execution.ListRelationalTablesResult{}, nil
 }
 
-func (d *recordingDiscoverer) ListRelationalColumns(context.Context, execution.ListRelationalColumnsRequest) (execution.ListRelationalColumnsResult, error) {
+func (d *recordingDiscoverer) ListRelationalColumns(
+	context.Context,
+	execution.ListRelationalColumnsRequest,
+) (execution.ListRelationalColumnsResult, error) {
 	return execution.ListRelationalColumnsResult{}, nil
 }

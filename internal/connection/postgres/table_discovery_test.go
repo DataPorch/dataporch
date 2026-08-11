@@ -38,7 +38,11 @@ func TestListTablesChecksSchemaAndMapsRelations(t *testing.T) {
 		t.Fatalf("ListTables() error = %v", err)
 	}
 
-	if len(page.Tables) != 1 || page.Tables[0].Kind != execution.RelationKindTable || page.Tables[0].Description == nil || !page.HasMore {
+	pageIsComplete := len(page.Tables) == 1 &&
+		page.Tables[0].Kind == execution.RelationKindTable &&
+		page.Tables[0].Description != nil &&
+		page.HasMore
+	if !pageIsComplete {
 		t.Fatalf("page = %#v, want one described table with more", page)
 	}
 
@@ -46,7 +50,15 @@ func TestListTablesChecksSchemaAndMapsRelations(t *testing.T) {
 		t.Fatalf("schema query arguments = %#v", pool.allArguments)
 	}
 
-	if got := pool.allArguments[1]; len(got) != 5 || got[0] != "Sales Data" || got[1] != true || got[2] != `%_*.[x]\\` || got[3] != "before" || got[4] != 2 {
+	got := pool.allArguments[1]
+
+	argumentsMatch := len(got) == 5 &&
+		got[0] == "Sales Data" &&
+		got[1] == true &&
+		got[2] == `%_*.[x]\\` &&
+		got[3] == "before" &&
+		got[4] == 2
+	if !argumentsMatch {
 		t.Fatalf("table query arguments = %#v", got)
 	}
 }
@@ -73,7 +85,14 @@ func TestListTablesDistinguishesSchemaErrors(t *testing.T) {
 				t.Fatalf("newDiscoverer() error = %v", err)
 			}
 
-			_, err = discoverer.ListTables(t.Context(), execution.TableDiscoveryRequest{SourceID: "analytics", Schema: "private", Limit: 1})
+			_, err = discoverer.ListTables(
+				t.Context(),
+				execution.TableDiscoveryRequest{
+					SourceID: "analytics",
+					Schema:   "private",
+					Limit:    1,
+				},
+			)
 			if !errors.Is(err, test.want) {
 				t.Fatalf("ListTables() error = %v, want %v", err, test.want)
 			}
@@ -98,7 +117,14 @@ func TestListTablesRejectsUnknownRelationKindAndQueryFailures(t *testing.T) {
 		t.Fatalf("newDiscoverer() error = %v", err)
 	}
 
-	_, err = discoverer.ListTables(t.Context(), execution.TableDiscoveryRequest{SourceID: "analytics", Schema: "public", Limit: 1})
+	_, err = discoverer.ListTables(
+		t.Context(),
+		execution.TableDiscoveryRequest{
+			SourceID: "analytics",
+			Schema:   "public",
+			Limit:    1,
+		},
+	)
 	if !errors.Is(err, execution.ErrUnsupportedRelationKind) {
 		t.Fatalf("unknown relation error = %v, want unsupported kind", err)
 	}
@@ -113,7 +139,14 @@ func TestListTablesRejectsUnknownRelationKindAndQueryFailures(t *testing.T) {
 		t.Fatalf("newDiscoverer(query) error = %v", err)
 	}
 
-	_, err = discoverer.ListTables(context.Background(), execution.TableDiscoveryRequest{SourceID: "analytics", Schema: "public", Limit: 1})
+	_, err = discoverer.ListTables(
+		context.Background(),
+		execution.TableDiscoveryRequest{
+			SourceID: "analytics",
+			Schema:   "public",
+			Limit:    1,
+		},
+	)
 	if !errors.Is(err, execution.ErrInternal) {
 		t.Fatalf("query error = %v, want internal", err)
 	}

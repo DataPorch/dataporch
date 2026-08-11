@@ -27,9 +27,18 @@ var (
 
 type Discoverer interface {
 	ListDataSources(context.Context, execution.ListDataSourcesRequest) (execution.ListDataSourcesResult, error)
-	ListRelationalSchemas(context.Context, execution.ListRelationalSchemasRequest) (execution.ListRelationalSchemasResult, error)
-	ListRelationalTables(context.Context, execution.ListRelationalTablesRequest) (execution.ListRelationalTablesResult, error)
-	ListRelationalColumns(context.Context, execution.ListRelationalColumnsRequest) (execution.ListRelationalColumnsResult, error)
+	ListRelationalSchemas(
+		context.Context,
+		execution.ListRelationalSchemasRequest,
+	) (execution.ListRelationalSchemasResult, error)
+	ListRelationalTables(
+		context.Context,
+		execution.ListRelationalTablesRequest,
+	) (execution.ListRelationalTablesResult, error)
+	ListRelationalColumns(
+		context.Context,
+		execution.ListRelationalColumnsRequest,
+	) (execution.ListRelationalColumnsResult, error)
 }
 
 type listDataSourcesInput struct {
@@ -49,7 +58,7 @@ type listSchemasInput struct {
 type listTablesInput struct {
 	SourceID            connection.ID `json:"source_id" jsonschema:"configured source identifier"`
 	Schema              string        `json:"schema" jsonschema:"exact schema name returned by list_schemas"`
-	Search              string        `json:"search,omitempty" jsonschema:"case-insensitive literal relation name substring"`
+	Search              string        `json:"search,omitempty" jsonschema:"case-insensitive literal name substring"`
 	IncludeDescriptions bool          `json:"include_descriptions,omitempty" jsonschema:"include PostgreSQL comments"`
 	Limit               *int          `json:"limit,omitempty" jsonschema:"maximum relations to return"`
 	Cursor              string        `json:"cursor,omitempty" jsonschema:"opaque continuation cursor"`
@@ -104,76 +113,35 @@ func New(discoverer Discoverer, logger *slog.Logger) (http.Handler, error) {
 
 	annotations := discoveryAnnotations()
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
-		Name:        listDataSourcesOperation,
-		Title:       "List data sources",
-		Description: "List configured enterprise data sources and their available capability families without connecting to them.",
+		Name:  listDataSourcesOperation,
+		Title: "List data sources",
+		Description: "List configured enterprise data sources and their available " +
+			"capability families without connecting to them.",
 		Annotations: annotations,
-	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, input listDataSourcesInput) (*mcpsdk.CallToolResult, execution.ListDataSourcesResult, error) {
-		start := time.Now()
-
-		output, err := discoverer.ListDataSources(ctx, execution.ListDataSourcesRequest{Search: input.Search, Limit: input.Limit, Cursor: input.Cursor})
-		if err != nil {
-			return nil, execution.ListDataSourcesResult{}, finishError(logger, listDataSourcesOperation, "", start, err)
-		}
-
-		finishSuccess(logger, listDataSourcesOperation, "", start, len(output.Sources))
-
-		return nil, output, nil
-	})
+	}, dataSourcesToolHandler(discoverer, logger))
 
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
 		Name:        "relational_database.list_schemas",
 		Title:       "List relational database schemas",
 		Description: "List PostgreSQL schemas accessible through a configured data source.",
 		Annotations: annotations,
-	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, input listSchemasInput) (*mcpsdk.CallToolResult, execution.ListRelationalSchemasResult, error) {
-		start := time.Now()
-
-		output, err := discoverer.ListRelationalSchemas(ctx, execution.ListRelationalSchemasRequest{SourceID: input.SourceID, Search: input.Search, IncludeDescriptions: input.IncludeDescriptions, Limit: input.Limit, Cursor: input.Cursor})
-		if err != nil {
-			return nil, execution.ListRelationalSchemasResult{}, finishError(logger, "relational_database.list_schemas", string(input.SourceID), start, err)
-		}
-
-		finishSuccess(logger, "relational_database.list_schemas", string(input.SourceID), start, len(output.Schemas))
-
-		return nil, output, nil
-	})
+	}, schemasToolHandler(discoverer, logger))
 
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
-		Name:        "relational_database.list_tables",
-		Title:       "List relational database tables",
-		Description: "List readable PostgreSQL tables, views, materialized views, partitioned tables, and foreign tables in an exact schema.",
+		Name:  "relational_database.list_tables",
+		Title: "List relational database tables",
+		Description: "List readable PostgreSQL tables, views, materialized views, " +
+			"partitioned tables, and foreign tables in an exact schema.",
 		Annotations: annotations,
-	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, input listTablesInput) (*mcpsdk.CallToolResult, execution.ListRelationalTablesResult, error) {
-		start := time.Now()
-
-		output, err := discoverer.ListRelationalTables(ctx, execution.ListRelationalTablesRequest{SourceID: input.SourceID, Schema: input.Schema, Search: input.Search, IncludeDescriptions: input.IncludeDescriptions, Limit: input.Limit, Cursor: input.Cursor})
-		if err != nil {
-			return nil, execution.ListRelationalTablesResult{}, finishError(logger, "relational_database.list_tables", string(input.SourceID), start, err)
-		}
-
-		finishSuccess(logger, "relational_database.list_tables", string(input.SourceID), start, len(output.Tables))
-
-		return nil, output, nil
-	})
+	}, tablesToolHandler(discoverer, logger))
 
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
-		Name:        "relational_database.list_columns",
-		Title:       "List relational database columns",
-		Description: "List readable PostgreSQL columns, structured types, defaults, identity and generated metadata, and relevant constraints.",
+		Name:  "relational_database.list_columns",
+		Title: "List relational database columns",
+		Description: "List readable PostgreSQL columns, structured types, defaults, " +
+			"identity and generated metadata, and relevant constraints.",
 		Annotations: annotations,
-	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, input listColumnsInput) (*mcpsdk.CallToolResult, execution.ListRelationalColumnsResult, error) {
-		start := time.Now()
-
-		output, err := discoverer.ListRelationalColumns(ctx, execution.ListRelationalColumnsRequest{SourceID: input.SourceID, Schema: input.Schema, Table: input.Table, Search: input.Search, IncludeDescriptions: input.IncludeDescriptions, Limit: input.Limit, Cursor: input.Cursor})
-		if err != nil {
-			return nil, execution.ListRelationalColumnsResult{}, finishError(logger, "relational_database.list_columns", string(input.SourceID), start, err)
-		}
-
-		finishSuccess(logger, "relational_database.list_columns", string(input.SourceID), start, len(output.Columns))
-
-		return nil, output, nil
-	})
+	}, columnsToolHandler(discoverer, logger))
 
 	streamableHandler := mcpsdk.NewStreamableHTTPHandler(
 		func(*http.Request) *mcpsdk.Server { return server },
@@ -189,6 +157,189 @@ func New(discoverer Discoverer, logger *slog.Logger) (http.Handler, error) {
 	originProtection := http.NewCrossOriginProtection()
 
 	return originProtection.Handler(streamableHandler), nil
+}
+
+func dataSourcesToolHandler(
+	discoverer Discoverer,
+	logger *slog.Logger,
+) func(
+	context.Context,
+	*mcpsdk.CallToolRequest,
+	listDataSourcesInput,
+) (*mcpsdk.CallToolResult, execution.ListDataSourcesResult, error) {
+	return func(
+		ctx context.Context,
+		_ *mcpsdk.CallToolRequest,
+		input listDataSourcesInput,
+	) (*mcpsdk.CallToolResult, execution.ListDataSourcesResult, error) {
+		start := time.Now()
+
+		output, err := discoverer.ListDataSources(
+			ctx,
+			execution.ListDataSourcesRequest{
+				Search: input.Search,
+				Limit:  input.Limit,
+				Cursor: input.Cursor,
+			},
+		)
+		if err != nil {
+			return nil, execution.ListDataSourcesResult{}, finishError(
+				logger,
+				listDataSourcesOperation,
+				"",
+				start,
+				err,
+			)
+		}
+
+		finishSuccess(logger, listDataSourcesOperation, "", start, len(output.Sources))
+
+		return nil, output, nil
+	}
+}
+
+func schemasToolHandler(
+	discoverer Discoverer,
+	logger *slog.Logger,
+) func(
+	context.Context,
+	*mcpsdk.CallToolRequest,
+	listSchemasInput,
+) (*mcpsdk.CallToolResult, execution.ListRelationalSchemasResult, error) {
+	return func(
+		ctx context.Context,
+		_ *mcpsdk.CallToolRequest,
+		input listSchemasInput,
+	) (*mcpsdk.CallToolResult, execution.ListRelationalSchemasResult, error) {
+		start := time.Now()
+
+		output, err := discoverer.ListRelationalSchemas(
+			ctx,
+			execution.ListRelationalSchemasRequest{
+				SourceID:            input.SourceID,
+				Search:              input.Search,
+				IncludeDescriptions: input.IncludeDescriptions,
+				Limit:               input.Limit,
+				Cursor:              input.Cursor,
+			},
+		)
+		if err != nil {
+			return nil, execution.ListRelationalSchemasResult{}, finishError(
+				logger,
+				"relational_database.list_schemas",
+				string(input.SourceID),
+				start,
+				err,
+			)
+		}
+
+		finishSuccess(
+			logger,
+			"relational_database.list_schemas",
+			string(input.SourceID),
+			start,
+			len(output.Schemas),
+		)
+
+		return nil, output, nil
+	}
+}
+
+func tablesToolHandler(
+	discoverer Discoverer,
+	logger *slog.Logger,
+) func(
+	context.Context,
+	*mcpsdk.CallToolRequest,
+	listTablesInput,
+) (*mcpsdk.CallToolResult, execution.ListRelationalTablesResult, error) {
+	return func(
+		ctx context.Context,
+		_ *mcpsdk.CallToolRequest,
+		input listTablesInput,
+	) (*mcpsdk.CallToolResult, execution.ListRelationalTablesResult, error) {
+		start := time.Now()
+
+		output, err := discoverer.ListRelationalTables(
+			ctx,
+			execution.ListRelationalTablesRequest{
+				SourceID:            input.SourceID,
+				Schema:              input.Schema,
+				Search:              input.Search,
+				IncludeDescriptions: input.IncludeDescriptions,
+				Limit:               input.Limit,
+				Cursor:              input.Cursor,
+			},
+		)
+		if err != nil {
+			return nil, execution.ListRelationalTablesResult{}, finishError(
+				logger,
+				"relational_database.list_tables",
+				string(input.SourceID),
+				start,
+				err,
+			)
+		}
+
+		finishSuccess(
+			logger,
+			"relational_database.list_tables",
+			string(input.SourceID),
+			start,
+			len(output.Tables),
+		)
+
+		return nil, output, nil
+	}
+}
+
+func columnsToolHandler(
+	discoverer Discoverer,
+	logger *slog.Logger,
+) func(
+	context.Context,
+	*mcpsdk.CallToolRequest,
+	listColumnsInput,
+) (*mcpsdk.CallToolResult, execution.ListRelationalColumnsResult, error) {
+	return func(
+		ctx context.Context,
+		_ *mcpsdk.CallToolRequest,
+		input listColumnsInput,
+	) (*mcpsdk.CallToolResult, execution.ListRelationalColumnsResult, error) {
+		start := time.Now()
+
+		output, err := discoverer.ListRelationalColumns(
+			ctx,
+			execution.ListRelationalColumnsRequest{
+				SourceID:            input.SourceID,
+				Schema:              input.Schema,
+				Table:               input.Table,
+				Search:              input.Search,
+				IncludeDescriptions: input.IncludeDescriptions,
+				Limit:               input.Limit,
+				Cursor:              input.Cursor,
+			},
+		)
+		if err != nil {
+			return nil, execution.ListRelationalColumnsResult{}, finishError(
+				logger,
+				"relational_database.list_columns",
+				string(input.SourceID),
+				start,
+				err,
+			)
+		}
+
+		finishSuccess(
+			logger,
+			"relational_database.list_columns",
+			string(input.SourceID),
+			start,
+			len(output.Columns),
+		)
+
+		return nil, output, nil
+	}
 }
 
 func discoveryAnnotations() *mcpsdk.ToolAnnotations {

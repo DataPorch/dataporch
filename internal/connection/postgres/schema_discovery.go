@@ -18,7 +18,10 @@ WHERE pg_catalog.has_schema_privilege(n.oid, 'USAGE')
 ORDER BY n.nspname COLLATE "C"
 LIMIT $4`
 
-func (d *Discoverer) ListSchemas(ctx context.Context, request execution.SchemaDiscoveryRequest) (execution.SchemaDiscoveryPage, error) {
+func (d *Discoverer) ListSchemas(
+	ctx context.Context,
+	request execution.SchemaDiscoveryRequest,
+) (execution.SchemaDiscoveryPage, error) {
 	client, err := d.open(ctx, request.SourceID)
 	if err != nil {
 		return execution.SchemaDiscoveryPage{}, err
@@ -27,7 +30,14 @@ func (d *Discoverer) ListSchemas(ctx context.Context, request execution.SchemaDi
 	queryCtx, cancel := d.queryContext(ctx)
 	defer cancel()
 
-	rows, err := client.pool.Query(queryCtx, listSchemasSQL, request.IncludeDescriptions, request.Search, request.AfterName, request.Limit+1)
+	rows, err := client.pool.Query(
+		queryCtx,
+		listSchemasSQL,
+		request.IncludeDescriptions,
+		request.Search,
+		request.AfterName,
+		request.Limit+1,
+	)
 	if err != nil {
 		return execution.SchemaDiscoveryPage{}, classifyQueryError(ctx, queryCtx, err)
 	}

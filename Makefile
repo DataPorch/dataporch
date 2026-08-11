@@ -6,7 +6,7 @@ GOVULNCHECK ?= govulncheck
 
 .DEFAULT_GOAL := help
 
-.PHONY: audit build check clean fmt fmt-check help lint lint-fix run test test-race tidy tidy-check vet
+.PHONY: audit build check clean fmt fmt-check help lint lint-fix run test test-integration test-race tidy tidy-check vet
 
 build:
 	@mkdir -p $(BUILD_DIR)
@@ -20,6 +20,9 @@ test:
 
 test-race:
 	$(GO) test -race -shuffle=on ./...
+
+test-integration:
+	$(GO) test -race -count=1 -tags=integration ./internal/connection/postgres ./internal/app
 
 vet:
 	$(GO) vet ./...
@@ -73,6 +76,7 @@ help:
 		'  lint-fix     Apply safe lint fixes.' \
 		'  run          Run DataPorch locally.' \
 		'  test         Run unit tests.' \
+		'  test-integration  Run PostgreSQL integration tests (requires DATAPORCH_TEST_POSTGRES_DSN).' \
 		'  test-race    Run unit tests with the race detector.' \
 		'  tidy         Reconcile module files.' \
 		'  tidy-check   Verify module files are tidy.' \

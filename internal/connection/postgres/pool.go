@@ -10,7 +10,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode"
 
 	"github.com/adamraziv/dataporch/internal/connection"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -290,17 +289,7 @@ func runtimePort(values map[string]string) (uint16, error) {
 }
 
 func validRuntimeValue(value string) bool {
-	if value == "" || strings.IndexByte(value, '\x00') >= 0 {
-		return false
-	}
-
-	for _, character := range value {
-		if unicode.IsControl(character) {
-			return false
-		}
-	}
-
-	return true
+	return value != "" && strings.IndexByte(value, '\x00') < 0
 }
 
 func tlsConfigs(host, sslMode string) ([]*tls.Config, error) {

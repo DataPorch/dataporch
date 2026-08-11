@@ -56,6 +56,27 @@ func TestPGXPoolFactoryConfigUsesResolvedDefinition(t *testing.T) {
 	}
 }
 
+func TestPGXPoolFactoryConfigPermitsControlCharactersInDatabase(t *testing.T) {
+	t.Parallel()
+
+	factory, err := newPGXPoolFactory()
+	if err != nil {
+		t.Fatalf("newPGXPoolFactory() error = %v", err)
+	}
+
+	definition := resolvedPostgresDefinition()
+	definition.Settings[settingDatabase] = "finance\narchive"
+
+	config, err := factory.config(definition)
+	if err != nil {
+		t.Fatalf("config() error = %v", err)
+	}
+
+	if config.ConnConfig.Database != "finance\narchive" {
+		t.Errorf("Database = %q, want finance\\narchive", config.ConnConfig.Database)
+	}
+}
+
 func TestPGXPoolFactoryConfigAppliesRuntimeDefaults(t *testing.T) {
 	t.Parallel()
 

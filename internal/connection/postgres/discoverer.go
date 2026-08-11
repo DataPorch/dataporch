@@ -124,3 +124,5 @@ func isNilClientOpener(opener clientOpener) bool {
 		return false
 	}
 }
+
+var _ execution.RelationalDiscoverer = (*Discoverer)(nil)

@@ -152,17 +152,29 @@ type testCatalogPool struct {
 	mu            sync.Mutex
 	rows          *testCatalogRows
 	queryErr      error
+	results       []testCatalogResult
+	queryCount    int
 	arguments     []any
+	allArguments  [][]any
+	queries       []string
 	queryDeadline time.Time
 }
 
 func (p *testCatalogPool) Ping(context.Context) error { return nil }
 
-func (p *testCatalogPool) Query(ctx context.Context, _ string, arguments ...any) (catalogRows, error) {
+func (p *testCatalogPool) Query(ctx context.Context, query string, arguments ...any) (catalogRows, error) {
 	p.mu.Lock()
 	p.arguments = append([]any(nil), arguments...)
+	p.allArguments = append(p.allArguments, append([]any(nil), arguments...))
+	p.queries = append(p.queries, query)
 	p.queryDeadline, _ = ctx.Deadline()
+	queryIndex := p.queryCount
+	p.queryCount++
 	p.mu.Unlock()
+	if queryIndex < len(p.results) {
+		result := p.results[queryIndex]
+		return result.rows, result.err
+	}
 	if p.queryErr != nil {
 		return nil, p.queryErr
 	}
@@ -170,6 +182,11 @@ func (p *testCatalogPool) Query(ctx context.Context, _ string, arguments ...any)
 		p.rows = &testCatalogRows{}
 	}
 	return p.rows, nil
+}
+
+type testCatalogResult struct {
+	rows *testCatalogRows
+	err  error
 }
 
 func (p *testCatalogPool) Close() {}

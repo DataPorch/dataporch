@@ -145,7 +145,7 @@ func (a *App) Run(ctx context.Context) error {
 	}
 
 	if ctx.Err() != nil {
-		return nil
+		return a.closeRuntimeWithTimeout(ctx)
 	}
 
 	listener, err := a.listenPublic(ctx)
@@ -209,12 +209,13 @@ func (a *App) waitForServers(
 		case err := <-publicErrors:
 			cancel()
 			a.waitForAdmin(adminErrors)
+			runtimeErr := a.closeRuntimeWithTimeout(ctx)
 
 			if errors.Is(err, http.ErrServerClosed) {
-				return nil
+				return runtimeErr
 			}
 
-			return fmt.Errorf("serving http: %w", err)
+			return errors.Join(fmt.Errorf("serving http: %w", err), runtimeErr)
 		case err := <-adminErrors:
 			if err != nil {
 				a.logger.WarnContext(
@@ -259,13 +260,29 @@ func (a *App) shutdown(
 
 	a.waitForAdmin(adminErrors)
 
+	shutdownErr = errors.Join(shutdownErr, a.closeRuntime(shutdownCtx))
 	if shutdownErr != nil {
-		return fmt.Errorf("shutting down http server: %w", shutdownErr)
+		return fmt.Errorf("shutting down application: %w", shutdownErr)
 	}
 
 	a.logger.InfoContext(shutdownCtx, "dataporch stopped")
 
 	return nil
+}
+
+func (a *App) closeRuntimeWithTimeout(ctx context.Context) error {
+	shutdownCtx, stop := context.WithTimeout(context.WithoutCancel(ctx), a.shutdownPeriod)
+	defer stop()
+
+	return a.closeRuntime(shutdownCtx)
+}
+
+func (a *App) closeRuntime(ctx context.Context) error {
+	if a.postgresRuntime == nil {
+		return nil
+	}
+
+	return a.postgresRuntime.Close(ctx)
 }
 
 func (a *App) waitForAdmin(adminErrors <-chan error) {

@@ -208,7 +208,7 @@ func TestAppFailedImportPreservesPostgresRuntime(t *testing.T) {
 func newAppWithPostgresRuntimeTestStub(
 	t *testing.T,
 	cfg config.Config,
-	runtime *appPostgresRuntimeTestStub,
+	runtime postgresRuntime,
 ) *App {
 	t.Helper()
 

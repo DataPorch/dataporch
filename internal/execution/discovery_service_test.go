@@ -181,7 +181,7 @@ func TestServiceListRelationalOperations(t *testing.T) {
 				Name:            "id",
 				OrdinalPosition: 1,
 				Type: DataType{
-					ElementType: &TypeReference{Schema: "pg_catalog", Name: "text"},
+					ElementType: &TypeReference{Schema: "types", Name: "text"},
 				},
 				DefaultExpression: stringPointer("nextval('seq')"),
 			}},

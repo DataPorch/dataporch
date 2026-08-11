@@ -10,7 +10,6 @@ func TestAllowAll_Authorize(t *testing.T) {
 
 	policy := New()
 	for _, action := range []Action{
-		ActionListResources,
 		ActionListDataSources,
 		ActionListRelationalSchemas,
 		ActionListRelationalTables,
@@ -29,7 +28,7 @@ func TestAllowAll_AuthorizeRejectsInvalidRequests(t *testing.T) {
 	canceledCtx, cancel := context.WithCancel(t.Context())
 	cancel()
 
-	if err := policy.Authorize(canceledCtx, ActionListResources); err == nil {
+	if err := policy.Authorize(canceledCtx, ActionListDataSources); err == nil {
 		t.Error("Authorize(canceledCtx) error = nil, want non-nil")
 	}
 

@@ -445,10 +445,12 @@ func cloneConstraints(values []Constraint) []Constraint {
 	cloned := make([]Constraint, len(values))
 	for index, value := range values {
 		cloned[index] = value
-		cloned[index].Columns = append([]string(nil), value.Columns...)
+		cloned[index].Columns = make([]string, len(value.Columns))
+		copy(cloned[index].Columns, value.Columns)
 		if value.Referenced != nil {
 			referenced := *value.Referenced
-			referenced.Columns = append([]string(nil), value.Referenced.Columns...)
+			referenced.Columns = make([]string, len(value.Referenced.Columns))
+			copy(referenced.Columns, value.Referenced.Columns)
 			cloned[index].Referenced = &referenced
 		}
 		cloned[index].NullsNotDistinct = cloneBoolPointer(value.NullsNotDistinct)

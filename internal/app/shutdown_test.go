@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/adamraziv/dataporch/internal/connection"
+	"github.com/adamraziv/dataporch/internal/connection/postgres"
 )
 
 func TestAppRunClosesRuntimeWhenContextIsAlreadyCanceled(t *testing.T) {
@@ -234,6 +235,10 @@ type appLifecycleRuntimeTestStub struct {
 	closeStarted          chan struct{}
 	closeStartedOnce      sync.Once
 	onClose               func()
+}
+
+func (r *appLifecycleRuntimeTestStub) Open(context.Context, connection.ID) (*postgres.Client, error) {
+	return nil, nil
 }
 
 func (r *appLifecycleRuntimeTestStub) Invalidate(connection.ID) {}

@@ -24,6 +24,7 @@ const (
 )
 
 var (
+	ErrInvalidLimit                = errors.New("execution: invalid resource limit")
 	ErrInvalidRequest              = errors.New("execution: invalid request")
 	ErrInvalidCursor               = errors.New("execution: invalid cursor")
 	ErrSourceNotFound              = errors.New("execution: source not found")
@@ -37,6 +38,7 @@ var (
 	ErrQueryTimeout                = errors.New("execution: query timeout")
 	ErrCancelled                   = errors.New("execution: cancelled")
 	ErrInternal                    = errors.New("execution: internal failure")
+	errContextRequired             = errors.New("execution: context is required")
 )
 
 type Failure struct {

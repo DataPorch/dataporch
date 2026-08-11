@@ -10,8 +10,6 @@ import (
 	"time"
 
 	"github.com/adamraziv/dataporch/internal/access"
-	"github.com/adamraziv/dataporch/internal/catalog"
-	"github.com/adamraziv/dataporch/internal/catalog/memory"
 	"github.com/adamraziv/dataporch/internal/config"
 	"github.com/adamraziv/dataporch/internal/connection"
 	"github.com/adamraziv/dataporch/internal/connection/postgres"
@@ -24,7 +22,7 @@ import (
 const (
 	readHeaderTimeout = 5 * time.Second
 	readTimeout       = 15 * time.Second
-	writeTimeout      = 30 * time.Second
+	writeTimeout      = 35 * time.Second
 	idleTimeout       = 60 * time.Second
 	maxHeaderBytes    = 1 << 20
 )
@@ -38,6 +36,7 @@ type App struct {
 	server          *http.Server
 	adminServer     *localadmin.Server
 	manager         *connection.Manager
+	service         *execution.Service
 	postgresRuntime postgresRuntime
 	logger          *slog.Logger
 	shutdownPeriod  time.Duration
@@ -75,39 +74,32 @@ func newWithDependencies(
 		return nil, fmt.Errorf("validating configuration: %w", err)
 	}
 
-	connector, err := memory.New([]catalog.Resource{
-		{
-			URI:         "memory://customers",
-			Name:        "Customers",
-			Kind:        "table",
-			Description: "Bootstrap customer resource",
-		},
-		{
-			URI:         "memory://orders",
-			Name:        "Orders",
-			Kind:        "table",
-			Description: "Bootstrap order resource",
-		},
-	})
+	security, err := newSecurityComponents(cfg, logger, dependencies)
 	if err != nil {
-		return nil, fmt.Errorf("creating memory connector: %w", err)
+		return nil, fmt.Errorf("creating security components: %w", err)
 	}
 
-	service, err := execution.NewResourceService(
-		connector,
-		access.New(),
-		cfg.ResourceLimit,
-	)
+	relational, err := postgres.NewDiscoverer(security.postgresRuntime)
+	if err != nil {
+		return nil, fmt.Errorf("creating postgres discoverer: %w", err)
+	}
+
+	service, err := execution.New(execution.Dependencies{
+		Sources:               security.manager,
+		Authorizer:            access.New(),
+		MaxLimit:              cfg.ResourceLimit,
+		RelationalDiscoverers: []execution.RelationalDiscoverer{relational},
+	})
 	if err != nil {
 		return nil, fmt.Errorf("creating execution service: %w", err)
 	}
 
-	httpHandler, err := httpapi.New(service, cfg.ResourceLimit, logger)
+	httpHandler, err := httpapi.New(logger)
 	if err != nil {
 		return nil, fmt.Errorf("creating http adapter: %w", err)
 	}
 
-	mcpHandler, err := mcp.NewResourceHandler(service, cfg.ResourceLimit, logger)
+	mcpHandler, err := mcp.New(service, logger)
 	if err != nil {
 		return nil, fmt.Errorf("creating mcp adapter: %w", err)
 	}
@@ -115,11 +107,6 @@ func newWithDependencies(
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", mcpHandler)
 	mux.Handle("/", httpHandler)
-
-	security, err := newSecurityComponents(cfg, logger, dependencies)
-	if err != nil {
-		return nil, fmt.Errorf("creating security components: %w", err)
-	}
 
 	return &App{
 		server: &http.Server{
@@ -133,6 +120,7 @@ func newWithDependencies(
 		},
 		adminServer:     security.adminServer,
 		manager:         security.manager,
+		service:         service,
 		postgresRuntime: security.postgresRuntime,
 		logger:          logger,
 		shutdownPeriod:  cfg.ShutdownPeriod,

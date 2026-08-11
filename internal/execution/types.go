@@ -178,6 +178,10 @@ type SourceRegistry interface {
 	Lookup(connection.ID) (connection.Definition, error)
 }
 
+type Authorizer interface {
+	Authorize(context.Context, access.Action) error
+}
+
 type RelationalDiscoverer interface {
 	Kind() connection.Kind
 	ListSchemas(context.Context, SchemaDiscoveryRequest) (SchemaDiscoveryPage, error)

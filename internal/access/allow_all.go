@@ -13,7 +13,6 @@ var (
 type Action string
 
 const (
-	ActionListResources         Action = "list_resources"
 	ActionListDataSources       Action = "list_data_sources"
 	ActionListRelationalSchemas Action = "list_relational_database_schemas"
 	ActionListRelationalTables  Action = "list_relational_database_tables"

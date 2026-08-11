@@ -26,17 +26,17 @@ type Authorizer interface {
 	Authorize(context.Context, access.Action) error
 }
 
-type Service struct {
+type ResourceService struct {
 	catalog    ResourceCatalog
 	authorizer Authorizer
 	maxLimit   int
 }
 
-func New(
+func NewResourceService(
 	resourceCatalog ResourceCatalog,
 	authorizer Authorizer,
 	maxLimit int,
-) (*Service, error) {
+) (*ResourceService, error) {
 	if resourceCatalog == nil {
 		return nil, errCatalogRequired
 	}
@@ -49,14 +49,14 @@ func New(
 		return nil, fmt.Errorf("%w: maximum must be positive", ErrInvalidLimit)
 	}
 
-	return &Service{
+	return &ResourceService{
 		catalog:    resourceCatalog,
 		authorizer: authorizer,
 		maxLimit:   maxLimit,
 	}, nil
 }
 
-func (s *Service) ListResources(
+func (s *ResourceService) ListResources(
 	ctx context.Context,
 	limit int,
 ) ([]catalog.Resource, error) {

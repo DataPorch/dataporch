@@ -28,7 +28,7 @@ func TestHandler_ListResources(t *testing.T) {
 
 	logger := slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil))
 
-	handler, err := New(
+	handler, err := NewResourceHandler(
 		listerStub{resources: []catalog.Resource{
 			{URI: "memory://customers", Name: "Customers", Kind: "table"},
 		}},
@@ -36,7 +36,7 @@ func TestHandler_ListResources(t *testing.T) {
 		logger,
 	)
 	if err != nil {
-		t.Fatalf("New() error = %v", err)
+		t.Fatalf("NewResourceHandler() error = %v", err)
 	}
 
 	httpServer := httptest.NewServer(handler)

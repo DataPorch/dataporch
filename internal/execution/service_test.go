@@ -28,7 +28,7 @@ func (s authorizerStub) Authorize(context.Context, access.Action) error {
 	return s.err
 }
 
-func TestNew(t *testing.T) {
+func TestNewResourceService(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -46,8 +46,8 @@ func TestNew(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if _, err := New(tt.catalog, tt.authorizer, tt.maxLimit); err == nil {
-				t.Fatal("New() error = nil, want non-nil")
+			if _, err := NewResourceService(tt.catalog, tt.authorizer, tt.maxLimit); err == nil {
+				t.Fatal("NewResourceService() error = nil, want non-nil")
 			}
 		})
 	}
@@ -56,7 +56,7 @@ func TestNew(t *testing.T) {
 func TestService_ListResources(t *testing.T) {
 	t.Parallel()
 
-	service, err := New(
+	service, err := NewResourceService(
 		catalogStub{resources: []catalog.Resource{
 			{URI: "memory://customers", Name: "Customers", Kind: "table"},
 		}},
@@ -64,7 +64,7 @@ func TestService_ListResources(t *testing.T) {
 		10,
 	)
 	if err != nil {
-		t.Fatalf("New() error = %v", err)
+		t.Fatalf("NewResourceService() error = %v", err)
 	}
 
 	resources, err := service.ListResources(t.Context(), 1)
@@ -80,9 +80,9 @@ func TestService_ListResources(t *testing.T) {
 func TestService_ListResourcesRejectsInvalidLimit(t *testing.T) {
 	t.Parallel()
 
-	service, err := New(catalogStub{}, authorizerStub{}, 10)
+	service, err := NewResourceService(catalogStub{}, authorizerStub{}, 10)
 	if err != nil {
-		t.Fatalf("New() error = %v", err)
+		t.Fatalf("NewResourceService() error = %v", err)
 	}
 
 	_, err = service.ListResources(t.Context(), 11)
@@ -94,13 +94,13 @@ func TestService_ListResourcesRejectsInvalidLimit(t *testing.T) {
 func TestService_ListResourcesRejectsDeniedAccess(t *testing.T) {
 	t.Parallel()
 
-	service, err := New(
+	service, err := NewResourceService(
 		catalogStub{},
 		authorizerStub{err: errors.New("access denied")},
 		10,
 	)
 	if err != nil {
-		t.Fatalf("New() error = %v", err)
+		t.Fatalf("NewResourceService() error = %v", err)
 	}
 
 	if _, err := service.ListResources(t.Context(), 1); err == nil {

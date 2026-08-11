@@ -93,7 +93,7 @@ func newWithDependencies(
 		return nil, fmt.Errorf("creating memory connector: %w", err)
 	}
 
-	service, err := execution.New(
+	service, err := execution.NewResourceService(
 		connector,
 		access.New(),
 		cfg.ResourceLimit,
@@ -107,7 +107,7 @@ func newWithDependencies(
 		return nil, fmt.Errorf("creating http adapter: %w", err)
 	}
 
-	mcpHandler, err := mcp.New(service, cfg.ResourceLimit, logger)
+	mcpHandler, err := mcp.NewResourceHandler(service, cfg.ResourceLimit, logger)
 	if err != nil {
 		return nil, fmt.Errorf("creating mcp adapter: %w", err)
 	}

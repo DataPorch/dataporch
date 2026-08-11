@@ -30,7 +30,7 @@ type listResourcesOutput struct {
 	Resources []catalog.Resource `json:"resources"`
 }
 
-func New(
+func NewResourceHandler(
 	lister ResourceLister,
 	defaultLimit int,
 	logger *slog.Logger,

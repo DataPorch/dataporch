@@ -138,6 +138,14 @@ func (d *Discoverer) ListColumns(ctx context.Context, request execution.ColumnDi
 		page.HasMore = true
 		page.Columns = page.Columns[:request.Limit]
 	}
+	attnums := make([]int16, 0, len(page.Columns))
+	for _, column := range page.Columns {
+		attnums = append(attnums, int16(column.OrdinalPosition))
+	}
+	page.Constraints, err = listConstraints(ctx, queryCtx, client.pool, relationOID, attnums)
+	if err != nil {
+		return execution.ColumnDiscoveryPage{}, err
+	}
 	return page, nil
 }
 

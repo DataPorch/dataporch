@@ -19,6 +19,7 @@ func TestListColumnsMapsMetadataAndPaginatesByOrdinal(t *testing.T) {
 			{"amount", 4, "numeric(12,2)", "pg_catalog", "numeric", "base", nil, int32(12), int32(2), nil, false, nil, nil, nil, nil, true, "42", "", "", "amount description"},
 			{"generated_amount", 5, "numeric", "pg_catalog", "numeric", "base", nil, nil, nil, nil, false, nil, nil, nil, nil, true, "amount * 2", "", "s", "amount description"},
 		}}},
+		{rows: &testCatalogRows{}},
 	}}
 	discoverer, err := newDiscoverer(&testClientOpener{client: &Client{pool: pool}}, time.Second)
 	if err != nil {

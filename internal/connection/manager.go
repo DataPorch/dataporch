@@ -78,15 +78,20 @@ func (m *Manager) Prepare(ctx context.Context, id ID) (ResolvedDefinition, error
 	}
 
 	if err := ctx.Err(); err != nil {
-		return ResolvedDefinition{}, fmt.Errorf(
-			"%w: %v",
-			ErrDatabaseUnavailable,
-			err, //nolint:errorlint // Preserve the existing public error chain.
-		)
+		return ResolvedDefinition{}, fmt.Errorf("%w: %w", ErrDatabaseUnavailable, err)
 	}
 
 	definition, err := m.Lookup(id)
 	if err != nil {
+		if errors.Is(err, ErrDatabaseNotFound) {
+			return ResolvedDefinition{}, fmt.Errorf(
+				"%w: %w: %s",
+				ErrDatabaseUnavailable,
+				ErrDatabaseNotFound,
+				id,
+			)
+		}
+
 		return ResolvedDefinition{}, fmt.Errorf("%w: %s", ErrDatabaseUnavailable, id)
 	}
 

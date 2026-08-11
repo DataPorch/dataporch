@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 
 	"github.com/adamraziv/dataporch/internal/config"
@@ -16,16 +17,17 @@ import (
 var errSecurityUnavailable = errors.New("security component unavailable")
 
 type securityComponents struct {
-	manager     *connection.Manager
-	adminServer *localadmin.Server
+	manager         *connection.Manager
+	adminServer     *localadmin.Server
+	postgresRuntime postgresRuntime
 }
 
 func newSecurityComponents(
 	cfg config.Config,
 	logger *slog.Logger,
-	adapters ...connection.Adapter,
+	dependencies appDependencies,
 ) (securityComponents, error) {
-	connector, err := connection.NewConnector(adapters...)
+	connector, err := connection.NewConnector(dependencies.adapters...)
 	if err != nil {
 		return securityComponents{}, err
 	}
@@ -38,11 +40,25 @@ func newSecurityComponents(
 		return securityComponents{}, err
 	}
 
+	if dependencies.newPostgresRuntime == nil {
+		return securityComponents{}, errPostgresRuntimeFactoryRequired
+	}
+
+	runtime, err := dependencies.newPostgresRuntime(manager)
+	if err != nil {
+		return securityComponents{}, fmt.Errorf("creating postgres runtime: %w", err)
+	}
+
+	registrar, err := newReplacementRegistrar(manager, runtime)
+	if err != nil {
+		return securityComponents{}, err
+	}
+
 	importer, err := connection.NewImporter(connection.ImporterDependencies{
 		Adapters:    connector,
 		Secrets:     writer,
 		Definitions: repository,
-		Registrar:   manager,
+		Registrar:   registrar,
 		Warn: func(databaseID connection.ID, category string) {
 			logger.Warn(
 				"connection import cleanup incomplete",
@@ -67,7 +83,11 @@ func newSecurityComponents(
 		return securityComponents{}, err
 	}
 
-	return securityComponents{manager: manager, adminServer: server}, nil
+	return securityComponents{
+		manager:         manager,
+		adminServer:     server,
+		postgresRuntime: runtime,
+	}, nil
 }
 
 func openSecretStore(cfg config.Config, logger *slog.Logger) (connection.SecretResolver, connection.SecretWriter) {

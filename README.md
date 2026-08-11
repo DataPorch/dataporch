@@ -102,8 +102,15 @@ password, one TCP host, a database, an optional explicit port, and an optional
 default port.
 
 Import parses and stores the normalized definition only. Real Postgres
-connections, authentication checks, health checks, queries, and resource
-discovery remain deferred.
+DataPorch now has an internal lazy Postgres runtime opener. The first internal
+open authenticates within ten seconds, and later opens in the same process
+reuse one pgx pool per database ID without pinging on every call. pgx may retire
+idle physical connections while DataPorch retains the reusable pool object.
+
+No HTTP, MCP, CLI, resource-discovery, health, or query operation exposes the
+opener yet. Startup and connection import still do not contact PostgreSQL.
+Pool capacity uses pgx defaults in this slice; configurable per-database maximum
+connections remains a deferred scaling requirement.
 
 The initial configuration uses an allow-all access policy and in-memory resources. Do not use these components for production access control or storage.
 
@@ -130,7 +137,7 @@ cmd/dataporch/                 Program entry point
 internal/app/                  Dependency setup and process lifecycle
 internal/config/               Environment configuration
 internal/connection/           Built-in database adapter resolution
-internal/connection/postgres/  PostgreSQL connection URI import adapter
+internal/connection/postgres/  PostgreSQL URI import and runtime opener
 internal/catalog/              Resource metadata
 internal/catalog/memory/       In-memory resource catalog
 internal/execution/            Validated application operations

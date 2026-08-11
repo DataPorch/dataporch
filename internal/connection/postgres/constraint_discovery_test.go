@@ -3,11 +3,27 @@ package postgres
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/adamraziv/dataporch/internal/execution"
 )
+
+func TestListConstraintsSQLSupportsPostgreSQL14(t *testing.T) {
+	t.Parallel()
+
+	if strings.Contains(listConstraintsSQL, "constraint_index.indnullsnotdistinct") {
+		t.Fatal("listConstraintsSQL directly references PostgreSQL 15-only indnullsnotdistinct")
+	}
+
+	if !strings.Contains(
+		listConstraintsSQL,
+		"pg_catalog.to_jsonb(constraint_index) ->> 'indnullsnotdistinct'",
+	) {
+		t.Fatal("listConstraintsSQL does not use version-neutral index metadata lookup")
+	}
+}
 
 //nolint:gocyclo // The fixture covers complete composite and foreign-key constraint mappings.
 func TestListConstraintsMapsCompleteCompositeAndForeignKeys(t *testing.T) {
@@ -27,7 +43,13 @@ func TestListConstraintsMapsCompleteCompositeAndForeignKeys(t *testing.T) {
 	queryCtx, cancel := discoverer.queryContext(t.Context())
 	defer cancel()
 
-	constraints, err := listConstraints(t.Context(), queryCtx, pool, 42, []int16{1, 2})
+	constraints, err := listConstraints(
+		t.Context(),
+		queryCtx,
+		pool,
+		42,
+		[]int16{1, 2},
+	)
 	if err != nil {
 		t.Fatalf("listConstraints() error = %v", err)
 	}
@@ -62,7 +84,13 @@ func TestListConstraintsSkipsEmptyPage(t *testing.T) {
 	queryCtx, cancel := contextWithCancel(t)
 	defer cancel()
 
-	constraints, err := listConstraints(t.Context(), queryCtx, pool, 42, nil)
+	constraints, err := listConstraints(
+		t.Context(),
+		queryCtx,
+		pool,
+		42,
+		nil,
+	)
 	if err != nil {
 		t.Fatalf("listConstraints() error = %v", err)
 	}

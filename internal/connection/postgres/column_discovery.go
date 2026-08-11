@@ -158,7 +158,13 @@ func (d *Discoverer) ListColumns(ctx context.Context, request execution.ColumnDi
 		attnums = append(attnums, int16(column.OrdinalPosition))
 	}
 
-	page.Constraints, err = listConstraints(ctx, queryCtx, client.pool, relationOID, attnums)
+	page.Constraints, err = listConstraints(
+		ctx,
+		queryCtx,
+		client.pool,
+		relationOID,
+		attnums,
+	)
 	if err != nil {
 		return execution.ColumnDiscoveryPage{}, err
 	}

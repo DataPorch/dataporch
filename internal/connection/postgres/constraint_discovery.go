@@ -32,7 +32,12 @@ SELECT
     con.confmatchtype::text,
     con.confupdtype::text,
     con.confdeltype::text,
-    CASE WHEN con.contype = 'u' THEN constraint_index.indnullsnotdistinct END,
+    CASE WHEN con.contype = 'u'
+      THEN COALESCE(
+        (pg_catalog.to_jsonb(constraint_index) ->> 'indnullsnotdistinct')::boolean,
+        false
+      )
+    END,
     CASE WHEN con.contype = 'c'
       THEN pg_catalog.pg_get_expr(con.conbin, con.conrelid, true)
     END,
@@ -73,7 +78,13 @@ WHERE con.conrelid = $1
   )
 ORDER BY con.conname COLLATE "C", con.oid`
 
-func listConstraints(parentCtx, queryCtx context.Context, pool runtimePool, relationOID uint32, attnums []int16) ([]execution.Constraint, error) {
+func listConstraints(
+	parentCtx context.Context,
+	queryCtx context.Context,
+	pool runtimePool,
+	relationOID uint32,
+	attnums []int16,
+) ([]execution.Constraint, error) {
 	constraints := make([]execution.Constraint, 0)
 	if len(attnums) == 0 {
 		return constraints, nil

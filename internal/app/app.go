@@ -14,6 +14,7 @@ import (
 	"github.com/adamraziv/dataporch/internal/catalog/memory"
 	"github.com/adamraziv/dataporch/internal/config"
 	"github.com/adamraziv/dataporch/internal/connection"
+	"github.com/adamraziv/dataporch/internal/connection/postgres"
 	"github.com/adamraziv/dataporch/internal/execution"
 	"github.com/adamraziv/dataporch/internal/transports/httpapi"
 	"github.com/adamraziv/dataporch/internal/transports/localadmin"
@@ -41,7 +42,15 @@ type App struct {
 	shutdownPeriod time.Duration
 }
 
-func New(cfg config.Config, logger *slog.Logger, adapters ...connection.Adapter) (*App, error) {
+func New(cfg config.Config, logger *slog.Logger) (*App, error) {
+	return newWithAdapters(cfg, logger, postgres.New())
+}
+
+func newWithAdapters(
+	cfg config.Config,
+	logger *slog.Logger,
+	adapters ...connection.Adapter,
+) (*App, error) {
 	if logger == nil {
 		return nil, errLoggerRequired
 	}

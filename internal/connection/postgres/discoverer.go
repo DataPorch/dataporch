@@ -37,9 +37,11 @@ func newDiscoverer(opener clientOpener, queryTimeout time.Duration) (*Discoverer
 	if isNilClientOpener(opener) {
 		return nil, errClientOpenerRequired
 	}
+
 	if queryTimeout <= 0 {
 		return nil, errQueryTimeoutRequired
 	}
+
 	return &Discoverer{opener: opener, queryTimeout: queryTimeout}, nil
 }
 
@@ -51,6 +53,7 @@ func (d *Discoverer) open(ctx context.Context, sourceID connection.ID) (*Client,
 	if ctx == nil {
 		return nil, fmt.Errorf("%w: context is required", execution.ErrCancelled)
 	}
+
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("%w: %w", execution.ErrCancelled, err)
 	}
@@ -60,11 +63,14 @@ func (d *Discoverer) open(ctx context.Context, sourceID connection.ID) (*Client,
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return nil, fmt.Errorf("%w: %w", execution.ErrCancelled, ctxErr)
 		}
+
 		return nil, fmt.Errorf("%w: %w", execution.ErrDatabaseUnavailable, err)
 	}
+
 	if client == nil || client.pool == nil {
 		return nil, execution.ErrDatabaseUnavailable
 	}
+
 	return client, nil
 }
 
@@ -72,12 +78,14 @@ func (d *Discoverer) queryContext(ctx context.Context) (context.Context, context
 	return context.WithTimeoutCause(ctx, d.queryTimeout, execution.ErrQueryTimeout)
 }
 
+//nolint:gocyclo // Query errors retain distinct cancellation, timeout, permission, and availability categories.
 func classifyQueryError(parentCtx, queryCtx context.Context, err error) error {
 	if parentCtx != nil {
 		if ctxErr := parentCtx.Err(); ctxErr != nil {
 			return fmt.Errorf("%w: %w", execution.ErrCancelled, ctxErr)
 		}
 	}
+
 	if queryCtx != nil {
 		if cause := context.Cause(queryCtx); cause != nil {
 			switch {
@@ -88,9 +96,11 @@ func classifyQueryError(parentCtx, queryCtx context.Context, err error) error {
 			}
 		}
 	}
+
 	if errors.Is(err, context.Canceled) {
 		return fmt.Errorf("%w: %w", execution.ErrCancelled, err)
 	}
+
 	if errors.Is(err, context.DeadlineExceeded) {
 		return fmt.Errorf("%w: %w", execution.ErrQueryTimeout, err)
 	}
@@ -106,9 +116,11 @@ func classifyQueryError(parentCtx, queryCtx context.Context, err error) error {
 			return fmt.Errorf("%w: %w", execution.ErrDatabaseUnavailable, err)
 		}
 	}
+
 	if pgconn.SafeToRetry(err) {
 		return fmt.Errorf("%w: %w", execution.ErrDatabaseUnavailable, err)
 	}
+
 	return fmt.Errorf("%w: %w", execution.ErrInternal, err)
 }
 
@@ -116,6 +128,7 @@ func isNilClientOpener(opener clientOpener) bool {
 	if opener == nil {
 		return true
 	}
+
 	value := reflect.ValueOf(opener)
 	switch value.Kind() { //nolint:exhaustive // Other kinds cannot be nil.
 	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:

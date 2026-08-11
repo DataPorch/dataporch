@@ -9,6 +9,7 @@ import (
 	"github.com/adamraziv/dataporch/internal/execution"
 )
 
+//nolint:gocyclo // The fixture exercises schema checks, relation kinds, privileges, and pagination.
 func TestListTablesChecksSchemaAndMapsRelations(t *testing.T) {
 	t.Parallel()
 
@@ -19,6 +20,7 @@ func TestListTablesChecksSchemaAndMapsRelations(t *testing.T) {
 			{"partitioned", "p", "partition description"},
 		}}},
 	}}
+
 	discoverer, err := newDiscoverer(&testClientOpener{client: &Client{pool: pool}}, time.Second)
 	if err != nil {
 		t.Fatalf("newDiscoverer() error = %v", err)
@@ -35,12 +37,15 @@ func TestListTablesChecksSchemaAndMapsRelations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListTables() error = %v", err)
 	}
+
 	if len(page.Tables) != 1 || page.Tables[0].Kind != execution.RelationKindTable || page.Tables[0].Description == nil || !page.HasMore {
 		t.Fatalf("page = %#v, want one described table with more", page)
 	}
+
 	if len(pool.allArguments) != 2 || len(pool.allArguments[0]) != 1 || pool.allArguments[0][0] != "Sales Data" {
 		t.Fatalf("schema query arguments = %#v", pool.allArguments)
 	}
+
 	if got := pool.allArguments[1]; len(got) != 5 || got[0] != "Sales Data" || got[1] != true || got[2] != `%_*.[x]\\` || got[3] != "before" || got[4] != 2 {
 		t.Fatalf("table query arguments = %#v", got)
 	}
@@ -59,15 +64,20 @@ func TestListTablesDistinguishesSchemaErrors(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
 			pool := &testCatalogPool{results: []testCatalogResult{{rows: &testCatalogRows{values: [][]any{test.row}}}}}
+
 			discoverer, err := newDiscoverer(&testClientOpener{client: &Client{pool: pool}}, time.Second)
 			if err != nil {
 				t.Fatalf("newDiscoverer() error = %v", err)
 			}
+
 			_, err = discoverer.ListTables(t.Context(), execution.TableDiscoveryRequest{SourceID: "analytics", Schema: "private", Limit: 1})
 			if !errors.Is(err, test.want) {
 				t.Fatalf("ListTables() error = %v, want %v", err, test.want)
 			}
+
 			if pool.queryCount != 1 {
 				t.Fatalf("query count = %d, want schema check only", pool.queryCount)
 			}
@@ -82,10 +92,12 @@ func TestListTablesRejectsUnknownRelationKindAndQueryFailures(t *testing.T) {
 		{rows: &testCatalogRows{values: [][]any{{true, true}}}},
 		{rows: &testCatalogRows{values: [][]any{{"bad", "x", nil}}}},
 	}}
+
 	discoverer, err := newDiscoverer(&testClientOpener{client: &Client{pool: pool}}, time.Second)
 	if err != nil {
 		t.Fatalf("newDiscoverer() error = %v", err)
 	}
+
 	_, err = discoverer.ListTables(t.Context(), execution.TableDiscoveryRequest{SourceID: "analytics", Schema: "public", Limit: 1})
 	if !errors.Is(err, execution.ErrUnsupportedRelationKind) {
 		t.Fatalf("unknown relation error = %v, want unsupported kind", err)
@@ -95,10 +107,12 @@ func TestListTablesRejectsUnknownRelationKindAndQueryFailures(t *testing.T) {
 		{rows: &testCatalogRows{values: [][]any{{true, true}}}},
 		{err: errors.New("raw query failure")},
 	}}
+
 	discoverer, err = newDiscoverer(&testClientOpener{client: &Client{pool: pool}}, time.Second)
 	if err != nil {
 		t.Fatalf("newDiscoverer(query) error = %v", err)
 	}
+
 	_, err = discoverer.ListTables(context.Background(), execution.TableDiscoveryRequest{SourceID: "analytics", Schema: "public", Limit: 1})
 	if !errors.Is(err, execution.ErrInternal) {
 		t.Fatalf("query error = %v, want internal", err)

@@ -74,10 +74,12 @@ func (m *Manager) Lookup(id ID) (Definition, error) {
 
 func (m *Manager) List() []Definition {
 	m.mu.RLock()
+
 	definitions := make([]Definition, 0, len(m.definitions))
 	for _, definition := range m.definitions {
 		definitions = append(definitions, definition.Clone())
 	}
+
 	m.mu.RUnlock()
 
 	sort.Slice(definitions, func(i, j int) bool {

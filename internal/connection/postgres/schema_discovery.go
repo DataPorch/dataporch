@@ -23,6 +23,7 @@ func (d *Discoverer) ListSchemas(ctx context.Context, request execution.SchemaDi
 	if err != nil {
 		return execution.SchemaDiscoveryPage{}, err
 	}
+
 	queryCtx, cancel := d.queryContext(ctx)
 	defer cancel()
 
@@ -30,22 +31,27 @@ func (d *Discoverer) ListSchemas(ctx context.Context, request execution.SchemaDi
 	if err != nil {
 		return execution.SchemaDiscoveryPage{}, classifyQueryError(ctx, queryCtx, err)
 	}
+
 	if rows == nil {
 		return execution.SchemaDiscoveryPage{}, fmt.Errorf("%w: nil catalog rows", execution.ErrInternal)
 	}
 	defer rows.Close()
 
 	schemas := make([]execution.Schema, 0, request.Limit+1)
+
 	for rows.Next() {
 		var schema execution.Schema
 		if err := rows.Scan(&schema.Name, &schema.Description); err != nil {
 			return execution.SchemaDiscoveryPage{}, classifyQueryError(ctx, queryCtx, err)
 		}
+
 		if !request.IncludeDescriptions {
 			schema.Description = nil
 		}
+
 		schemas = append(schemas, schema)
 	}
+
 	if err := rows.Err(); err != nil {
 		return execution.SchemaDiscoveryPage{}, classifyQueryError(ctx, queryCtx, err)
 	}
@@ -55,5 +61,6 @@ func (d *Discoverer) ListSchemas(ctx context.Context, request execution.SchemaDi
 		page.HasMore = true
 		page.Schemas = page.Schemas[:request.Limit]
 	}
+
 	return page, nil
 }

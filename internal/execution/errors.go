@@ -47,12 +47,14 @@ type Failure struct {
 	Retryable bool          `json:"retryable"`
 }
 
+//nolint:gocyclo // Public error classification intentionally enumerates each stable failure category.
 func Classify(err error) Failure {
 	if err == nil {
 		return Failure{}
 	}
 
 	category := ErrorCategoryInternal
+
 	switch {
 	case errors.Is(err, ErrInvalidCursor):
 		category = ErrorCategoryInvalidCursor

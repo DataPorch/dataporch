@@ -8,7 +8,10 @@ import (
 	"github.com/adamraziv/dataporch/internal/execution"
 )
 
-const resolveRelationSQL = `
+const (
+	typeCategoryBaseCode = "base"
+
+	resolveRelationSQL = `
 SELECT
     c.oid,
     c.relkind::text,
@@ -27,7 +30,7 @@ FROM pg_catalog.pg_class AS c
 JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace
 WHERE n.nspname = $1 AND c.relname = $2`
 
-const listColumnsSQL = `
+	listColumnsSQL = `
 SELECT
     a.attname,
     a.attnum::integer,
@@ -91,18 +94,22 @@ WHERE a.attrelid = $1
   AND a.attnum > $3
 ORDER BY a.attnum
 LIMIT $5`
+)
 
+//nolint:gocyclo // Column discovery validates access, maps metadata, and attaches constraints in one bounded call.
 func (d *Discoverer) ListColumns(ctx context.Context, request execution.ColumnDiscoveryRequest) (execution.ColumnDiscoveryPage, error) {
 	client, err := d.open(ctx, request.SourceID)
 	if err != nil {
 		return execution.ColumnDiscoveryPage{}, err
 	}
+
 	queryCtx, cancel := d.queryContext(ctx)
 	defer cancel()
 
 	if err := checkSchema(ctx, queryCtx, client.pool, request.Schema); err != nil {
 		return execution.ColumnDiscoveryPage{}, err
 	}
+
 	relationOID, relationKindValue, err := resolveRelation(ctx, queryCtx, client.pool, request.Schema, request.Table)
 	if err != nil {
 		return execution.ColumnDiscoveryPage{}, err
@@ -112,6 +119,7 @@ func (d *Discoverer) ListColumns(ctx context.Context, request execution.ColumnDi
 	if err != nil {
 		return execution.ColumnDiscoveryPage{}, classifyQueryError(ctx, queryCtx, err)
 	}
+
 	if rows == nil {
 		return execution.ColumnDiscoveryPage{}, fmt.Errorf("%w: nil catalog rows", execution.ErrInternal)
 	}
@@ -123,8 +131,10 @@ func (d *Discoverer) ListColumns(ctx context.Context, request execution.ColumnDi
 		if err != nil {
 			return execution.ColumnDiscoveryPage{}, classifyQueryError(ctx, queryCtx, err)
 		}
+
 		columns = append(columns, column)
 	}
+
 	if err := rows.Err(); err != nil {
 		return execution.ColumnDiscoveryPage{}, classifyQueryError(ctx, queryCtx, err)
 	}
@@ -138,14 +148,21 @@ func (d *Discoverer) ListColumns(ctx context.Context, request execution.ColumnDi
 		page.HasMore = true
 		page.Columns = page.Columns[:request.Limit]
 	}
+
 	attnums := make([]int16, 0, len(page.Columns))
 	for _, column := range page.Columns {
+		if column.OrdinalPosition <= 0 || column.OrdinalPosition > math.MaxInt16 {
+			return execution.ColumnDiscoveryPage{}, fmt.Errorf("%w: invalid column ordinal", execution.ErrInternal)
+		}
+
 		attnums = append(attnums, int16(column.OrdinalPosition))
 	}
+
 	page.Constraints, err = listConstraints(ctx, queryCtx, client.pool, relationOID, attnums)
 	if err != nil {
 		return execution.ColumnDiscoveryPage{}, err
 	}
+
 	return page, nil
 }
 
@@ -154,33 +171,42 @@ func resolveRelation(parentCtx, queryCtx context.Context, pool runtimePool, sche
 	if err != nil {
 		return 0, "", classifyQueryError(parentCtx, queryCtx, err)
 	}
+
 	if rows == nil {
 		return 0, "", fmt.Errorf("%w: nil relation rows", execution.ErrInternal)
 	}
 	defer rows.Close()
+
 	if !rows.Next() {
 		if err := rows.Err(); err != nil {
 			return 0, "", classifyQueryError(parentCtx, queryCtx, err)
 		}
+
 		return 0, "", execution.ErrRelationNotFound
 	}
 
-	var oid uint32
-	var relationCode string
-	var readable bool
+	var (
+		oid          uint32
+		relationCode string
+		readable     bool
+	)
 	if err := rows.Scan(&oid, &relationCode, &readable); err != nil {
 		return 0, "", classifyQueryError(parentCtx, queryCtx, err)
 	}
+
 	if err := rows.Err(); err != nil {
 		return 0, "", classifyQueryError(parentCtx, queryCtx, err)
 	}
+
 	if !readable {
 		return 0, "", execution.ErrDatabasePermissionDenied
 	}
+
 	kind, err := relationKind(relationCode)
 	if err != nil {
 		return 0, "", err
 	}
+
 	return oid, kind, nil
 }
 
@@ -231,6 +257,7 @@ func scanColumn(rows catalogRows, includeDescriptions bool) (execution.Column, e
 	); err != nil {
 		return execution.Column{}, err
 	}
+
 	if ordinal <= 0 || ordinal > math.MaxInt16 {
 		return execution.Column{}, fmt.Errorf("%w: invalid column ordinal", execution.ErrInternal)
 	}
@@ -239,6 +266,7 @@ func scanColumn(rows catalogRows, includeDescriptions bool) (execution.Column, e
 	if err != nil {
 		return execution.Column{}, err
 	}
+
 	dataType := execution.DataType{
 		Schema:            typeSchema,
 		Name:              typeName,
@@ -252,6 +280,7 @@ func scanColumn(rows catalogRows, includeDescriptions bool) (execution.Column, e
 	if elementSchema != nil && elementName != nil {
 		dataType.ElementType = &execution.TypeReference{Schema: *elementSchema, Name: *elementName}
 	}
+
 	if baseSchema != nil && baseName != nil {
 		dataType.DomainBaseType = &execution.TypeReference{Schema: *baseSchema, Name: *baseName}
 	}
@@ -260,13 +289,16 @@ func scanColumn(rows catalogRows, includeDescriptions bool) (execution.Column, e
 	if err != nil {
 		return execution.Column{}, err
 	}
+
 	generated, err := columnGenerated(generatedCode, defaultExpression)
 	if err != nil {
 		return execution.Column{}, err
 	}
+
 	if generated != nil {
 		defaultExpression = nil
 	}
+
 	if !includeDescriptions {
 		description = nil
 	}
@@ -286,7 +318,7 @@ func scanColumn(rows catalogRows, includeDescriptions bool) (execution.Column, e
 
 func typeCategory(code string) (execution.TypeCategory, error) {
 	switch code {
-	case "base":
+	case typeCategoryBaseCode:
 		return execution.TypeCategoryBase, nil
 	case "array":
 		return execution.TypeCategoryArray, nil
@@ -331,6 +363,7 @@ func columnGenerated(code string, expression *string) (*execution.Generated, err
 		if expression != nil {
 			value = *expression
 		}
+
 		return &execution.Generated{Kind: "stored", Expression: value}, nil
 	default:
 		return nil, fmt.Errorf("%w: unknown generated code", execution.ErrInternal)

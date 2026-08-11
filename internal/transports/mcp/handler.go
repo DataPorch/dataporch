@@ -14,7 +14,11 @@ import (
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-const maxRequestBodyBytes = 1 << 20
+const (
+	maxRequestBodyBytes      = 1 << 20
+	serverVersion            = "dev"
+	listDataSourcesOperation = "data_source.list"
+)
 
 var (
 	errDiscovererRequired = errors.New("mcp: discoverer is required")
@@ -71,6 +75,7 @@ func (e *toolExecutionError) Error() string {
 	if err != nil {
 		return `{"category":"internal","message":"The operation failed safely.","retryable":false}`
 	}
+
 	return string(encoded)
 }
 
@@ -82,6 +87,7 @@ func New(discoverer Discoverer, logger *slog.Logger) (http.Handler, error) {
 	if isNilInterface(discoverer) {
 		return nil, errDiscovererRequired
 	}
+
 	if logger == nil {
 		return nil, errLoggerRequired
 	}
@@ -91,24 +97,27 @@ func New(discoverer Discoverer, logger *slog.Logger) (http.Handler, error) {
 			Name:        "dataporch",
 			Title:       "DataPorch",
 			Description: "Model-agnostic enterprise data access infrastructure",
-			Version:     "dev",
+			Version:     serverVersion,
 		},
 		nil,
 	)
 
 	annotations := discoveryAnnotations()
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
-		Name:        "data_source.list",
+		Name:        listDataSourcesOperation,
 		Title:       "List data sources",
 		Description: "List configured enterprise data sources and their available capability families without connecting to them.",
 		Annotations: annotations,
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, input listDataSourcesInput) (*mcpsdk.CallToolResult, execution.ListDataSourcesResult, error) {
 		start := time.Now()
+
 		output, err := discoverer.ListDataSources(ctx, execution.ListDataSourcesRequest{Search: input.Search, Limit: input.Limit, Cursor: input.Cursor})
 		if err != nil {
-			return nil, execution.ListDataSourcesResult{}, finishError(logger, "data_source.list", "", start, err)
+			return nil, execution.ListDataSourcesResult{}, finishError(logger, listDataSourcesOperation, "", start, err)
 		}
-		finishSuccess(logger, "data_source.list", "", start, len(output.Sources))
+
+		finishSuccess(logger, listDataSourcesOperation, "", start, len(output.Sources))
+
 		return nil, output, nil
 	})
 
@@ -119,11 +128,14 @@ func New(discoverer Discoverer, logger *slog.Logger) (http.Handler, error) {
 		Annotations: annotations,
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, input listSchemasInput) (*mcpsdk.CallToolResult, execution.ListRelationalSchemasResult, error) {
 		start := time.Now()
+
 		output, err := discoverer.ListRelationalSchemas(ctx, execution.ListRelationalSchemasRequest{SourceID: input.SourceID, Search: input.Search, IncludeDescriptions: input.IncludeDescriptions, Limit: input.Limit, Cursor: input.Cursor})
 		if err != nil {
 			return nil, execution.ListRelationalSchemasResult{}, finishError(logger, "relational_database.list_schemas", string(input.SourceID), start, err)
 		}
+
 		finishSuccess(logger, "relational_database.list_schemas", string(input.SourceID), start, len(output.Schemas))
+
 		return nil, output, nil
 	})
 
@@ -134,11 +146,14 @@ func New(discoverer Discoverer, logger *slog.Logger) (http.Handler, error) {
 		Annotations: annotations,
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, input listTablesInput) (*mcpsdk.CallToolResult, execution.ListRelationalTablesResult, error) {
 		start := time.Now()
+
 		output, err := discoverer.ListRelationalTables(ctx, execution.ListRelationalTablesRequest{SourceID: input.SourceID, Schema: input.Schema, Search: input.Search, IncludeDescriptions: input.IncludeDescriptions, Limit: input.Limit, Cursor: input.Cursor})
 		if err != nil {
 			return nil, execution.ListRelationalTablesResult{}, finishError(logger, "relational_database.list_tables", string(input.SourceID), start, err)
 		}
+
 		finishSuccess(logger, "relational_database.list_tables", string(input.SourceID), start, len(output.Tables))
+
 		return nil, output, nil
 	})
 
@@ -149,11 +164,14 @@ func New(discoverer Discoverer, logger *slog.Logger) (http.Handler, error) {
 		Annotations: annotations,
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, input listColumnsInput) (*mcpsdk.CallToolResult, execution.ListRelationalColumnsResult, error) {
 		start := time.Now()
+
 		output, err := discoverer.ListRelationalColumns(ctx, execution.ListRelationalColumnsRequest{SourceID: input.SourceID, Schema: input.Schema, Table: input.Table, Search: input.Search, IncludeDescriptions: input.IncludeDescriptions, Limit: input.Limit, Cursor: input.Cursor})
 		if err != nil {
 			return nil, execution.ListRelationalColumnsResult{}, finishError(logger, "relational_database.list_columns", string(input.SourceID), start, err)
 		}
+
 		finishSuccess(logger, "relational_database.list_columns", string(input.SourceID), start, len(output.Columns))
+
 		return nil, output, nil
 	})
 
@@ -169,6 +187,7 @@ func New(discoverer Discoverer, logger *slog.Logger) (http.Handler, error) {
 	)
 
 	originProtection := http.NewCrossOriginProtection()
+
 	return originProtection.Handler(streamableHandler), nil
 }
 
@@ -190,11 +209,13 @@ func finishSuccess(logger *slog.Logger, operation, sourceID string, start time.T
 	if sourceID != "" {
 		fields = append(fields, slog.String("source_id", sourceID))
 	}
+
 	logger.Debug("discovery operation completed", fields...)
 }
 
 func finishError(logger *slog.Logger, operation, sourceID string, start time.Time, err error) error {
 	failure := execution.Classify(err)
+
 	fields := []any{
 		slog.String("operation", operation),
 		slog.String("category", string(failure.Category)),
@@ -203,7 +224,9 @@ func finishError(logger *slog.Logger, operation, sourceID string, start time.Tim
 	if sourceID != "" {
 		fields = append(fields, slog.String("source_id", sourceID))
 	}
+
 	logger.Warn("discovery operation failed", fields...)
+
 	return &toolExecutionError{failure: failure, cause: err}
 }
 
@@ -211,6 +234,7 @@ func isNilInterface(value any) bool {
 	if value == nil {
 		return true
 	}
+
 	reflected := reflect.ValueOf(value)
 	switch reflected.Kind() { //nolint:exhaustive // Other kinds cannot be nil.
 	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:

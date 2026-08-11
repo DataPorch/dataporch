@@ -44,6 +44,7 @@ func (d *Discoverer) ListTables(ctx context.Context, request execution.TableDisc
 	if err != nil {
 		return execution.TableDiscoveryPage{}, err
 	}
+
 	queryCtx, cancel := d.queryContext(ctx)
 	defer cancel()
 
@@ -55,27 +56,35 @@ func (d *Discoverer) ListTables(ctx context.Context, request execution.TableDisc
 	if err != nil {
 		return execution.TableDiscoveryPage{}, classifyQueryError(ctx, queryCtx, err)
 	}
+
 	if rows == nil {
 		return execution.TableDiscoveryPage{}, fmt.Errorf("%w: nil catalog rows", execution.ErrInternal)
 	}
 	defer rows.Close()
 
 	tables := make([]execution.Table, 0, request.Limit+1)
+
 	for rows.Next() {
-		var table execution.Table
-		var relationCode string
+		var (
+			table        execution.Table
+			relationCode string
+		)
 		if err := rows.Scan(&table.Name, &relationCode, &table.Description); err != nil {
 			return execution.TableDiscoveryPage{}, classifyQueryError(ctx, queryCtx, err)
 		}
+
 		table.Kind, err = relationKind(relationCode)
 		if err != nil {
 			return execution.TableDiscoveryPage{}, err
 		}
+
 		if !request.IncludeDescriptions {
 			table.Description = nil
 		}
+
 		tables = append(tables, table)
 	}
+
 	if err := rows.Err(); err != nil {
 		return execution.TableDiscoveryPage{}, classifyQueryError(ctx, queryCtx, err)
 	}
@@ -85,6 +94,7 @@ func (d *Discoverer) ListTables(ctx context.Context, request execution.TableDisc
 		page.HasMore = true
 		page.Tables = page.Tables[:request.Limit]
 	}
+
 	return page, nil
 }
 
@@ -93,6 +103,7 @@ func checkSchema(parentCtx, queryCtx context.Context, pool runtimePool, schema s
 	if err != nil {
 		return classifyQueryError(parentCtx, queryCtx, err)
 	}
+
 	if rows == nil {
 		return fmt.Errorf("%w: nil schema rows", execution.ErrInternal)
 	}
@@ -102,22 +113,30 @@ func checkSchema(parentCtx, queryCtx context.Context, pool runtimePool, schema s
 		if err := rows.Err(); err != nil {
 			return classifyQueryError(parentCtx, queryCtx, err)
 		}
+
 		return execution.ErrSchemaNotFound
 	}
-	var exists bool
-	var usage bool
+
+	var (
+		exists bool
+		usage  bool
+	)
 	if err := rows.Scan(&exists, &usage); err != nil {
 		return classifyQueryError(parentCtx, queryCtx, err)
 	}
+
 	if err := rows.Err(); err != nil {
 		return classifyQueryError(parentCtx, queryCtx, err)
 	}
+
 	if !exists {
 		return execution.ErrSchemaNotFound
 	}
+
 	if !usage {
 		return execution.ErrDatabasePermissionDenied
 	}
+
 	return nil
 }
 

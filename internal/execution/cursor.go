@@ -42,6 +42,7 @@ func encodeCursor(request cursorRequest, lastName string, lastOrdinal int) (stri
 		LastName:    lastName,
 		LastOrdinal: lastOrdinal,
 	}
+
 	encoded, err := json.Marshal(payload)
 	if err != nil {
 		return "", fmt.Errorf("marshaling cursor: %w", err)
@@ -50,10 +51,12 @@ func encodeCursor(request cursorRequest, lastName string, lastOrdinal int) (stri
 	return base64.RawURLEncoding.EncodeToString(encoded), nil
 }
 
+//nolint:gocyclo // Cursor decoding validates independent encoding, shape, and request-binding invariants.
 func decodeCursor(value string, request cursorRequest, ordinal bool) (cursorPayload, error) {
 	if value == "" {
 		return cursorPayload{}, nil
 	}
+
 	if len(value) > 8192 {
 		return cursorPayload{}, ErrInvalidCursor
 	}
@@ -70,6 +73,7 @@ func decodeCursor(value string, request cursorRequest, ordinal bool) (cursorPayl
 	if err := decoder.Decode(&payload); err != nil {
 		return cursorPayload{}, ErrInvalidCursor
 	}
+
 	var extra any
 	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
 		return cursorPayload{}, ErrInvalidCursor
@@ -78,9 +82,11 @@ func decodeCursor(value string, request cursorRequest, ordinal bool) (cursorPayl
 	if payload.Version != cursorVersion || len(payload.Fingerprint) != sha256.Size*2 {
 		return cursorPayload{}, ErrInvalidCursor
 	}
+
 	if _, err := hex.DecodeString(payload.Fingerprint); err != nil {
 		return cursorPayload{}, ErrInvalidCursor
 	}
+
 	if (ordinal && (payload.LastOrdinal <= 0 || payload.LastName != "")) ||
 		(!ordinal && (payload.LastName == "" || payload.LastOrdinal != 0)) {
 		return cursorPayload{}, ErrInvalidCursor
@@ -101,5 +107,6 @@ func requestFingerprint(request cursorRequest) (string, error) {
 	}
 
 	digest := sha256.Sum256(encoded)
+
 	return hex.EncodeToString(digest[:]), nil
 }

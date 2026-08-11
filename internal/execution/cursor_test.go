@@ -3,6 +3,7 @@ package execution
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -24,10 +25,12 @@ func TestCursorRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("encodeCursor() error = %v", err)
 	}
+
 	namePayload, err := decodeCursor(nameCursor, request, false)
 	if err != nil {
 		t.Fatalf("decodeCursor(name) error = %v", err)
 	}
+
 	if namePayload.LastName != "customers" || namePayload.LastOrdinal != 0 {
 		t.Fatalf("name payload = %#v, want customers", namePayload)
 	}
@@ -36,10 +39,12 @@ func TestCursorRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("encodeCursor(ordinal) error = %v", err)
 	}
+
 	ordinalPayload, err := decodeCursor(ordinalCursor, request, true)
 	if err != nil {
 		t.Fatalf("decodeCursor(ordinal) error = %v", err)
 	}
+
 	if ordinalPayload.LastOrdinal != 11 || ordinalPayload.LastName != "" {
 		t.Fatalf("ordinal payload = %#v, want ordinal 11", ordinalPayload)
 	}
@@ -57,6 +62,7 @@ func TestCursorBindsEveryRequestField(t *testing.T) {
 		Search:              "customer",
 		IncludeDescriptions: false,
 	}
+
 	cursor, err := encodeCursor(base, "orders", 0)
 	if err != nil {
 		t.Fatalf("encodeCursor() error = %v", err)
@@ -77,8 +83,11 @@ func TestCursorBindsEveryRequestField(t *testing.T) {
 
 	for _, field := range fields {
 		t.Run(field.name, func(t *testing.T) {
+			t.Parallel()
+
 			mutated := base
 			field.mutate(&mutated)
+
 			if _, err := decodeCursor(cursor, mutated, false); !isInvalidCursor(err) {
 				t.Fatalf("decodeCursor() error = %v, want ErrInvalidCursor", err)
 			}
@@ -90,6 +99,7 @@ func TestCursorRejectsMalformedPayloads(t *testing.T) {
 	t.Parallel()
 
 	request := cursorRequest{Operation: "data_source.list", Limit: 3}
+
 	valid, err := encodeCursor(request, "alpha", 0)
 	if err != nil {
 		t.Fatalf("encodeCursor() error = %v", err)
@@ -110,6 +120,8 @@ func TestCursorRejectsMalformedPayloads(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			if _, err := decodeCursor(tt.cursor, request, false); !isInvalidCursor(err) {
 				t.Fatalf("decodeCursor() error = %v, want ErrInvalidCursor", err)
 			}
@@ -119,22 +131,26 @@ func TestCursorRejectsMalformedPayloads(t *testing.T) {
 
 func encodePayload(t *testing.T, value map[string]any) string {
 	t.Helper()
+
 	encoded, err := json.Marshal(value)
 	if err != nil {
 		t.Fatalf("json.Marshal() error = %v", err)
 	}
+
 	return base64.RawURLEncoding.EncodeToString(encoded)
 }
 
 func mustFingerprint(t *testing.T, request cursorRequest) string {
 	t.Helper()
+
 	fingerprint, err := requestFingerprint(request)
 	if err != nil {
 		t.Fatalf("requestFingerprint() error = %v", err)
 	}
+
 	return fingerprint
 }
 
 func isInvalidCursor(err error) bool {
-	return err != nil && err == ErrInvalidCursor
+	return err != nil && errors.Is(err, ErrInvalidCursor)
 }

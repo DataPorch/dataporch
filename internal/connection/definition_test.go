@@ -30,6 +30,7 @@ func TestIDValidate(t *testing.T) {
 			if (err == nil) != tt.want {
 				t.Fatalf("ID.Validate() error = %v, want valid = %t", err, tt.want)
 			}
+
 			if err != nil && !errors.Is(err, ErrInvalidDefinition) {
 				t.Fatalf("ID.Validate() error = %v, want ErrInvalidDefinition", err)
 			}

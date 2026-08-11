@@ -83,6 +83,7 @@ func listConstraints(parentCtx, queryCtx context.Context, pool runtimePool, rela
 	if err != nil {
 		return nil, classifyQueryError(parentCtx, queryCtx, err)
 	}
+
 	if rows == nil {
 		return nil, fmt.Errorf("%w: nil constraint rows", execution.ErrInternal)
 	}
@@ -93,11 +94,14 @@ func listConstraints(parentCtx, queryCtx context.Context, pool runtimePool, rela
 		if err != nil {
 			return nil, classifyQueryError(parentCtx, queryCtx, err)
 		}
+
 		constraints = append(constraints, constraint)
 	}
+
 	if err := rows.Err(); err != nil {
 		return nil, classifyQueryError(parentCtx, queryCtx, err)
 	}
+
 	return constraints, nil
 }
 
@@ -141,6 +145,7 @@ func scanConstraint(rows catalogRows) (execution.Constraint, error) {
 	if err != nil {
 		return execution.Constraint{}, err
 	}
+
 	constraint := execution.Constraint{
 		Name:              name,
 		Kind:              kind,
@@ -151,14 +156,17 @@ func scanConstraint(rows catalogRows) (execution.Constraint, error) {
 		CheckExpression:   cloneConstraintStringPointer(checkExpression),
 		Validated:         validated,
 	}
+
 	if constraintCode == "f" {
 		matchType, updateAction, deleteAction, err := foreignKeyActions(matchCode, updateCode, deleteCode)
 		if err != nil {
 			return execution.Constraint{}, err
 		}
+
 		if referencedSchema == nil || referencedTable == nil {
 			return execution.Constraint{}, fmt.Errorf("%w: foreign key reference missing", execution.ErrInternal)
 		}
+
 		constraint.Referenced = &execution.ConstraintReference{
 			Schema:  *referencedSchema,
 			Table:   *referencedTable,
@@ -168,6 +176,7 @@ func scanConstraint(rows catalogRows) (execution.Constraint, error) {
 		constraint.UpdateAction = updateAction
 		constraint.DeleteAction = deleteAction
 	}
+
 	return constraint, nil
 }
 
@@ -191,14 +200,17 @@ func foreignKeyActions(matchCode, updateCode, deleteCode string) (string, string
 	if !ok {
 		return "", "", "", fmt.Errorf("%w: unknown foreign key match code", execution.ErrInternal)
 	}
+
 	updateAction, ok := foreignKeyAction(updateCode)
 	if !ok {
 		return "", "", "", fmt.Errorf("%w: unknown foreign key update code", execution.ErrInternal)
 	}
+
 	deleteAction, ok := foreignKeyAction(deleteCode)
 	if !ok {
 		return "", "", "", fmt.Errorf("%w: unknown foreign key delete code", execution.ErrInternal)
 	}
+
 	return matchType, updateAction, deleteAction, nil
 }
 
@@ -211,12 +223,14 @@ func foreignKeyAction(code string) (string, bool) {
 		"d": "set_default",
 	}
 	action, ok := actions[code]
+
 	return action, ok
 }
 
 func cloneStringsSlice(values []string) []string {
 	cloned := make([]string, len(values))
 	copy(cloned, values)
+
 	return cloned
 }
 
@@ -224,7 +238,9 @@ func cloneConstraintStringPointer(value *string) *string {
 	if value == nil {
 		return nil
 	}
+
 	cloned := *value
+
 	return &cloned
 }
 
@@ -232,6 +248,8 @@ func cloneConstraintBoolPointer(value *bool) *bool {
 	if value == nil {
 		return nil
 	}
+
 	cloned := *value
+
 	return &cloned
 }

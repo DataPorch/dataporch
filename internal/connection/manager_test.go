@@ -55,6 +55,7 @@ func TestManagerListReturnsSortedClones(t *testing.T) {
 	if got := []ID{second[0].ID, second[1].ID}; !slices.Equal(got, []ID{"alpha", "zeta"}) {
 		t.Fatalf("List() ids = %v, want [alpha zeta]", got)
 	}
+
 	if second[0].Settings["host"] == "mutated" {
 		t.Fatal("List() returned shared settings")
 	}

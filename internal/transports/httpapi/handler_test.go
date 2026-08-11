@@ -30,9 +30,11 @@ func TestHandlerHealth(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", response.Code, http.StatusOK)
 	}
+
 	if got := response.Header().Get("Content-Type"); got != "application/json" {
 		t.Fatalf("content type = %q, want application/json", got)
 	}
+
 	if got := response.Header().Get("X-Content-Type-Options"); got != "nosniff" {
 		t.Fatalf("nosniff header = %q, want nosniff", got)
 	}
@@ -41,6 +43,7 @@ func TestHandlerHealth(t *testing.T) {
 	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
 		t.Fatalf("decoding response: %v", err)
 	}
+
 	if body["status"] != "ok" {
 		t.Fatalf("health status = %q, want ok", body["status"])
 	}

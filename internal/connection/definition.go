@@ -35,8 +35,8 @@ type ResolvedDefinition struct {
 }
 
 func (d Definition) Validate() error {
-	if !isValidID(d.ID) {
-		return fmt.Errorf("%w: invalid database id", ErrInvalidDefinition)
+	if err := d.ID.Validate(); err != nil {
+		return err
 	}
 
 	if strings.TrimSpace(string(d.Kind)) == "" {
@@ -61,6 +61,14 @@ func (d Definition) Validate() error {
 		if _, err := secret.Parse(ref.String()); err != nil {
 			return fmt.Errorf("%w: invalid secret reference", ErrInvalidDefinition)
 		}
+	}
+
+	return nil
+}
+
+func (id ID) Validate() error {
+	if !isValidID(id) {
+		return fmt.Errorf("%w: invalid database id", ErrInvalidDefinition)
 	}
 
 	return nil

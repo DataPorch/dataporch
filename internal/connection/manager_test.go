@@ -3,6 +3,7 @@ package connection
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 
 	"github.com/adamraziv/dataporch/internal/secret"
@@ -28,6 +29,34 @@ func TestManagerRegisterIsImmediatelyVisible(t *testing.T) {
 
 	if got.ID != "finance" {
 		t.Errorf("Lookup().ID = %q, want finance", got.ID)
+	}
+
+	listed := manager.List()
+	if len(listed) != 1 || listed[0].ID != "finance" {
+		t.Fatalf("List() = %#v, want finance definition", listed)
+	}
+}
+
+func TestManagerListReturnsSortedClones(t *testing.T) {
+	t.Parallel()
+
+	manager, err := NewManager(resolverStub{}, []Definition{
+		testDefinition("zeta", "local://secret-z"),
+		testDefinition("alpha", "local://secret-a"),
+	})
+	if err != nil {
+		t.Fatalf("NewManager() error = %v", err)
+	}
+
+	first := manager.List()
+	first[0].Settings["host"] = "mutated"
+	second := manager.List()
+
+	if got := []ID{second[0].ID, second[1].ID}; !slices.Equal(got, []ID{"alpha", "zeta"}) {
+		t.Fatalf("List() ids = %v, want [alpha zeta]", got)
+	}
+	if second[0].Settings["host"] == "mutated" {
+		t.Fatal("List() returned shared settings")
 	}
 }
 

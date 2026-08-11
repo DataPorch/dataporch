@@ -1,4 +1,3 @@
-// Package postgres normalizes PostgreSQL connection URIs for secure import.
 package postgres
 
 import (
@@ -13,7 +12,6 @@ import (
 )
 
 const (
-	// Kind identifies the built-in PostgreSQL adapter.
 	Kind connection.Kind = "postgres"
 
 	settingDatabase = "database"
@@ -23,10 +21,8 @@ const (
 	settingUsername = "username"
 )
 
-// ErrInvalidConnectionString identifies a rejected PostgreSQL connection URI.
 var ErrInvalidConnectionString = errors.New("postgres: invalid connection string")
 
-// Adapter normalizes PostgreSQL connection URIs without opening a connection.
 type Adapter struct{}
 
 var _ connection.Adapter = (*Adapter)(nil)
@@ -40,17 +36,14 @@ type connectionFields struct {
 	sslMode  string
 }
 
-// New constructs a PostgreSQL import adapter.
 func New() *Adapter {
 	return &Adapter{}
 }
 
-// Kind returns the connection kind handled by the adapter.
 func (*Adapter) Kind() connection.Kind {
 	return Kind
 }
 
-// ParseConnectionString validates and normalizes an approved PostgreSQL URI.
 func (*Adapter) ParseConnectionString(input []byte) (connection.ParsedConnection, error) {
 	fields, err := parseConnectionURI(input)
 	if err != nil {

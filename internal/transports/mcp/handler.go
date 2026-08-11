@@ -2,47 +2,86 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
+	"reflect"
+	"time"
 
-	"github.com/adamraziv/dataporch/internal/catalog"
+	"github.com/adamraziv/dataporch/internal/connection"
+	"github.com/adamraziv/dataporch/internal/execution"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 const maxRequestBodyBytes = 1 << 20
 
 var (
-	errListerRequired = errors.New("mcp: resource lister is required")
-	errLoggerRequired = errors.New("mcp: logger is required")
-	errLimitInvalid   = errors.New("mcp: default limit must be positive")
+	errDiscovererRequired = errors.New("mcp: discoverer is required")
+	errLoggerRequired     = errors.New("mcp: logger is required")
 )
 
-type ResourceLister interface {
-	ListResources(context.Context, int) ([]catalog.Resource, error)
+type Discoverer interface {
+	ListDataSources(context.Context, execution.ListDataSourcesRequest) (execution.ListDataSourcesResult, error)
+	ListRelationalSchemas(context.Context, execution.ListRelationalSchemasRequest) (execution.ListRelationalSchemasResult, error)
+	ListRelationalTables(context.Context, execution.ListRelationalTablesRequest) (execution.ListRelationalTablesResult, error)
+	ListRelationalColumns(context.Context, execution.ListRelationalColumnsRequest) (execution.ListRelationalColumnsResult, error)
 }
 
-type listResourcesInput struct {
-	Limit int `json:"limit,omitempty" jsonschema:"maximum number of resources to return"`
+type listDataSourcesInput struct {
+	Search string `json:"search,omitempty" jsonschema:"case-insensitive literal source ID substring"`
+	Limit  *int   `json:"limit,omitempty" jsonschema:"maximum sources to return"`
+	Cursor string `json:"cursor,omitempty" jsonschema:"opaque continuation cursor"`
 }
 
-type listResourcesOutput struct {
-	Resources []catalog.Resource `json:"resources"`
+type listSchemasInput struct {
+	SourceID            connection.ID `json:"source_id" jsonschema:"configured source identifier"`
+	Search              string        `json:"search,omitempty" jsonschema:"case-insensitive literal schema name substring"`
+	IncludeDescriptions bool          `json:"include_descriptions,omitempty" jsonschema:"include PostgreSQL comments"`
+	Limit               *int          `json:"limit,omitempty" jsonschema:"maximum schemas to return"`
+	Cursor              string        `json:"cursor,omitempty" jsonschema:"opaque continuation cursor"`
 }
 
-func NewResourceHandler(
-	lister ResourceLister,
-	defaultLimit int,
-	logger *slog.Logger,
-) (http.Handler, error) {
-	if lister == nil {
-		return nil, errListerRequired
+type listTablesInput struct {
+	SourceID            connection.ID `json:"source_id" jsonschema:"configured source identifier"`
+	Schema              string        `json:"schema" jsonschema:"exact schema name returned by list_schemas"`
+	Search              string        `json:"search,omitempty" jsonschema:"case-insensitive literal relation name substring"`
+	IncludeDescriptions bool          `json:"include_descriptions,omitempty" jsonschema:"include PostgreSQL comments"`
+	Limit               *int          `json:"limit,omitempty" jsonschema:"maximum relations to return"`
+	Cursor              string        `json:"cursor,omitempty" jsonschema:"opaque continuation cursor"`
+}
+
+type listColumnsInput struct {
+	SourceID            connection.ID `json:"source_id" jsonschema:"configured source identifier"`
+	Schema              string        `json:"schema" jsonschema:"exact schema name returned by list_schemas"`
+	Table               string        `json:"table" jsonschema:"exact relation name returned by list_tables"`
+	Search              string        `json:"search,omitempty" jsonschema:"case-insensitive literal column name substring"`
+	IncludeDescriptions bool          `json:"include_descriptions,omitempty" jsonschema:"include PostgreSQL comments"`
+	Limit               *int          `json:"limit,omitempty" jsonschema:"maximum columns to return"`
+	Cursor              string        `json:"cursor,omitempty" jsonschema:"opaque continuation cursor"`
+}
+
+type toolExecutionError struct {
+	failure execution.Failure
+	cause   error
+}
+
+func (e *toolExecutionError) Error() string {
+	encoded, err := json.Marshal(e.failure)
+	if err != nil {
+		return `{"category":"internal","message":"The operation failed safely.","retryable":false}`
 	}
+	return string(encoded)
+}
 
-	if defaultLimit <= 0 {
-		return nil, errLimitInvalid
+func (e *toolExecutionError) Unwrap() error {
+	return e.cause
+}
+
+func New(discoverer Discoverer, logger *slog.Logger) (http.Handler, error) {
+	if isNilInterface(discoverer) {
+		return nil, errDiscovererRequired
 	}
-
 	if logger == nil {
 		return nil, errLoggerRequired
 	}
@@ -57,42 +96,69 @@ func NewResourceHandler(
 		nil,
 	)
 
-	mcpsdk.AddTool(
-		server,
-		&mcpsdk.Tool{
-			Name:        "list_resources",
-			Title:       "List resources",
-			Description: "List enterprise data resources available through DataPorch",
-			Annotations: &mcpsdk.ToolAnnotations{
-				DestructiveHint: boolPointer(false),
-				IdempotentHint:  true,
-				OpenWorldHint:   boolPointer(false),
-				ReadOnlyHint:    true,
-			},
-		},
-		func(
-			ctx context.Context,
-			_ *mcpsdk.CallToolRequest,
-			input listResourcesInput,
-		) (*mcpsdk.CallToolResult, listResourcesOutput, error) {
-			limit := input.Limit
-			if limit == 0 {
-				limit = defaultLimit
-			}
+	annotations := discoveryAnnotations()
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name:        "data_source.list",
+		Title:       "List data sources",
+		Description: "List configured enterprise data sources and their available capability families without connecting to them.",
+		Annotations: annotations,
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, input listDataSourcesInput) (*mcpsdk.CallToolResult, execution.ListDataSourcesResult, error) {
+		start := time.Now()
+		output, err := discoverer.ListDataSources(ctx, execution.ListDataSourcesRequest{Search: input.Search, Limit: input.Limit, Cursor: input.Cursor})
+		if err != nil {
+			return nil, execution.ListDataSourcesResult{}, finishError(logger, "data_source.list", "", start, err)
+		}
+		finishSuccess(logger, "data_source.list", "", start, len(output.Sources))
+		return nil, output, nil
+	})
 
-			resources, err := lister.ListResources(ctx, limit)
-			if err != nil {
-				return nil, listResourcesOutput{}, err
-			}
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name:        "relational_database.list_schemas",
+		Title:       "List relational database schemas",
+		Description: "List PostgreSQL schemas accessible through a configured data source.",
+		Annotations: annotations,
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, input listSchemasInput) (*mcpsdk.CallToolResult, execution.ListRelationalSchemasResult, error) {
+		start := time.Now()
+		output, err := discoverer.ListRelationalSchemas(ctx, execution.ListRelationalSchemasRequest{SourceID: input.SourceID, Search: input.Search, IncludeDescriptions: input.IncludeDescriptions, Limit: input.Limit, Cursor: input.Cursor})
+		if err != nil {
+			return nil, execution.ListRelationalSchemasResult{}, finishError(logger, "relational_database.list_schemas", string(input.SourceID), start, err)
+		}
+		finishSuccess(logger, "relational_database.list_schemas", string(input.SourceID), start, len(output.Schemas))
+		return nil, output, nil
+	})
 
-			return nil, listResourcesOutput{Resources: resources}, nil
-		},
-	)
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name:        "relational_database.list_tables",
+		Title:       "List relational database tables",
+		Description: "List readable PostgreSQL tables, views, materialized views, partitioned tables, and foreign tables in an exact schema.",
+		Annotations: annotations,
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, input listTablesInput) (*mcpsdk.CallToolResult, execution.ListRelationalTablesResult, error) {
+		start := time.Now()
+		output, err := discoverer.ListRelationalTables(ctx, execution.ListRelationalTablesRequest{SourceID: input.SourceID, Schema: input.Schema, Search: input.Search, IncludeDescriptions: input.IncludeDescriptions, Limit: input.Limit, Cursor: input.Cursor})
+		if err != nil {
+			return nil, execution.ListRelationalTablesResult{}, finishError(logger, "relational_database.list_tables", string(input.SourceID), start, err)
+		}
+		finishSuccess(logger, "relational_database.list_tables", string(input.SourceID), start, len(output.Tables))
+		return nil, output, nil
+	})
+
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name:        "relational_database.list_columns",
+		Title:       "List relational database columns",
+		Description: "List readable PostgreSQL columns, structured types, defaults, identity and generated metadata, and relevant constraints.",
+		Annotations: annotations,
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, input listColumnsInput) (*mcpsdk.CallToolResult, execution.ListRelationalColumnsResult, error) {
+		start := time.Now()
+		output, err := discoverer.ListRelationalColumns(ctx, execution.ListRelationalColumnsRequest{SourceID: input.SourceID, Schema: input.Schema, Table: input.Table, Search: input.Search, IncludeDescriptions: input.IncludeDescriptions, Limit: input.Limit, Cursor: input.Cursor})
+		if err != nil {
+			return nil, execution.ListRelationalColumnsResult{}, finishError(logger, "relational_database.list_columns", string(input.SourceID), start, err)
+		}
+		finishSuccess(logger, "relational_database.list_columns", string(input.SourceID), start, len(output.Columns))
+		return nil, output, nil
+	})
 
 	streamableHandler := mcpsdk.NewStreamableHTTPHandler(
-		func(*http.Request) *mcpsdk.Server {
-			return server
-		},
+		func(*http.Request) *mcpsdk.Server { return server },
 		&mcpsdk.StreamableHTTPOptions{
 			Stateless:                    true,
 			JSONResponse:                 true,
@@ -103,8 +169,55 @@ func NewResourceHandler(
 	)
 
 	originProtection := http.NewCrossOriginProtection()
-
 	return originProtection.Handler(streamableHandler), nil
+}
+
+func discoveryAnnotations() *mcpsdk.ToolAnnotations {
+	return &mcpsdk.ToolAnnotations{
+		DestructiveHint: boolPointer(false),
+		IdempotentHint:  true,
+		OpenWorldHint:   boolPointer(false),
+		ReadOnlyHint:    true,
+	}
+}
+
+func finishSuccess(logger *slog.Logger, operation, sourceID string, start time.Time, resultCount int) {
+	fields := []any{
+		slog.String("operation", operation),
+		slog.Int64("duration_ms", time.Since(start).Milliseconds()),
+		slog.Int("result_count", resultCount),
+	}
+	if sourceID != "" {
+		fields = append(fields, slog.String("source_id", sourceID))
+	}
+	logger.Debug("discovery operation completed", fields...)
+}
+
+func finishError(logger *slog.Logger, operation, sourceID string, start time.Time, err error) error {
+	failure := execution.Classify(err)
+	fields := []any{
+		slog.String("operation", operation),
+		slog.String("category", string(failure.Category)),
+		slog.Int64("duration_ms", time.Since(start).Milliseconds()),
+	}
+	if sourceID != "" {
+		fields = append(fields, slog.String("source_id", sourceID))
+	}
+	logger.Warn("discovery operation failed", fields...)
+	return &toolExecutionError{failure: failure, cause: err}
+}
+
+func isNilInterface(value any) bool {
+	if value == nil {
+		return true
+	}
+	reflected := reflect.ValueOf(value)
+	switch reflected.Kind() { //nolint:exhaustive // Other kinds cannot be nil.
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return reflected.IsNil()
+	default:
+		return false
+	}
 }
 
 func boolPointer(value bool) *bool {

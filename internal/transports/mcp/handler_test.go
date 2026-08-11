@@ -5,9 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
+	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 
@@ -164,6 +167,76 @@ func TestHandlerReturnsStructuredAndTextSuccess(t *testing.T) {
 
 	if string(structured) != textContent.Text {
 		t.Fatalf("structured/text mismatch: %s != %s", structured, textContent.Text)
+	}
+}
+
+//nolint:gocyclo // This protocol test covers schema, tool, and malformed-request errors together.
+func TestHandlerSeparatesProtocolAndToolErrors(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil))
+
+	handler, err := New(&recordingDiscoverer{}, logger)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "dataporch-test", Version: serverVersion}, nil)
+
+	session, err := client.Connect(t.Context(), &mcpsdk.StreamableClientTransport{Endpoint: server.URL, HTTPClient: server.Client(), DisableStandaloneSSE: true}, nil)
+	if err != nil {
+		t.Fatalf("Connect() error = %v", err)
+	}
+
+	t.Cleanup(func() {
+		if err := session.Close(); err != nil {
+			t.Errorf("session.Close() error = %v", err)
+		}
+	})
+
+	validationResult, err := session.CallTool(t.Context(), &mcpsdk.CallToolParams{Name: "relational_database.list_schemas", Arguments: map[string]any{}})
+	if err != nil {
+		t.Fatalf("schema validation error = %v, want tool error", err)
+	}
+
+	if validationResult == nil || !validationResult.IsError || validationResult.StructuredContent != nil || len(validationResult.Content) != 1 {
+		t.Fatalf("schema validation result = %#v, want safe tool error", validationResult)
+	}
+
+	unknownResult, err := session.CallTool(t.Context(), &mcpsdk.CallToolParams{Name: "unknown.tool", Arguments: map[string]any{}})
+	if err == nil || unknownResult != nil {
+		t.Fatalf("unknown tool result/error = %#v/%v, want protocol error", unknownResult, err)
+	}
+
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodPost, server.URL, strings.NewReader("{"))
+	if err != nil {
+		t.Fatalf("NewRequest() error = %v", err)
+	}
+
+	request.Header.Set("Accept", "application/json, text/event-stream")
+	request.Header.Set("Content-Type", "application/json")
+
+	response, err := server.Client().Do(request)
+	if err != nil {
+		t.Fatalf("malformed request error = %v", err)
+	}
+
+	t.Cleanup(func() {
+		if err := response.Body.Close(); err != nil {
+			t.Errorf("malformed response Body.Close() error = %v", err)
+		}
+	})
+
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatalf("ReadAll() error = %v", err)
+	}
+
+	if response.StatusCode != http.StatusBadRequest || !bytes.Contains(body, []byte("malformed payload")) || bytes.Contains(body, []byte(`"result"`)) {
+		t.Fatalf("malformed response = %d/%s, want JSON-RPC protocol error", response.StatusCode, body)
 	}
 }
 

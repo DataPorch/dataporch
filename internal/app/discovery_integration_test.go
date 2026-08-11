@@ -213,7 +213,7 @@ func TestDiscoveryImportToMCPPostgresIntegration(t *testing.T) {
 		allColumns = append(allColumns, columns.Columns...)
 		allConstraints = append(allConstraints, columns.Constraints...)
 	}
-	if len(allColumns) < 7 {
+	if len(allColumns) < 8 {
 		t.Fatalf("columns = %#v, want metadata-rich ordinary table", allColumns)
 	}
 	if len(allConstraints) < 3 {
@@ -222,8 +222,12 @@ func TestDiscoveryImportToMCPPostgresIntegration(t *testing.T) {
 	if !hasColumn(allColumns, "generated_amount") {
 		t.Fatalf("columns omit generated column: %#v", allColumns)
 	}
+	assertColumnMetadata(t, allColumns)
 	if !hasConstraint(allConstraints, "orders_"+names.suffix+"_pkey", "primary_key") || !hasConstraint(allConstraints, "orders_"+names.suffix+"_customer_id_fkey", "foreign_key") {
 		t.Fatalf("constraints omit expected keys: %#v", allConstraints)
+	}
+	if !hasConstraint(allConstraints, "orders_"+names.suffix+"_amount_check", "check") {
+		t.Fatalf("constraints omit check constraint: %#v", allConstraints)
 	}
 	for _, column := range allColumns {
 		if column.Description != nil {
@@ -239,6 +243,30 @@ func TestDiscoveryImportToMCPPostgresIntegration(t *testing.T) {
 	if !hasDescribedColumn(describedColumns.Columns, "amount") {
 		t.Fatalf("described columns = %#v, want amount description", describedColumns.Columns)
 	}
+
+	literalSearch := callDiscoveryTool[execution.ListRelationalTablesResult](t, session, "relational_database.list_tables", map[string]any{
+		"source_id": names.sourceID,
+		"schema":    names.accessibleSchema,
+		"search":    `%_*`,
+	})
+	if len(literalSearch.Tables) != 0 {
+		t.Fatalf("literal search tables = %#v, want no wildcard interpretation", literalSearch.Tables)
+	}
+
+	compositeRequest := map[string]any{
+		"source_id": names.sourceID,
+		"schema":    names.accessibleSchema,
+		"table":     names.compositeChild,
+		"limit":     3,
+	}
+	compositeColumns := callDiscoveryTool[execution.ListRelationalColumnsResult](t, session, "relational_database.list_columns", compositeRequest)
+	compositeConstraints := append([]execution.Constraint(nil), compositeColumns.Constraints...)
+	for compositeColumns.NextCursor != "" {
+		compositeRequest["cursor"] = compositeColumns.NextCursor
+		compositeColumns = callDiscoveryTool[execution.ListRelationalColumnsResult](t, session, "relational_database.list_columns", compositeRequest)
+		compositeConstraints = append(compositeConstraints, compositeColumns.Constraints...)
+	}
+	assertCompositeConstraints(t, compositeConstraints, names)
 
 	columnGrant := callDiscoveryTool[execution.ListRelationalColumnsResult](t, session, "relational_database.list_columns", map[string]any{
 		"source_id": names.sourceID,
@@ -263,6 +291,22 @@ func TestDiscoveryImportToMCPPostgresIntegration(t *testing.T) {
 	if deniedFailure.Category != execution.ErrorCategoryDatabasePermissionDenied {
 		t.Fatalf("denied schema failure = %#v, want database_permission_denied", deniedFailure)
 	}
+	missingRelationFailure := callDiscoveryToolFailure(t, session, "relational_database.list_columns", map[string]any{
+		"source_id": names.sourceID,
+		"schema":    names.accessibleSchema,
+		"table":     "missing_" + names.suffix,
+	})
+	if missingRelationFailure.Category != execution.ErrorCategoryRelationNotFound {
+		t.Fatalf("missing relation failure = %#v, want relation_not_found", missingRelationFailure)
+	}
+	deniedRelationFailure := callDiscoveryToolFailure(t, session, "relational_database.list_columns", map[string]any{
+		"source_id": names.sourceID,
+		"schema":    names.accessibleSchema,
+		"table":     names.deniedTable,
+	})
+	if deniedRelationFailure.Category != execution.ErrorCategoryDatabasePermissionDenied {
+		t.Fatalf("denied relation failure = %#v, want database_permission_denied", deniedRelationFailure)
+	}
 
 	observed, err := json.Marshal(struct {
 		Sources     execution.ListDataSourcesResult
@@ -274,8 +318,12 @@ func TestDiscoveryImportToMCPPostgresIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Marshal(observed) error = %v", err)
 	}
-	assertIntegrationSecretsAbsent(t, observed, dsn, readerDSN, names.password)
-	assertIntegrationSecretsAbsent(t, []byte(logs.String()), names.password, names.role)
+	adminConfig, err := pgx.ParseConfig(dsn)
+	if err != nil {
+		t.Fatalf("pgx.ParseConfig() error = %v", err)
+	}
+	assertIntegrationSecretsAbsent(t, observed, dsn, readerDSN, adminConfig.User, adminConfig.Database, fmt.Sprint(adminConfig.Port), names.password, names.role)
+	assertIntegrationSecretsAbsent(t, []byte(logs.String()), dsn, readerDSN, adminConfig.User, adminConfig.Database, fmt.Sprint(adminConfig.Port), names.password, names.role)
 	if runtime.openCount() == 0 {
 		t.Fatal("relational discovery did not increment opener count")
 	}
@@ -299,6 +347,8 @@ type integrationDatabaseNames struct {
 	mixedTable       string
 	foreignTable     string
 	server           string
+	compositeParent  string
+	compositeChild   string
 }
 
 func integrationNames(t *testing.T) integrationDatabaseNames {
@@ -332,6 +382,8 @@ func integrationNames(t *testing.T) integrationDatabaseNames {
 		mixedTable:       "MixedOrders_" + suffix,
 		foreignTable:     "foreign_" + suffix,
 		server:           "dp_server_" + suffix,
+		compositeParent:  "composite_parent_" + suffix,
+		compositeChild:   "composite_child_" + suffix,
 	}
 }
 
@@ -357,6 +409,10 @@ func setupIntegrationDatabase(t *testing.T, admin *pgx.Conn, names integrationDa
 	execIntegrationSQL(t, admin, fmt.Sprintf("CREATE DOMAIN %s.customer_code AS text CHECK (VALUE <> '')", accessible))
 	execIntegrationSQL(t, admin, fmt.Sprintf("CREATE TABLE %s (id bigint PRIMARY KEY, name text UNIQUE)", customers))
 	execIntegrationSQL(t, admin, fmt.Sprintf("CREATE TABLE %s (id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, customer_id bigint REFERENCES %s(id), amount numeric(12,2) NOT NULL DEFAULT 0 CHECK (amount >= 0), code %s.customer_code, state %s.order_state DEFAULT 'open', tags text[], created_at timestamp(3), generated_amount numeric GENERATED ALWAYS AS (amount * 2) STORED)", orders, customers, accessible, accessible))
+	compositeParent := accessible + "." + integrationIdentifier(names.compositeParent)
+	compositeChild := accessible + "." + integrationIdentifier(names.compositeChild)
+	execIntegrationSQL(t, admin, fmt.Sprintf("CREATE TABLE %s (tenant_id bigint NOT NULL, parent_id bigint NOT NULL, code text NOT NULL, CONSTRAINT %s PRIMARY KEY (tenant_id, parent_id), CONSTRAINT %s UNIQUE (tenant_id, code))", compositeParent, integrationIdentifier(names.compositeParent+"_pkey"), integrationIdentifier(names.compositeParent+"_unique")))
+	execIntegrationSQL(t, admin, fmt.Sprintf("CREATE TABLE %s (tenant_id bigint NOT NULL, parent_id bigint NOT NULL, code text NOT NULL, amount numeric NOT NULL, CONSTRAINT %s PRIMARY KEY (tenant_id, parent_id), CONSTRAINT %s UNIQUE (tenant_id, code), CONSTRAINT %s FOREIGN KEY (tenant_id, parent_id) REFERENCES %s (tenant_id, parent_id), CONSTRAINT %s CHECK (amount >= 0))", compositeChild, integrationIdentifier(names.compositeChild+"_pkey"), integrationIdentifier(names.compositeChild+"_unique"), integrationIdentifier(names.compositeChild+"_parent_fkey"), compositeParent, integrationIdentifier(names.compositeChild+"_amount_check")))
 	execIntegrationSQL(t, admin, fmt.Sprintf("COMMENT ON SCHEMA %s IS 'schema description'", accessible))
 	execIntegrationSQL(t, admin, fmt.Sprintf("COMMENT ON TABLE %s IS 'orders description'", orders))
 	execIntegrationSQL(t, admin, fmt.Sprintf("COMMENT ON COLUMN %s.amount IS 'amount description'", orders))
@@ -374,7 +430,7 @@ func setupIntegrationDatabase(t *testing.T, admin *pgx.Conn, names integrationDa
 	execIntegrationSQL(t, admin, fmt.Sprintf("CREATE TABLE %s.%s (visible_value text, hidden_value text)", accessible, integrationIdentifier(names.columnGrantTable)))
 	execIntegrationSQL(t, admin, fmt.Sprintf("CREATE TABLE %s.%s (id bigint)", integrationIdentifier(names.mixedSchema), integrationIdentifier(names.mixedTable)))
 
-	for _, relation := range []string{orders, customers, partitioned, partition, view, materialized, integrationIdentifier(names.mixedSchema) + "." + integrationIdentifier(names.mixedTable)} {
+	for _, relation := range []string{orders, customers, compositeParent, compositeChild, partitioned, partition, view, materialized, integrationIdentifier(names.mixedSchema) + "." + integrationIdentifier(names.mixedTable)} {
 		execIntegrationSQL(t, admin, fmt.Sprintf("GRANT SELECT ON %s TO %s", relation, role))
 	}
 	execIntegrationSQL(t, admin, fmt.Sprintf("GRANT SELECT (visible_value) ON %s.%s TO %s", accessible, integrationIdentifier(names.columnGrantTable), role))
@@ -546,6 +602,96 @@ func hasColumn(columns []execution.Column, name string) bool {
 		}
 	}
 	return false
+}
+
+func assertColumnMetadata(t *testing.T, columns []execution.Column) {
+	t.Helper()
+
+	checks := map[string]func(execution.Column) bool{
+		"id": func(column execution.Column) bool {
+			return column.Identity != nil && column.Identity.Generation == "always"
+		},
+		"amount": func(column execution.Column) bool {
+			return !column.Nullable && column.DefaultExpression != nil && column.Type.Precision != nil && *column.Type.Precision == 12 && column.Type.Scale != nil && *column.Type.Scale == 2
+		},
+		"code": func(column execution.Column) bool {
+			return column.Type.Category == execution.TypeCategoryDomain && column.Type.DomainBaseType != nil && column.Type.DomainBaseType.Name == "text"
+		},
+		"state": func(column execution.Column) bool {
+			return column.Type.Category == execution.TypeCategoryEnum && column.DefaultExpression != nil
+		},
+		"tags": func(column execution.Column) bool {
+			return column.Type.Category == execution.TypeCategoryArray && column.Type.IsArray && column.Type.ElementType != nil && column.Type.ElementType.Name == "text"
+		},
+		"created_at": func(column execution.Column) bool {
+			return column.Type.TemporalPrecision != nil && *column.Type.TemporalPrecision == 3
+		},
+		"generated_amount": func(column execution.Column) bool {
+			return column.Generated != nil && column.Generated.Kind == "stored" && strings.Contains(column.Generated.Expression, "amount")
+		},
+	}
+
+	for name, check := range checks {
+		found := false
+		for _, column := range columns {
+			if column.Name == name {
+				found = true
+				if !check(column) {
+					t.Fatalf("column %q metadata = %#v, want structured metadata", name, column)
+				}
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("columns = %#v, missing %q", columns, name)
+		}
+	}
+}
+
+func assertCompositeConstraints(t *testing.T, constraints []execution.Constraint, names integrationDatabaseNames) {
+	t.Helper()
+
+	wants := map[string]struct {
+		kind    string
+		columns []string
+	}{
+		names.compositeChild + "_pkey":         {kind: "primary_key", columns: []string{"tenant_id", "parent_id"}},
+		names.compositeChild + "_unique":       {kind: "unique", columns: []string{"tenant_id", "code"}},
+		names.compositeChild + "_parent_fkey":  {kind: "foreign_key", columns: []string{"tenant_id", "parent_id"}},
+		names.compositeChild + "_amount_check": {kind: "check", columns: []string{"amount"}},
+	}
+
+	for name, want := range wants {
+		var found *execution.Constraint
+		for index := range constraints {
+			if constraints[index].Name == name {
+				found = &constraints[index]
+				break
+			}
+		}
+		if found == nil || found.Kind != want.kind || !sameStrings(found.Columns, want.columns) {
+			t.Fatalf("constraints = %#v, missing complete %q", constraints, name)
+		}
+		if want.kind == "foreign_key" {
+			if found.Referenced == nil || !sameStrings(found.Referenced.Columns, want.columns) {
+				t.Fatalf("foreign constraint = %#v, want referenced columns %v", found, want.columns)
+			}
+		}
+	}
+}
+
+func sameStrings(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+
+	return true
 }
 
 func hasDescribedColumn(columns []execution.Column, name string) bool {

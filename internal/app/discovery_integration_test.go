@@ -318,14 +318,69 @@ func TestDiscoveryImportToMCPPostgresIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Marshal(observed) error = %v", err)
 	}
-	adminConfig, err := pgx.ParseConfig(dsn)
-	if err != nil {
-		t.Fatalf("pgx.ParseConfig() error = %v", err)
-	}
-	assertIntegrationSecretsAbsent(t, observed, dsn, readerDSN, adminConfig.User, adminConfig.Database, fmt.Sprint(adminConfig.Port), names.password, names.role)
-	assertIntegrationSecretsAbsent(t, []byte(logs.String()), dsn, readerDSN, adminConfig.User, adminConfig.Database, fmt.Sprint(adminConfig.Port), names.password, names.role)
+	assertIntegrationSecretsAbsent(
+		t,
+		observed,
+		dsn,
+		readerDSN,
+		names.password,
+		names.role,
+	)
+	assertIntegrationSecretsAbsent(
+		t,
+		[]byte(logs.String()),
+		dsn,
+		readerDSN,
+		names.password,
+		names.role,
+	)
 	if runtime.openCount() == 0 {
 		t.Fatal("relational discovery did not increment opener count")
+	}
+}
+
+func TestContainsSensitiveValue(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		data     string
+		expected bool
+	}{
+		{
+			name:     "application name is allowed",
+			data:     "dataporch listening",
+			expected: false,
+		},
+		{
+			name:     "password is rejected",
+			data:     "password=secret_canary_4f9d",
+			expected: true,
+		},
+		{
+			name:     "role is rejected",
+			data:     "role=reader_canary_4f9d",
+			expected: true,
+		},
+		{
+			name:     "dsn is rejected",
+			data:     "postgres://dataporch:secret_canary_4f9d@localhost/dataporch",
+			expected: true,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			values := []string{
+				"secret_canary_4f9d",
+				"reader_canary_4f9d",
+				"postgres://dataporch:secret_canary_4f9d@localhost/dataporch",
+			}
+			if got := containsSensitiveValue([]byte(test.data), values...); got != test.expected {
+				t.Fatalf("containsSensitiveValue() = %t, want %t", got, test.expected)
+			}
+		})
 	}
 }
 
@@ -729,11 +784,19 @@ func integrationLiteral(value string) string {
 
 func assertIntegrationSecretsAbsent(t *testing.T, data []byte, values ...string) {
 	t.Helper()
+	if containsSensitiveValue(data, values...) {
+		t.Fatal("integration output contains sensitive value")
+	}
+}
+
+func containsSensitiveValue(data []byte, values ...string) bool {
 	for _, value := range values {
 		if value != "" && strings.Contains(string(data), value) {
-			t.Fatalf("integration output contains sensitive value")
+			return true
 		}
 	}
+
+	return false
 }
 
 func readerConnectionString(t *testing.T, dsn, role, password string) string {

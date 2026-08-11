@@ -20,7 +20,7 @@ import (
 const (
 	initialOpenTimeout = 10 * time.Second
 	defaultPort        = "5432"
-	defaultSSLMode     = "prefer"
+	defaultSSLMode     = sslModePrefer
 
 	basePoolConfig = "host=localhost port=5432 dbname=dataporch " +
 		"user=dataporch password=dataporch sslmode=disable " +
@@ -55,9 +55,12 @@ func newPGXPoolFactory() (*pgxPoolFactory, error) {
 	defer postgresEnvironmentMu.Unlock()
 
 	previous := make(map[string]environmentValue)
+
 	var scrubErr error
+
 	for _, name := range postgresEnvironmentVariables() {
 		value, exists := os.LookupEnv(name)
+
 		previous[name] = environmentValue{value: value, exists: exists}
 		if err := os.Unsetenv(name); err != nil {
 			scrubErr = errors.Join(scrubErr, err)
@@ -65,6 +68,7 @@ func newPGXPoolFactory() (*pgxPoolFactory, error) {
 	}
 
 	template, parseErr := pgxpool.ParseConfig(basePoolConfig)
+
 	restoreErr := restorePostgresEnvironment(previous)
 	if scrubErr != nil || parseErr != nil || restoreErr != nil {
 		return nil, errors.Join(errInvalidRuntimeDefinition, scrubErr, restoreErr)
@@ -109,14 +113,17 @@ func postgresEnvironmentVariables() []string {
 
 func restorePostgresEnvironment(previous map[string]environmentValue) error {
 	var restoreErr error
+
 	for _, name := range postgresEnvironmentVariables() {
 		value := previous[name]
+
 		var err error
 		if value.exists {
 			err = os.Setenv(name, value.value)
 		} else {
 			err = os.Unsetenv(name)
 		}
+
 		if err != nil {
 			restoreErr = errors.Join(restoreErr, err)
 		}
@@ -148,6 +155,7 @@ func (f *pgxPoolFactory) config(definition connection.ResolvedDefinition) (*pgxp
 	if err != nil {
 		return nil, err
 	}
+
 	if f == nil || f.template == nil || f.template.ConnConfig == nil {
 		return nil, errInvalidRuntimeDefinition
 	}
@@ -183,11 +191,28 @@ func validateRuntimeDefinition(definition connection.ResolvedDefinition) (runtim
 	if definition.Kind != Kind {
 		return runtimeSettings{}, errInvalidRuntimeDefinition
 	}
+
 	if err := (connection.Definition{ID: definition.ID, Kind: Kind}).Validate(); err != nil {
 		return runtimeSettings{}, errInvalidRuntimeDefinition
 	}
 
-	for name, value := range definition.Settings {
+	settings, err := validateRuntimeSettings(definition.Settings)
+	if err != nil {
+		return runtimeSettings{}, err
+	}
+
+	password, err := validateRuntimePassword(definition.Secrets)
+	if err != nil {
+		return runtimeSettings{}, err
+	}
+
+	settings.password = password
+
+	return settings, nil
+}
+
+func validateRuntimeSettings(values map[string]string) (runtimeSettings, error) {
+	for name, value := range values {
 		switch name {
 		case settingUsername, settingHost, settingPort, settingDatabase, settingSSLMode:
 			if !validRuntimeValue(value) {
@@ -198,49 +223,65 @@ func validateRuntimeDefinition(definition connection.ResolvedDefinition) (runtim
 		}
 	}
 
-	username, ok := definition.Settings[settingUsername]
+	username, ok := values[settingUsername]
 	if !ok || !validRuntimeValue(username) {
 		return runtimeSettings{}, errInvalidRuntimeDefinition
 	}
-	host, ok := definition.Settings[settingHost]
+
+	host, ok := values[settingHost]
 	if !ok || !validRuntimeValue(host) || strings.ContainsAny(host, ",/") {
 		return runtimeSettings{}, errInvalidRuntimeDefinition
 	}
-	database, ok := definition.Settings[settingDatabase]
+
+	database, ok := values[settingDatabase]
 	if !ok || !validRuntimeValue(database) {
 		return runtimeSettings{}, errInvalidRuntimeDefinition
 	}
 
-	if len(definition.Secrets) != 1 {
-		return runtimeSettings{}, errInvalidRuntimeDefinition
-	}
-	password, ok := definition.Secrets[settingPassword]
-	if !ok || len(password) == 0 || strings.IndexByte(string(password), '\x00') >= 0 {
-		return runtimeSettings{}, errInvalidRuntimeDefinition
-	}
-
-	port := uint16(5432)
-	if portText, exists := definition.Settings[settingPort]; exists {
-		parsed, err := strconv.ParseUint(portText, 10, 16)
-		if err != nil || parsed == 0 {
-			return runtimeSettings{}, errInvalidRuntimeDefinition
-		}
-		port = uint16(parsed)
+	port, err := runtimePort(values)
+	if err != nil {
+		return runtimeSettings{}, err
 	}
 
 	sslMode := defaultSSLMode
-	if value, exists := definition.Settings[settingSSLMode]; exists {
+	if value, exists := values[settingSSLMode]; exists {
 		sslMode = value
 	}
 
 	return runtimeSettings{
 		username: username,
-		password: string(password),
 		host:     host,
 		port:     port,
 		database: database,
 		sslMode:  sslMode,
 	}, nil
+}
+
+func validateRuntimePassword(secrets map[string][]byte) (string, error) {
+	if len(secrets) != 1 {
+		return "", errInvalidRuntimeDefinition
+	}
+
+	password, ok := secrets[settingPassword]
+	if !ok || !validRuntimeValue(string(password)) {
+		return "", errInvalidRuntimeDefinition
+	}
+
+	return string(password), nil
+}
+
+func runtimePort(values map[string]string) (uint16, error) {
+	portText, exists := values[settingPort]
+	if !exists {
+		return 5432, nil
+	}
+
+	parsed, err := strconv.ParseUint(portText, 10, 16)
+	if err != nil || parsed == 0 {
+		return 0, errInvalidRuntimeDefinition
+	}
+
+	return uint16(parsed), nil
 }
 
 func validRuntimeValue(value string) bool {
@@ -259,18 +300,18 @@ func validRuntimeValue(value string) bool {
 
 func tlsConfigs(host, sslMode string) ([]*tls.Config, error) {
 	switch sslMode {
-	case "disable":
+	case sslModeDisable:
 		return []*tls.Config{nil}, nil
-	case "allow":
+	case sslModeAllow:
 		return []*tls.Config{nil, insecureTLSConfig(host)}, nil
-	case "prefer":
+	case sslModePrefer:
 		return []*tls.Config{insecureTLSConfig(host), nil}, nil
-	case "require":
+	case sslModeRequire:
 		return []*tls.Config{insecureTLSConfig(host)}, nil
-	case "verify-ca":
+	case sslModeVerifyCA:
 		config, err := verifyCAConfig(host)
 		return []*tls.Config{config}, err
-	case "verify-full":
+	case sslModeVerifyFull:
 		config, err := verifyFullConfig(host)
 		return []*tls.Config{config}, err
 	default:

@@ -20,6 +20,13 @@ const (
 	settingSSLMode  = "sslmode"
 	settingUsername = "username"
 	settingPassword = "password"
+
+	sslModeDisable    = "disable"
+	sslModeAllow      = "allow"
+	sslModePrefer     = "prefer"
+	sslModeRequire    = "require"
+	sslModeVerifyCA   = "verify-ca"
+	sslModeVerifyFull = "verify-full"
 )
 
 var ErrInvalidConnectionString = errors.New("postgres: invalid connection string")
@@ -247,7 +254,7 @@ func parseSSLMode(rawQuery string) (string, error) {
 
 func validSSLMode(sslMode string) bool {
 	switch sslMode {
-	case "disable", "allow", "prefer", "require", "verify-ca", "verify-full":
+	case sslModeDisable, sslModeAllow, sslModePrefer, sslModeRequire, sslModeVerifyCA, sslModeVerifyFull:
 		return true
 	default:
 		return false

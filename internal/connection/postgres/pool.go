@@ -273,7 +273,12 @@ func validateRuntimePassword(secrets map[string][]byte) (string, error) {
 func runtimePort(values map[string]string) (uint16, error) {
 	portText, exists := values[settingPort]
 	if !exists {
-		return 5432, nil
+		parsed, err := strconv.ParseUint(defaultPort, 10, 16)
+		if err != nil || parsed == 0 {
+			return 0, errInvalidRuntimeDefinition
+		}
+
+		return uint16(parsed), nil
 	}
 
 	parsed, err := strconv.ParseUint(portText, 10, 16)

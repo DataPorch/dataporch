@@ -31,12 +31,54 @@ func TestNewRejectsInvalidDependencies(t *testing.T) {
 		{name: "missing sources", deps: Dependencies{Authorizer: validAuthorizer, MaxLimit: 10}},
 		{name: "typed nil sources", deps: Dependencies{Sources: typedNilSources, Authorizer: validAuthorizer, MaxLimit: 10}},
 		{name: "missing authorizer", deps: Dependencies{Sources: validSources, MaxLimit: 10}},
-		{name: "typed nil authorizer", deps: Dependencies{Sources: validSources, Authorizer: typedNilAuthorizer, MaxLimit: 10}},
+		{
+			name: "typed nil authorizer",
+			deps: Dependencies{
+				Sources:    validSources,
+				Authorizer: typedNilAuthorizer,
+				MaxLimit:   10,
+			},
+		},
 		{name: "invalid maximum", deps: Dependencies{Sources: validSources, Authorizer: validAuthorizer}},
-		{name: "nil discoverer", deps: Dependencies{Sources: validSources, Authorizer: validAuthorizer, MaxLimit: 10, RelationalDiscoverers: []RelationalDiscoverer{nil}}},
-		{name: "typed nil discoverer", deps: Dependencies{Sources: validSources, Authorizer: validAuthorizer, MaxLimit: 10, RelationalDiscoverers: []RelationalDiscoverer{typedNilDiscoverer}}},
-		{name: "empty kind", deps: Dependencies{Sources: validSources, Authorizer: validAuthorizer, MaxLimit: 10, RelationalDiscoverers: []RelationalDiscoverer{&panicDiscoverer{}}}},
-		{name: "duplicate kind", deps: Dependencies{Sources: validSources, Authorizer: validAuthorizer, MaxLimit: 10, RelationalDiscoverers: []RelationalDiscoverer{validDiscoverer, &panicDiscoverer{kind: "postgres"}}}},
+		{
+			name: "nil discoverer",
+			deps: Dependencies{
+				Sources:               validSources,
+				Authorizer:            validAuthorizer,
+				MaxLimit:              10,
+				RelationalDiscoverers: []RelationalDiscoverer{nil},
+			},
+		},
+		{
+			name: "typed nil discoverer",
+			deps: Dependencies{
+				Sources:               validSources,
+				Authorizer:            validAuthorizer,
+				MaxLimit:              10,
+				RelationalDiscoverers: []RelationalDiscoverer{typedNilDiscoverer},
+			},
+		},
+		{
+			name: "empty kind",
+			deps: Dependencies{
+				Sources:               validSources,
+				Authorizer:            validAuthorizer,
+				MaxLimit:              10,
+				RelationalDiscoverers: []RelationalDiscoverer{&panicDiscoverer{}},
+			},
+		},
+		{
+			name: "duplicate kind",
+			deps: Dependencies{
+				Sources:    validSources,
+				Authorizer: validAuthorizer,
+				MaxLimit:   10,
+				RelationalDiscoverers: []RelationalDiscoverer{
+					validDiscoverer,
+					&panicDiscoverer{kind: "postgres"},
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -77,7 +119,8 @@ func TestServiceListDataSources(t *testing.T) {
 		t.Fatalf("ListDataSources() error = %v", err)
 	}
 
-	if got := []connection.ID{result.Sources[0].ID, result.Sources[1].ID}; !reflect.DeepEqual(got, []connection.ID{"alpha", "beta"}) {
+	got := []connection.ID{result.Sources[0].ID, result.Sources[1].ID}
+	if !reflect.DeepEqual(got, []connection.ID{"alpha", "beta"}) {
 		t.Fatalf("sources = %v, want [alpha beta]", got)
 	}
 
@@ -152,12 +195,22 @@ func TestServiceListDataSourcesCursorAndLimits(t *testing.T) {
 	}
 
 	changedLimit := 2
-	if _, err := service.ListDataSources(t.Context(), ListDataSourcesRequest{Limit: &changedLimit, Cursor: first.NextCursor}); !errors.Is(err, ErrInvalidCursor) {
+
+	_, err = service.ListDataSources(
+		t.Context(),
+		ListDataSourcesRequest{Limit: &changedLimit, Cursor: first.NextCursor},
+	)
+	if !errors.Is(err, ErrInvalidCursor) {
 		t.Fatalf("changed-limit cursor error = %v, want ErrInvalidCursor", err)
 	}
 
 	zero := 0
-	if _, err := service.ListDataSources(t.Context(), ListDataSourcesRequest{Limit: &zero}); !errors.Is(err, ErrInvalidRequest) {
+
+	_, err = service.ListDataSources(
+		t.Context(),
+		ListDataSourcesRequest{Limit: &zero},
+	)
+	if !errors.Is(err, ErrInvalidRequest) {
 		t.Fatalf("zero limit error = %v, want ErrInvalidRequest", err)
 	}
 }
@@ -197,7 +250,15 @@ func TestServiceRejectsInvalidContexts(t *testing.T) {
 			return err
 		}},
 		{name: "columns", call: func(ctx context.Context) error {
-			_, err := service.ListRelationalColumns(ctx, ListRelationalColumnsRequest{SourceID: "analytics", Schema: "public", Table: "orders"})
+			_, err := service.ListRelationalColumns(
+				ctx,
+				ListRelationalColumnsRequest{
+					SourceID: "analytics",
+					Schema:   "public",
+					Table:    "orders",
+				},
+			)
+
 			return err
 		}},
 	}
@@ -259,7 +320,14 @@ func TestServiceListRelationalOperations(t *testing.T) {
 		t.Fatalf("New() error = %v", err)
 	}
 
-	schemaResult, err := service.ListRelationalSchemas(t.Context(), ListRelationalSchemasRequest{SourceID: "analytics", IncludeDescriptions: true, Limit: intPointer(2)})
+	schemaResult, err := service.ListRelationalSchemas(
+		t.Context(),
+		ListRelationalSchemasRequest{
+			SourceID:            "analytics",
+			IncludeDescriptions: true,
+			Limit:               intPointer(2),
+		},
+	)
 	if err != nil {
 		t.Fatalf("ListRelationalSchemas() error = %v", err)
 	}
@@ -268,7 +336,10 @@ func TestServiceListRelationalOperations(t *testing.T) {
 		t.Fatalf("schema result = %#v, want source, one schema, cursor", schemaResult)
 	}
 
-	if discoverer.schemasRequest.SourceID != "analytics" || discoverer.schemasRequest.Limit != 2 || !discoverer.schemasRequest.IncludeDescriptions {
+	schemaRequestIsWrong := discoverer.schemasRequest.SourceID != "analytics" ||
+		discoverer.schemasRequest.Limit != 2 ||
+		!discoverer.schemasRequest.IncludeDescriptions
+	if schemaRequestIsWrong {
 		t.Fatalf("schema request = %#v", discoverer.schemasRequest)
 	}
 
@@ -289,7 +360,14 @@ func TestServiceListRelationalOperations(t *testing.T) {
 		t.Fatalf("table request = %#v", discoverer.tablesRequest)
 	}
 
-	columnResult, err := service.ListRelationalColumns(t.Context(), ListRelationalColumnsRequest{SourceID: "analytics", Schema: "Sales Data", Table: "Customers"})
+	columnResult, err := service.ListRelationalColumns(
+		t.Context(),
+		ListRelationalColumnsRequest{
+			SourceID: "analytics",
+			Schema:   "Sales Data",
+			Table:    "Customers",
+		},
+	)
 	if err != nil {
 		t.Fatalf("ListRelationalColumns() error = %v", err)
 	}
@@ -297,7 +375,10 @@ func TestServiceListRelationalOperations(t *testing.T) {
 	columnResult.Columns[0].Type.ElementType.Name = "mutated"
 
 	columnResult.Constraints[0].Columns[0] = "mutated"
-	if discoverer.columnsPage.Columns[0].Type.ElementType.Name != "text" || discoverer.columnsPage.Constraints[0].Columns[0] != "id" {
+	columnTypeWasMutated := discoverer.columnsPage.Columns[0].Type.ElementType.Name != "text"
+
+	constraintWasMutated := discoverer.columnsPage.Constraints[0].Columns[0] != "id"
+	if columnTypeWasMutated || constraintWasMutated {
 		t.Fatal("column result mutation changed discoverer page")
 	}
 
@@ -317,7 +398,10 @@ func TestServiceRelationalValidationAndRouting(t *testing.T) {
 	discoverer := &recordingDiscoverer{kind: "postgres", tablesPage: TableDiscoveryPage{Tables: []Table{{Name: "orders"}}}}
 
 	service, err := New(Dependencies{
-		Sources:               &sourceRegistryStub{definitions: []connection.Definition{{ID: "analytics", Kind: "postgres"}, {ID: "memory", Kind: "memory"}}},
+		Sources: &sourceRegistryStub{definitions: []connection.Definition{
+			{ID: "analytics", Kind: "postgres"},
+			{ID: "memory", Kind: "memory"},
+		}},
 		Authorizer:            authorizer,
 		MaxLimit:              10,
 		RelationalDiscoverers: []RelationalDiscoverer{discoverer},
@@ -333,19 +417,23 @@ func TestServiceRelationalValidationAndRouting(t *testing.T) {
 		want error
 	}{
 		{name: "missing source", call: func() error {
-			_, err := service.ListRelationalTables(t.Context(), ListRelationalTablesRequest{SourceID: "missing", Schema: "public"})
+			_, err := service.ListRelationalTables(
+				t.Context(),
+				ListRelationalTablesRequest{SourceID: "missing", Schema: "public"},
+			)
+
 			return err
 		}, want: ErrSourceNotFound},
 		{name: "unsupported source", call: func() error {
-			_, err := service.ListRelationalTables(t.Context(), ListRelationalTablesRequest{SourceID: "memory", Schema: "public"})
+			_, err := service.ListRelationalTables(
+				t.Context(),
+				ListRelationalTablesRequest{SourceID: "memory", Schema: "public"},
+			)
+
 			return err
 		}, want: ErrUnsupportedSourceCapability},
 		{name: "empty schema", call: func() error {
 			_, err := service.ListRelationalTables(t.Context(), ListRelationalTablesRequest{SourceID: "analytics"})
-			return err
-		}, want: ErrInvalidRequest},
-		{name: "control schema", call: func() error {
-			_, err := service.ListRelationalTables(t.Context(), ListRelationalTablesRequest{SourceID: "analytics", Schema: "public\n"})
 			return err
 		}, want: ErrInvalidRequest},
 	} {
@@ -358,13 +446,88 @@ func TestServiceRelationalValidationAndRouting(t *testing.T) {
 
 	overbound := &recordingDiscoverer{kind: "postgres", tablesPage: TableDiscoveryPage{Tables: make([]Table, 2)}}
 
-	service, err = New(Dependencies{Sources: &sourceRegistryStub{definitions: []connection.Definition{{ID: "analytics", Kind: "postgres"}}}, Authorizer: &recordingAuthorizer{}, MaxLimit: 1, RelationalDiscoverers: []RelationalDiscoverer{overbound}})
+	service, err = New(Dependencies{
+		Sources: &sourceRegistryStub{definitions: []connection.Definition{
+			{ID: "analytics", Kind: "postgres"},
+		}},
+		Authorizer:            &recordingAuthorizer{},
+		MaxLimit:              1,
+		RelationalDiscoverers: []RelationalDiscoverer{overbound},
+	})
 	if err != nil {
 		t.Fatalf("New(overbound) error = %v", err)
 	}
 
-	if _, err := service.ListRelationalTables(t.Context(), ListRelationalTablesRequest{SourceID: "analytics", Schema: "public"}); !errors.Is(err, ErrInternal) {
+	_, err = service.ListRelationalTables(
+		t.Context(),
+		ListRelationalTablesRequest{SourceID: "analytics", Schema: "public"},
+	)
+	if !errors.Is(err, ErrInternal) {
 		t.Fatalf("overbound error = %v, want ErrInternal", err)
+	}
+}
+
+func TestServiceRoutesPostgreSQLControlIdentifiers(t *testing.T) {
+	t.Parallel()
+
+	discoverer := &recordingDiscoverer{
+		kind: "postgres",
+		columnsPage: ColumnDiscoveryPage{
+			RelationKind: RelationKindTable,
+		},
+	}
+
+	service, err := New(Dependencies{
+		Sources: &sourceRegistryStub{definitions: []connection.Definition{
+			{ID: "analytics", Kind: "postgres"},
+		}},
+		Authorizer:            &recordingAuthorizer{},
+		MaxLimit:              10,
+		RelationalDiscoverers: []RelationalDiscoverer{discoverer},
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	const schema = "sales\narchive"
+
+	_, err = service.ListRelationalTables(
+		t.Context(),
+		ListRelationalTablesRequest{
+			SourceID: "analytics",
+			Schema:   schema,
+		},
+	)
+	if err != nil {
+		t.Fatalf("ListRelationalTables() error = %v", err)
+	}
+
+	if discoverer.tablesRequest.Schema != schema {
+		t.Fatalf("table schema = %q, want %q", discoverer.tablesRequest.Schema, schema)
+	}
+
+	const table = "orders\t2026"
+
+	_, err = service.ListRelationalColumns(
+		t.Context(),
+		ListRelationalColumnsRequest{
+			SourceID: "analytics",
+			Schema:   schema,
+			Table:    table,
+		},
+	)
+	if err != nil {
+		t.Fatalf("ListRelationalColumns() error = %v", err)
+	}
+
+	if discoverer.columnsRequest.Schema != schema || discoverer.columnsRequest.Table != table {
+		t.Fatalf(
+			"column identifiers = %q/%q, want %q/%q",
+			discoverer.columnsRequest.Schema,
+			discoverer.columnsRequest.Table,
+			schema,
+			table,
+		)
 	}
 }
 
@@ -379,7 +542,12 @@ func TestClassify(t *testing.T) {
 	}{
 		{name: "invalid request", err: ErrInvalidRequest, category: ErrorCategoryInvalidRequest},
 		{name: "invalid cursor", err: ErrInvalidCursor, category: ErrorCategoryInvalidCursor},
-		{name: "database unavailable", err: ErrDatabaseUnavailable, category: ErrorCategoryDatabaseUnavailable, retryable: true},
+		{
+			name:      "database unavailable",
+			err:       ErrDatabaseUnavailable,
+			category:  ErrorCategoryDatabaseUnavailable,
+			retryable: true,
+		},
 		{name: "timeout", err: ErrQueryTimeout, category: ErrorCategoryQueryTimeout, retryable: true},
 		{name: "cancelled", err: context.Canceled, category: ErrorCategoryCancelled},
 		{name: "unknown", err: errors.New("sensitive database message"), category: ErrorCategoryInternal},
@@ -452,7 +620,10 @@ type recordingDiscoverer struct {
 
 func (d *recordingDiscoverer) Kind() connection.Kind { return d.kind }
 
-func (d *recordingDiscoverer) ListSchemas(_ context.Context, request SchemaDiscoveryRequest) (SchemaDiscoveryPage, error) {
+func (d *recordingDiscoverer) ListSchemas(
+	_ context.Context,
+	request SchemaDiscoveryRequest,
+) (SchemaDiscoveryPage, error) {
 	d.schemasRequest = request
 	return d.schemasPage, nil
 }
@@ -462,7 +633,10 @@ func (d *recordingDiscoverer) ListTables(_ context.Context, request TableDiscove
 	return d.tablesPage, nil
 }
 
-func (d *recordingDiscoverer) ListColumns(_ context.Context, request ColumnDiscoveryRequest) (ColumnDiscoveryPage, error) {
+func (d *recordingDiscoverer) ListColumns(
+	_ context.Context,
+	request ColumnDiscoveryRequest,
+) (ColumnDiscoveryPage, error) {
 	d.columnsRequest = request
 	return d.columnsPage, nil
 }

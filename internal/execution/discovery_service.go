@@ -7,7 +7,6 @@ import (
 	"reflect"
 	"sort"
 	"strings"
-	"unicode"
 	"unicode/utf8"
 
 	"github.com/adamraziv/dataporch/internal/access"
@@ -152,7 +151,10 @@ func (s *Service) effectiveLimit(value *int) (int, error) {
 	return *value, nil
 }
 
-func (s *Service) ListRelationalSchemas(ctx context.Context, request ListRelationalSchemasRequest) (ListRelationalSchemasResult, error) {
+func (s *Service) ListRelationalSchemas(
+	ctx context.Context,
+	request ListRelationalSchemasRequest,
+) (ListRelationalSchemasResult, error) {
 	if err := validateContext(ctx); err != nil {
 		return ListRelationalSchemasResult{}, err
 	}
@@ -213,7 +215,10 @@ func (s *Service) ListRelationalSchemas(ctx context.Context, request ListRelatio
 	return result, nil
 }
 
-func (s *Service) ListRelationalTables(ctx context.Context, request ListRelationalTablesRequest) (ListRelationalTablesResult, error) {
+func (s *Service) ListRelationalTables(
+	ctx context.Context,
+	request ListRelationalTablesRequest,
+) (ListRelationalTablesResult, error) {
 	if err := validateContext(ctx); err != nil {
 		return ListRelationalTablesResult{}, err
 	}
@@ -282,7 +287,10 @@ func (s *Service) ListRelationalTables(ctx context.Context, request ListRelation
 }
 
 //nolint:gocyclo // This boundary validates, authorizes, dispatches, and pages a column-list request.
-func (s *Service) ListRelationalColumns(ctx context.Context, request ListRelationalColumnsRequest) (ListRelationalColumnsResult, error) {
+func (s *Service) ListRelationalColumns(
+	ctx context.Context,
+	request ListRelationalColumnsRequest,
+) (ListRelationalColumnsResult, error) {
 	if err := validateContext(ctx); err != nil {
 		return ListRelationalColumnsResult{}, err
 	}
@@ -363,7 +371,11 @@ func (s *Service) ListRelationalColumns(ctx context.Context, request ListRelatio
 	return result, nil
 }
 
-func (s *Service) relationalDiscoverer(ctx context.Context, sourceID connection.ID, action access.Action) (RelationalDiscoverer, error) {
+func (s *Service) relationalDiscoverer(
+	ctx context.Context,
+	sourceID connection.ID,
+	action access.Action,
+) (RelationalDiscoverer, error) {
 	if err := validateContext(ctx); err != nil {
 		return nil, err
 	}
@@ -418,18 +430,16 @@ func validateIdentifier(value string) error {
 		return ErrInvalidRequest
 	}
 
-	for _, character := range value {
-		if unicode.IsControl(character) {
-			return ErrInvalidRequest
-		}
-	}
-
 	return nil
 }
 
 func validateRelationKind(kind RelationKind) error {
 	switch kind {
-	case RelationKindTable, RelationKindPartitionedTable, RelationKindView, RelationKindMaterializedView, RelationKindForeignTable:
+	case RelationKindTable,
+		RelationKindPartitionedTable,
+		RelationKindView,
+		RelationKindMaterializedView,
+		RelationKindForeignTable:
 		return nil
 	default:
 		return fmt.Errorf("%w: %s", ErrUnsupportedRelationKind, kind)

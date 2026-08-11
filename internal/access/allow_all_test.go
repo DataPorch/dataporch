@@ -9,8 +9,16 @@ func TestAllowAll_Authorize(t *testing.T) {
 	t.Parallel()
 
 	policy := New()
-	if err := policy.Authorize(t.Context(), ActionListResources); err != nil {
-		t.Fatalf("Authorize() error = %v", err)
+	for _, action := range []Action{
+		ActionListResources,
+		ActionListDataSources,
+		ActionListRelationalSchemas,
+		ActionListRelationalTables,
+		ActionListRelationalColumns,
+	} {
+		if err := policy.Authorize(t.Context(), action); err != nil {
+			t.Fatalf("Authorize(%q) error = %v", action, err)
+		}
 	}
 }
 

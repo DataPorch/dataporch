@@ -51,6 +51,41 @@ func TestManagerPrepareResolvesAllNamedSecrets(t *testing.T) {
 	}
 }
 
+func TestManagerPreparePreservesNotFoundClassification(t *testing.T) {
+	t.Parallel()
+
+	manager, err := NewManager(resolverStub{}, nil)
+	if err != nil {
+		t.Fatalf("NewManager() error = %v", err)
+	}
+
+	_, err = manager.Prepare(t.Context(), "missing")
+	for _, expected := range []error{ErrDatabaseUnavailable, ErrDatabaseNotFound} {
+		if !errors.Is(err, expected) {
+			t.Errorf("Prepare() error = %v, want %v", err, expected)
+		}
+	}
+}
+
+func TestManagerPreparePreservesContextClassification(t *testing.T) {
+	t.Parallel()
+
+	manager, err := NewManager(resolverStub{}, nil)
+	if err != nil {
+		t.Fatalf("NewManager() error = %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	_, err = manager.Prepare(ctx, "finance")
+	for _, expected := range []error{ErrDatabaseUnavailable, context.Canceled} {
+		if !errors.Is(err, expected) {
+			t.Errorf("Prepare() error = %v, want %v", err, expected)
+		}
+	}
+}
+
 func TestManagerFailureForADoesNotAffectB(t *testing.T) {
 	t.Parallel()
 

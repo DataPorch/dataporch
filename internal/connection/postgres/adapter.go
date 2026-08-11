@@ -19,6 +19,7 @@ const (
 	settingPort     = "port"
 	settingSSLMode  = "sslmode"
 	settingUsername = "username"
+	settingPassword = "password"
 )
 
 var ErrInvalidConnectionString = errors.New("postgres: invalid connection string")
@@ -66,7 +67,7 @@ func (*Adapter) ParseConnectionString(input []byte) (connection.ParsedConnection
 	return connection.ParsedConnection{
 		Settings: settings,
 		Secrets: map[string][]byte{
-			"password": []byte(fields.password),
+			settingPassword: []byte(fields.password),
 		},
 	}, nil
 }

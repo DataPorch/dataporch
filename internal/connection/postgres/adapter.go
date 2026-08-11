@@ -51,16 +51,16 @@ func (*Adapter) ParseConnectionString(input []byte) (connection.ParsedConnection
 	}
 
 	settings := map[string]string{
-		settingUsername: fields.username,
-		settingHost:     fields.host,
-		settingDatabase: fields.database,
+		settingUsername: strings.Clone(fields.username),
+		settingHost:     strings.Clone(fields.host),
+		settingDatabase: strings.Clone(fields.database),
 	}
 	if fields.port != "" {
-		settings[settingPort] = fields.port
+		settings[settingPort] = strings.Clone(fields.port)
 	}
 
 	if fields.sslMode != "" {
-		settings[settingSSLMode] = fields.sslMode
+		settings[settingSSLMode] = strings.Clone(fields.sslMode)
 	}
 
 	return connection.ParsedConnection{
@@ -138,9 +138,17 @@ func parseCredentials(user *url.Userinfo) (string, string, error) {
 		return "", "", invalidConnectionString("missing username")
 	}
 
+	if strings.IndexByte(username, '\x00') >= 0 {
+		return "", "", invalidConnectionString("invalid username")
+	}
+
 	password, exists := user.Password()
 	if !exists || password == "" {
 		return "", "", invalidConnectionString("missing password")
+	}
+
+	if strings.IndexByte(password, '\x00') >= 0 {
+		return "", "", invalidConnectionString("invalid password")
 	}
 
 	return username, password, nil
@@ -153,6 +161,11 @@ func parseAddress(uri *url.URL) (string, string, error) {
 
 	if strings.Contains(uri.Host, ",") {
 		return "", "", invalidConnectionString("multiple hosts")
+	}
+
+	hasUnbracketedColons := strings.Count(uri.Host, ":") > 1 && !strings.HasPrefix(uri.Host, "[")
+	if hasUnbracketedColons {
+		return "", "", invalidConnectionString("invalid host")
 	}
 
 	host := uri.Hostname()
@@ -194,6 +207,10 @@ func parseDatabase(uri *url.URL) (string, error) {
 
 	database, err := url.PathUnescape(escapedDatabase)
 	if err != nil || database == "" {
+		return "", invalidConnectionString("invalid database")
+	}
+
+	if strings.IndexByte(database, '\x00') >= 0 {
 		return "", invalidConnectionString("invalid database")
 	}
 

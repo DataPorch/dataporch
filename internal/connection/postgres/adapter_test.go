@@ -6,6 +6,7 @@ import (
 	"maps"
 	"strings"
 	"testing"
+	"unsafe"
 )
 
 func TestAdapterKind(t *testing.T) {
@@ -26,7 +27,7 @@ func TestParseConnectionStringNormalizesURI(t *testing.T) {
 		wantPassword     string
 	}{
 		{
-			name: "postgresql scheme with Supabase-style port",
+			name: "postgresql scheme with supabase-style port",
 			connectionString: "postgresql://postgres.obovklvzufwjjmjtvogd:decoded-password@" +
 				"aws-1-ap-southeast-1.pooler.supabase.com:6543/postgres",
 			wantSettings: map[string]string{
@@ -58,7 +59,7 @@ func TestParseConnectionStringNormalizesURI(t *testing.T) {
 			wantPassword: "p@ss:word",
 		},
 		{
-			name:             "bracketed IPv6 host",
+			name:             "bracketed ipv6 host",
 			connectionString: "postgresql://reader:secret@[2001:db8::1]:6543/finance",
 			wantSettings: map[string]string{
 				"username": "reader",
@@ -111,6 +112,45 @@ func TestParseConnectionStringNormalizesURI(t *testing.T) {
 	}
 }
 
+func TestParseConnectionStringDetachesSettingsFromURI(t *testing.T) {
+	t.Parallel()
+
+	const connectionString = "postgresql://reader:secret@db.example:6543/finance?sslmode=require"
+
+	parsed, err := New().ParseConnectionString([]byte(connectionString))
+	if err != nil {
+		t.Fatal("ParseConnectionString() rejected a valid URI")
+	}
+
+	username := parsed.Settings[settingUsername]
+	usernameOffset := strings.Index(connectionString, username)
+	usernameData := uintptr(unsafe.Pointer(unsafe.StringData(username)))
+	tests := []struct {
+		name    string
+		setting string
+	}{
+		{name: "host", setting: settingHost},
+		{name: "port", setting: settingPort},
+		{name: "database", setting: settingDatabase},
+		{name: "sslmode", setting: settingSSLMode},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			value := parsed.Settings[test.setting]
+			valueOffset := strings.Index(connectionString, value)
+			valueData := uintptr(unsafe.Pointer(unsafe.StringData(value)))
+
+			uriBackedData := usernameData + uintptr(valueOffset-usernameOffset)
+			if valueData == uriBackedData {
+				t.Fatalf("Settings[%q] retains the URI backing allocation", test.setting)
+			}
+		})
+	}
+}
+
 func TestParseConnectionStringAcceptsSupportedSSLModes(t *testing.T) {
 	t.Parallel()
 
@@ -151,16 +191,19 @@ func TestParseConnectionStringRejectsInvalidURI(t *testing.T) {
 		{name: "empty", connectionString: ""},
 		{name: "unsupported scheme", connectionString: "mysql://reader:secret@db.example/finance"},
 		{name: "keyword value", connectionString: "host=db.example user=reader password=secret dbname=finance"},
-		{name: "opaque URI", connectionString: "postgresql:reader:secret@db.example/finance"},
+		{name: "opaque uri", connectionString: "postgresql:reader:secret@db.example/finance"},
 		{name: "missing username", connectionString: "postgresql://:secret@db.example/finance"},
+		{name: "nul in username", connectionString: "postgresql://reader%00:secret@db.example/finance"},
 		{name: "missing password", connectionString: "postgresql://reader@db.example/finance"},
 		{name: "empty password", connectionString: "postgresql://reader:@db.example/finance"},
+		{name: "nul in password", connectionString: "postgresql://reader:secret%00@db.example/finance"},
 		{name: "missing host", connectionString: "postgresql://reader:secret@/finance"},
 		{name: "missing database", connectionString: "postgresql://reader:secret@db.example/"},
+		{name: "nul in database", connectionString: "postgresql://reader:secret@db.example/finance%00"},
 		{name: "multiple database segments", connectionString: "postgresql://reader:secret@db.example/a/b"},
 		{name: "multiple hosts", connectionString: "postgresql://reader:secret@db1.example,db2.example/finance"},
 		{
-			name:             "Unix socket parameter",
+			name:             "unix socket parameter",
 			connectionString: "postgresql://reader:secret@/finance?host=%2Fvar%2Frun%2Fpostgresql",
 		},
 		{name: "fragment", connectionString: "postgresql://reader:secret@db.example/finance#section"},
@@ -186,6 +229,7 @@ func TestParseConnectionStringRejectsInvalidURI(t *testing.T) {
 		{name: "empty port", connectionString: "postgresql://reader:secret@db.example:/finance"},
 		{name: "zero port", connectionString: "postgresql://reader:secret@db.example:0/finance"},
 		{name: "out-of-range port", connectionString: "postgresql://reader:secret@db.example:70000/finance"},
+		{name: "unbracketed ipv6 host", connectionString: "postgresql://reader:secret@2001:db8::1/finance"},
 	}
 
 	for _, test := range tests {
@@ -223,7 +267,16 @@ func TestParseConnectionStringDoesNotExposeInputInErrors(t *testing.T) {
 		t.Fatal("error is not classifiable as ErrInvalidConnectionString")
 	}
 
-	for _, sensitiveValue := range []string{connectionString, username, password, host, database, port, "parameter-canary"} {
+	sensitiveValues := []string{
+		connectionString,
+		username,
+		password,
+		host,
+		database,
+		port,
+		"parameter-canary",
+	}
+	for _, sensitiveValue := range sensitiveValues {
 		if strings.Contains(err.Error(), sensitiveValue) {
 			t.Fatal("parser error exposed connection input")
 		}

@@ -35,11 +35,12 @@ var (
 )
 
 type App struct {
-	server         *http.Server
-	adminServer    *localadmin.Server
-	manager        *connection.Manager
-	logger         *slog.Logger
-	shutdownPeriod time.Duration
+	server          *http.Server
+	adminServer     *localadmin.Server
+	manager         *connection.Manager
+	postgresRuntime postgresRuntime
+	logger          *slog.Logger
+	shutdownPeriod  time.Duration
 }
 
 func New(cfg config.Config, logger *slog.Logger) (*App, error) {
@@ -51,8 +52,23 @@ func newWithAdapters(
 	logger *slog.Logger,
 	adapters ...connection.Adapter,
 ) (*App, error) {
+	return newWithDependencies(cfg, logger, appDependencies{
+		adapters:           adapters,
+		newPostgresRuntime: newPostgresRuntime,
+	})
+}
+
+func newWithDependencies(
+	cfg config.Config,
+	logger *slog.Logger,
+	dependencies appDependencies,
+) (*App, error) {
 	if logger == nil {
 		return nil, errLoggerRequired
+	}
+
+	if dependencies.newPostgresRuntime == nil {
+		return nil, errPostgresRuntimeFactoryRequired
 	}
 
 	if err := cfg.Validate(); err != nil {
@@ -100,7 +116,7 @@ func newWithAdapters(
 	mux.Handle("/mcp", mcpHandler)
 	mux.Handle("/", httpHandler)
 
-	security, err := newSecurityComponents(cfg, logger, adapters...)
+	security, err := newSecurityComponents(cfg, logger, dependencies)
 	if err != nil {
 		return nil, fmt.Errorf("creating security components: %w", err)
 	}
@@ -115,10 +131,11 @@ func newWithAdapters(
 			IdleTimeout:       idleTimeout,
 			MaxHeaderBytes:    maxHeaderBytes,
 		},
-		adminServer:    security.adminServer,
-		manager:        security.manager,
-		logger:         logger,
-		shutdownPeriod: cfg.ShutdownPeriod,
+		adminServer:     security.adminServer,
+		manager:         security.manager,
+		postgresRuntime: security.postgresRuntime,
+		logger:          logger,
+		shutdownPeriod:  cfg.ShutdownPeriod,
 	}, nil
 }
 

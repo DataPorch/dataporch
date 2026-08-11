@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/adamraziv/dataporch/internal/config"
 	"github.com/adamraziv/dataporch/internal/connection"
@@ -155,9 +156,53 @@ func TestAppSuccessfulImportInvalidatesPostgresRuntime(t *testing.T) {
 		t.Fatalf("status = %d, want %d", response.StatusCode, http.StatusCreated)
 	}
 
+	started := make(chan struct{})
+	release := make(chan struct{})
+	runtime.blockNextInvalidation(started, release)
+
+	var releaseOnce sync.Once
+
+	t.Cleanup(func() { releaseOnce.Do(func() { close(release) }) })
+
+	secondResponse := make(chan struct {
+		status int
+		err    error
+	}, 1)
+	go func() {
+		status, err := importStatusOverSocket(
+			cfg.AdminSocketPath,
+			"finance",
+			string(postgres.Kind),
+			"postgresql://reader:password@postgres-import-test.invalid/finance",
+		)
+		secondResponse <- struct {
+			status int
+			err    error
+		}{status: status, err: err}
+	}()
+
+	select {
+	case <-started:
+	case result := <-secondResponse:
+		t.Fatalf("replacement response arrived before invalidation: err = %v", result.err)
+	case <-time.After(time.Second):
+		t.Fatal("replacement invalidation did not start")
+	}
+
+	releaseOnce.Do(func() { close(release) })
+
+	result := <-secondResponse
+	if result.err != nil {
+		t.Fatalf("replacement import error = %v", result.err)
+	}
+
+	if result.status != http.StatusOK {
+		t.Fatalf("replacement status = %d, want %d", result.status, http.StatusOK)
+	}
+
 	invalidated := runtime.invalidatedIDs()
-	if len(invalidated) != 1 || invalidated[0] != "finance" {
-		t.Fatalf("invalidated IDs = %v, want [finance]", invalidated)
+	if len(invalidated) != 2 || invalidated[0] != "finance" || invalidated[1] != "finance" {
+		t.Fatalf("invalidated IDs = %v, want [finance finance]", invalidated)
 	}
 }
 
@@ -212,9 +257,25 @@ func newAppWithPostgresRuntimeTestStub(
 ) *App {
 	t.Helper()
 
+	return newAppWithPostgresRuntimeTestStubAndLogger(
+		t,
+		cfg,
+		runtime,
+		slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)),
+	)
+}
+
+func newAppWithPostgresRuntimeTestStubAndLogger(
+	t *testing.T,
+	cfg config.Config,
+	runtime postgresRuntime,
+	logger *slog.Logger,
+) *App {
+	t.Helper()
+
 	application, err := newWithDependencies(
 		cfg,
-		slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)),
+		logger,
 		appDependencies{
 			adapters: []connection.Adapter{postgres.New()},
 			newPostgresRuntime: func(postgres.DefinitionPreparer) (postgresRuntime, error) {
@@ -227,6 +288,20 @@ func newAppWithPostgresRuntimeTestStub(
 	}
 
 	return application
+}
+
+func importStatusOverSocket(path, databaseID, kind, connectionString string) (int, error) {
+	response, err := importOverSocket(path, databaseID, kind, connectionString)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = response.Body.Close() }()
+
+	if _, err := io.Copy(io.Discard, response.Body); err != nil {
+		return 0, err
+	}
+
+	return response.StatusCode, nil
 }
 
 type replacementRegistrarTestRegistrar struct {
@@ -250,15 +325,39 @@ func (i *replacementRegistrarTestInvalidator) Invalidate(id connection.ID) {
 }
 
 type appPostgresRuntimeTestStub struct {
-	mu          sync.Mutex
-	invalidated []connection.ID
-	closeErr    error
-	closes      int
+	mu                  sync.Mutex
+	invalidated         []connection.ID
+	closeErr            error
+	closes              int
+	invalidationStarted chan struct{}
+	invalidationRelease chan struct{}
 }
 
 func (r *appPostgresRuntimeTestStub) Invalidate(id connection.ID) {
 	r.mu.Lock()
 	r.invalidated = append(r.invalidated, id)
+	started := r.invalidationStarted
+	release := r.invalidationRelease
+	r.invalidationStarted = nil
+	r.invalidationRelease = nil
+	r.mu.Unlock()
+
+	if started != nil {
+		close(started)
+	}
+
+	if release != nil {
+		<-release
+	}
+}
+
+func (r *appPostgresRuntimeTestStub) blockNextInvalidation(
+	started chan struct{},
+	release chan struct{},
+) {
+	r.mu.Lock()
+	r.invalidationStarted = started
+	r.invalidationRelease = release
 	r.mu.Unlock()
 }
 

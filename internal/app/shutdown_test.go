@@ -1,8 +1,10 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"os"
 	"sync"
@@ -38,7 +40,7 @@ func TestAppRunClosesRuntimeWhenContextIsAlreadyCanceled(t *testing.T) {
 	}
 }
 
-func TestAppShutdownClosesRuntimeAfterTransportsDrain(t *testing.T) {
+func TestAppShutdownClosesPostgresRuntimeAfterTransports(t *testing.T) {
 	t.Parallel()
 
 	cfg := initializedTestConfig(t)
@@ -68,7 +70,7 @@ func TestAppShutdownClosesRuntimeAfterTransportsDrain(t *testing.T) {
 	}
 }
 
-func TestAppShutdownReturnsRuntimeCloseError(t *testing.T) {
+func TestAppShutdownJoinsPostgresRuntimeError(t *testing.T) {
 	t.Parallel()
 
 	closeErr := errors.New("runtime close failed")
@@ -91,6 +93,35 @@ func TestAppShutdownReturnsRuntimeCloseError(t *testing.T) {
 
 	if runtime.closeCalls() != 1 {
 		t.Fatalf("runtime close calls = %d, want 1", runtime.closeCalls())
+	}
+}
+
+func TestAppShutdownDoesNotLogStoppedAfterRuntimeError(t *testing.T) {
+	t.Parallel()
+
+	closeErr := errors.New("runtime close failed")
+	cfg := initializedTestConfig(t)
+	runtime := &appLifecycleRuntimeTestStub{closeErr: closeErr}
+
+	var logs bytes.Buffer
+
+	logger := slog.New(slog.NewTextHandler(&logs, nil))
+	application := newAppWithPostgresRuntimeTestStubAndLogger(t, cfg, runtime, logger)
+
+	ctx, cancel := context.WithCancel(t.Context())
+
+	done := make(chan error, 1)
+	go func() { done <- application.Run(ctx) }()
+
+	waitForFile(t, cfg.AdminSocketPath)
+	cancel()
+
+	if err := <-done; !errors.Is(err, closeErr) {
+		t.Fatalf("Run() error = %v, want %v", err, closeErr)
+	}
+
+	if bytes.Contains(logs.Bytes(), []byte("dataporch stopped")) {
+		t.Fatalf("logs contain stopped message after runtime error: %s", logs.Bytes())
 	}
 }
 

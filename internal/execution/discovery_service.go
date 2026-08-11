@@ -70,8 +70,8 @@ func New(dependencies Dependencies) (*Service, error) {
 
 //nolint:gocyclo // This boundary validates, authorizes, snapshots, and pages a source-list request.
 func (s *Service) ListDataSources(ctx context.Context, request ListDataSourcesRequest) (ListDataSourcesResult, error) {
-	if ctx == nil {
-		return ListDataSourcesResult{}, errContextRequired
+	if err := validateContext(ctx); err != nil {
+		return ListDataSourcesResult{}, err
 	}
 
 	limit, err := s.effectiveLimit(request.Limit)

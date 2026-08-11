@@ -162,6 +162,61 @@ func TestServiceListDataSourcesCursorAndLimits(t *testing.T) {
 	}
 }
 
+func TestServiceRejectsInvalidContexts(t *testing.T) {
+	t.Parallel()
+
+	service, err := New(Dependencies{
+		Sources:    &sourceRegistryStub{},
+		Authorizer: &recordingAuthorizer{},
+		MaxLimit:   10,
+		RelationalDiscoverers: []RelationalDiscoverer{
+			&recordingDiscoverer{kind: "postgres"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	canceled, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	tests := []struct {
+		name string
+		call func(context.Context) error
+	}{
+		{name: "data sources", call: func(ctx context.Context) error {
+			_, err := service.ListDataSources(ctx, ListDataSourcesRequest{})
+			return err
+		}},
+		{name: "schemas", call: func(ctx context.Context) error {
+			_, err := service.ListRelationalSchemas(ctx, ListRelationalSchemasRequest{SourceID: "analytics"})
+			return err
+		}},
+		{name: "tables", call: func(ctx context.Context) error {
+			_, err := service.ListRelationalTables(ctx, ListRelationalTablesRequest{SourceID: "analytics", Schema: "public"})
+			return err
+		}},
+		{name: "columns", call: func(ctx context.Context) error {
+			_, err := service.ListRelationalColumns(ctx, ListRelationalColumnsRequest{SourceID: "analytics", Schema: "public", Table: "orders"})
+			return err
+		}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			if err := test.call(nil); !errors.Is(err, errContextRequired) {
+				t.Fatalf("nil context error = %v, want context required", err)
+			}
+
+			if err := test.call(canceled); !errors.Is(err, ErrCancelled) {
+				t.Fatalf("canceled context error = %v, want ErrCancelled", err)
+			}
+		})
+	}
+}
+
 //nolint:gocyclo // This service test traverses all relational operations and their shared contracts.
 func TestServiceListRelationalOperations(t *testing.T) {
 	t.Parallel()

@@ -14,6 +14,7 @@ type DatabaseError struct {
 	Severity            string          `json:"severity,omitempty"`
 	SeverityUnlocalized string          `json:"severity_unlocalized,omitempty"`
 	Message             string          `json:"message,omitempty"`
+	Truncated           bool            `json:"truncated,omitempty"`
 	Detail              string          `json:"detail,omitempty"`
 	Hint                string          `json:"hint,omitempty"`
 	Position            int32           `json:"position,omitempty"`

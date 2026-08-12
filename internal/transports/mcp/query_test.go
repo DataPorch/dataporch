@@ -222,6 +222,93 @@ func TestQueryToolReturnsEveryDatabaseErrorField(t *testing.T) {
 	})
 }
 
+func TestQueryToolBoundsDatabaseFailures(t *testing.T) {
+	t.Parallel()
+
+	const byteLimit = 65_536
+
+	var logs bytes.Buffer
+
+	databaseError := &execution.DatabaseError{
+		Kind:    "postgres",
+		Code:    "22P02",
+		Message: strings.Repeat("\\\"\x00\xff", byteLimit),
+		Detail:  strings.Repeat("detail", byteLimit),
+		Hint:    strings.Repeat("hint", byteLimit),
+	}
+	querier := &recordingRelationalQuerier{err: databaseError}
+	dependencies := newMCPTestDependencies(slog.New(slog.NewJSONHandler(&logs, nil)))
+	dependencies.RelationalQuerier = querier
+	dependencies.QueryResponseByteLimit = byteLimit
+
+	server, session := newQueryTestSession(t, dependencies)
+	defer server.Close()
+
+	result := callRelationalQuery(t, session, "select invalid")
+	failure := assertBoundedQueryFailure(t, result, byteLimit)
+
+	if failure.Category != execution.ErrorCategoryInvalidQuery || failure.DatabaseError == nil ||
+		failure.DatabaseError.Code != "22P02" || !failure.DatabaseError.Truncated {
+		t.Fatalf("bounded failure = %#v, want original category/code with truncation marker", failure)
+	}
+
+	if logs.Len() > byteLimit {
+		t.Fatalf("failure log size = %d, want at most %d", logs.Len(), byteLimit)
+	}
+
+	logRecord := decodeOneLogRecord(t, logs.Bytes())
+
+	databaseFields, ok := logRecord["database_error"].(map[string]any)
+	if !ok || databaseFields["truncated"] != true || databaseFields["original_size_bytes"] == nil {
+		t.Fatalf("bounded database error log group = %#v", logRecord["database_error"])
+	}
+}
+
+func TestQueryToolBoundsEveryLargeDatabaseErrorDetail(t *testing.T) {
+	t.Parallel()
+
+	const byteLimit = 65_536
+
+	largeValue := strings.Repeat("\\\"\x00", byteLimit)
+	tests := []struct {
+		name   string
+		assign func(*execution.DatabaseError)
+	}{
+		{name: "message", assign: func(err *execution.DatabaseError) { err.Message = largeValue }},
+		{name: "detail", assign: func(err *execution.DatabaseError) { err.Detail = largeValue }},
+		{name: "hint", assign: func(err *execution.DatabaseError) { err.Hint = largeValue }},
+		{name: "internal query", assign: func(err *execution.DatabaseError) { err.InternalQuery = largeValue }},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			databaseError := &execution.DatabaseError{
+				Kind:    "postgres",
+				Code:    "22P02",
+				Message: "invalid input syntax",
+			}
+			test.assign(databaseError)
+			querier := &recordingRelationalQuerier{err: databaseError}
+			dependencies := newMCPTestDependencies(slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil)))
+			dependencies.RelationalQuerier = querier
+			dependencies.QueryResponseByteLimit = byteLimit
+
+			server, session := newQueryTestSession(t, dependencies)
+			defer server.Close()
+
+			result := callRelationalQuery(t, session, "select invalid")
+			failure := assertBoundedQueryFailure(t, result, byteLimit)
+
+			if failure.Category != execution.ErrorCategoryInvalidQuery || failure.DatabaseError == nil ||
+				failure.DatabaseError.Code != "22P02" || !failure.DatabaseError.Truncated {
+				t.Fatalf("bounded failure = %#v, want original category/code with truncation marker", failure)
+			}
+		})
+	}
+}
+
 func TestQueryToolReplacesOversizedSuccess(t *testing.T) {
 	t.Parallel()
 
@@ -235,7 +322,15 @@ func TestQueryToolReplacesOversizedSuccess(t *testing.T) {
 	}}
 	dependencies := newMCPTestDependencies(slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil)))
 	dependencies.RelationalQuerier = querier
-	dependencies.QueryResponseByteLimit = 1
+
+	minimumFailureSize, err := relationalQueryFailureWireSize(
+		execution.ClassifyRelationalQuery(t.Context(), execution.ErrResultTooLarge),
+	)
+	if err != nil {
+		t.Fatalf("relationalQueryFailureWireSize() error = %v", err)
+	}
+
+	dependencies.QueryResponseByteLimit = minimumFailureSize
 
 	server, session := newQueryTestSession(t, dependencies)
 	defer server.Close()
@@ -451,6 +546,50 @@ func callRelationalQuery(t *testing.T, session *mcpsdk.ClientSession, query stri
 	}
 
 	return result
+}
+
+func assertBoundedQueryFailure(
+	t *testing.T,
+	result *mcpsdk.CallToolResult,
+	byteLimit int,
+) execution.Failure {
+	t.Helper()
+
+	if result == nil || !result.IsError || len(result.Content) != 1 {
+		t.Fatalf("failure result = %#v, want one tool error", result)
+	}
+
+	wireResult := &mcpsdk.CallToolResult{Content: result.Content, IsError: result.IsError}
+
+	encoded, err := json.Marshal(wireResult)
+	if err != nil {
+		t.Fatalf("marshal failure result: %v", err)
+	}
+
+	if len(encoded) > byteLimit {
+		t.Fatalf("encoded failure size = %d, want at most %d", len(encoded), byteLimit)
+	}
+
+	textContent, ok := result.Content[0].(*mcpsdk.TextContent)
+	if !ok {
+		t.Fatalf("failure content type = %T, want TextContent", result.Content[0])
+	}
+
+	var failure execution.Failure
+	if err := json.Unmarshal([]byte(textContent.Text), &failure); err != nil {
+		t.Fatalf("unmarshal bounded failure: %v", err)
+	}
+
+	wireSize, err := relationalQueryFailureWireSize(failure)
+	if err != nil {
+		t.Fatalf("relationalQueryFailureWireSize() error = %v", err)
+	}
+
+	if wireSize != len(encoded) {
+		t.Fatalf("failure wire size = %d, received size = %d", wireSize, len(encoded))
+	}
+
+	return failure
 }
 
 func assertQueryFailure(t *testing.T, result *mcpsdk.CallToolResult, want execution.Failure) {

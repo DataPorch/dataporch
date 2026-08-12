@@ -63,6 +63,11 @@ func TestNewValidatesDependencies(t *testing.T) {
 		t.Fatalf("New(zero byte limit) error = %v, want byte-limit validation", err)
 	}
 
+	missingByteLimit.QueryResponseByteLimit = 1
+	if _, err := New(missingByteLimit); !errors.Is(err, errQueryByteLimitRequired) {
+		t.Fatalf("New(undersized byte limit) error = %v, want byte-limit validation", err)
+	}
+
 	missingLogger := newMCPTestDependencies(logger)
 
 	missingLogger.Logger = nil

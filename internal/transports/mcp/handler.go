@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"reflect"
@@ -23,7 +24,7 @@ const (
 var (
 	errDiscovererRequired        = errors.New("mcp: discoverer is required")
 	errRelationalQuerierRequired = errors.New("mcp: relational querier is required")
-	errQueryByteLimitRequired    = errors.New("mcp: query response byte limit must be positive")
+	errQueryByteLimitRequired    = errors.New("mcp: query response byte limit cannot encode a bounded failure")
 	errLoggerRequired            = errors.New("mcp: logger is required")
 )
 
@@ -93,9 +94,14 @@ type listColumnsInput struct {
 type toolExecutionError struct {
 	failure execution.Failure
 	cause   error
+	message string
 }
 
 func (e *toolExecutionError) Error() string {
+	if e.message != "" {
+		return e.message
+	}
+
 	encoded, err := json.Marshal(e.failure)
 	if err != nil {
 		return `{"category":"internal","message":"The operation failed safely.","retryable":false}`
@@ -117,7 +123,14 @@ func New(dependencies Dependencies) (http.Handler, error) {
 		return nil, errRelationalQuerierRequired
 	}
 
-	if dependencies.QueryResponseByteLimit <= 0 {
+	minimumFailureSize, err := relationalQueryFailureWireSize(
+		execution.ClassifyRelationalQuery(context.Background(), execution.ErrResultTooLarge),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("calculating minimum query failure size: %w", err)
+	}
+
+	if dependencies.QueryResponseByteLimit < minimumFailureSize {
 		return nil, errQueryByteLimitRequired
 	}
 

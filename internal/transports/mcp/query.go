@@ -5,14 +5,20 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/adamraziv/dataporch/internal/connection"
 	"github.com/adamraziv/dataporch/internal/execution"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-const relationalQueryOperation = "relational_database.query"
+const (
+	relationalQueryOperation         = "relational_database.query"
+	maxDatabaseErrorResponseBytes    = 64 << 10
+	databaseErrorResponseBudgetRatio = 16
+)
 
 type relationalQueryInput struct {
 	Kind     connection.Kind `json:"kind" jsonschema:"database kind; currently postgres"`
@@ -88,6 +94,7 @@ func relationalQueryToolHandler(
 				request,
 				start,
 				err,
+				byteLimit,
 			)
 		}
 
@@ -99,6 +106,7 @@ func relationalQueryToolHandler(
 				request,
 				start,
 				fmt.Errorf("%w: encoding query result", execution.ErrInternal),
+				byteLimit,
 			)
 		}
 
@@ -109,6 +117,7 @@ func relationalQueryToolHandler(
 				request,
 				start,
 				execution.ErrResultTooLarge,
+				byteLimit,
 			)
 		}
 
@@ -141,8 +150,27 @@ func finishRelationalQueryError(
 	request execution.RelationalQueryRequest,
 	start time.Time,
 	err error,
+	byteLimit int,
 ) error {
 	failure := execution.ClassifyRelationalQuery(ctx, err)
+	boundedFailure, bounds := boundRelationalQueryFailure(failure, byteLimit)
+	responseFailure := boundedFailure
+
+	message, encodedSize, encodeErr := relationalQueryFailureWire(responseFailure)
+	if encodeErr != nil || encodedSize > byteLimit {
+		responseFailure = execution.ClassifyRelationalQuery(ctx, execution.ErrResultTooLarge)
+		message, _, encodeErr = relationalQueryFailureWire(responseFailure)
+	}
+
+	if encodeErr != nil {
+		responseFailure = execution.Failure{
+			Category:  execution.ErrorCategoryInternal,
+			Message:   "The query operation failed safely.",
+			Retryable: false,
+		}
+		message = ""
+	}
+
 	fields := queryLogFields(request, start)
 
 	fields = append(
@@ -150,13 +178,13 @@ func finishRelationalQueryError(
 		slog.String("category", string(failure.Category)),
 		slog.Bool("retryable", failure.Retryable),
 	)
-	if failure.DatabaseError != nil {
-		fields = append(fields, databaseErrorLogGroup(failure.DatabaseError))
+	if boundedFailure.DatabaseError != nil {
+		fields = append(fields, databaseErrorLogGroup(boundedFailure.DatabaseError, bounds))
 	}
 
 	logger.WarnContext(ctx, "relational query failed", fields...)
 
-	return &toolExecutionError{failure: failure, cause: err}
+	return &toolExecutionError{failure: responseFailure, cause: err, message: message}
 }
 
 func queryLogFields(request execution.RelationalQueryRequest, start time.Time) []any {
@@ -169,12 +197,153 @@ func queryLogFields(request execution.RelationalQueryRequest, start time.Time) [
 	}
 }
 
-func databaseErrorLogGroup(databaseError *execution.DatabaseError) slog.Attr {
+type databaseErrorBounds struct {
+	originalBytes int
+	truncated     bool
+}
+
+func boundRelationalQueryFailure(
+	failure execution.Failure,
+	byteLimit int,
+) (execution.Failure, databaseErrorBounds) {
+	if failure.DatabaseError == nil {
+		return failure, databaseErrorBounds{}
+	}
+
+	budget := min(byteLimit/databaseErrorResponseBudgetRatio, maxDatabaseErrorResponseBytes)
+
+	databaseError, bounds := boundDatabaseError(failure.DatabaseError, budget)
+
+	failure.DatabaseError = databaseError
+	if databaseError.Message == "" {
+		failure.Message = "The database rejected the query."
+	} else {
+		failure.Message = databaseError.Message
+	}
+
+	return failure, bounds
+}
+
+func boundDatabaseError(
+	databaseError *execution.DatabaseError,
+	budget int,
+) (*execution.DatabaseError, databaseErrorBounds) {
+	if databaseError == nil {
+		return nil, databaseErrorBounds{}
+	}
+
+	bounded := *databaseError
+	remaining := budget
+	bounds := databaseErrorBounds{}
+
+	boundString := func(value string) string {
+		bounds.originalBytes += len(value)
+		boundedValue, truncated := boundUTF8String(value, &remaining)
+		bounds.truncated = bounds.truncated || truncated
+
+		return boundedValue
+	}
+
+	bounded.Kind = connection.Kind(boundString(string(databaseError.Kind)))
+	bounded.Code = boundString(databaseError.Code)
+	bounded.Severity = boundString(databaseError.Severity)
+	bounded.SeverityUnlocalized = boundString(databaseError.SeverityUnlocalized)
+	bounded.Message = boundString(databaseError.Message)
+	bounded.Detail = boundString(databaseError.Detail)
+	bounded.Hint = boundString(databaseError.Hint)
+	bounded.InternalQuery = boundString(databaseError.InternalQuery)
+	bounded.Where = boundString(databaseError.Where)
+	bounded.SchemaName = boundString(databaseError.SchemaName)
+	bounded.TableName = boundString(databaseError.TableName)
+	bounded.ColumnName = boundString(databaseError.ColumnName)
+	bounded.DataTypeName = boundString(databaseError.DataTypeName)
+	bounded.ConstraintName = boundString(databaseError.ConstraintName)
+	bounded.File = boundString(databaseError.File)
+	bounded.Routine = boundString(databaseError.Routine)
+	bounded.Truncated = databaseError.Truncated || bounds.truncated
+	bounds.truncated = bounded.Truncated
+
+	return &bounded, bounds
+}
+
+func boundUTF8String(value string, remaining *int) (string, bool) {
+	if value == "" {
+		return "", false
+	}
+
+	if *remaining <= 0 {
+		return "", true
+	}
+
+	if len(value) <= *remaining && utf8.ValidString(value) {
+		*remaining -= len(value)
+
+		return value, false
+	}
+
+	var bounded strings.Builder
+	bounded.Grow(min(len(value), *remaining))
+
+	consumed := 0
+
+	for consumed < len(value) {
+		current := value[consumed:]
+		r, size := utf8.DecodeRuneInString(current)
+		encodedSize := size
+
+		if r == utf8.RuneError && size == 1 {
+			encodedSize = utf8.RuneLen(utf8.RuneError)
+		}
+
+		if encodedSize > *remaining {
+			break
+		}
+
+		bounded.WriteRune(r)
+
+		*remaining -= encodedSize
+		consumed += size
+	}
+
+	return bounded.String(), consumed < len(value)
+}
+
+func relationalQueryFailureWire(failure execution.Failure) (string, int, error) {
+	encodedFailure, err := json.Marshal(failure)
+	if err != nil {
+		return "", 0, fmt.Errorf("marshaling relational query failure: %w", err)
+	}
+
+	wireCandidate := &mcpsdk.CallToolResult{
+		Content: []mcpsdk.Content{
+			&mcpsdk.TextContent{Text: string(encodedFailure)},
+		},
+		IsError: true,
+	}
+
+	encodedCandidate, err := json.Marshal(wireCandidate)
+	if err != nil {
+		return "", 0, fmt.Errorf("marshaling relational query failure result: %w", err)
+	}
+
+	return string(encodedFailure), len(encodedCandidate), nil
+}
+
+func relationalQueryFailureWireSize(failure execution.Failure) (int, error) {
+	_, size, err := relationalQueryFailureWire(failure)
+
+	return size, err
+}
+
+func databaseErrorLogGroup(
+	databaseError *execution.DatabaseError,
+	bounds databaseErrorBounds,
+) slog.Attr {
 	if databaseError == nil {
 		return slog.Group("database_error")
 	}
 
-	attrs := make([]any, 0, 18)
+	attrs := make([]any, 0, 20)
 	appendString := func(name, value string) {
 		if value != "" {
 			attrs = append(attrs, slog.String(name, value))
@@ -191,6 +360,15 @@ func databaseErrorLogGroup(databaseError *execution.DatabaseError) slog.Attr {
 	appendString("severity", databaseError.Severity)
 	appendString("severity_unlocalized", databaseError.SeverityUnlocalized)
 	appendString("message", databaseError.Message)
+
+	if bounds.truncated {
+		attrs = append(
+			attrs,
+			slog.Bool("truncated", true),
+			slog.Int("original_size_bytes", bounds.originalBytes),
+		)
+	}
+
 	appendString("detail", databaseError.Detail)
 	appendString("hint", databaseError.Hint)
 	appendInt("position", databaseError.Position)

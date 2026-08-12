@@ -136,8 +136,8 @@ func TestServiceListDataSources(t *testing.T) {
 		t.Fatal("unsupported source capabilities = nil, want initialized empty slice")
 	}
 
-	if got := authorizer.actions; !reflect.DeepEqual(got, []access.Action{access.ActionListDataSources}) {
-		t.Fatalf("authorization actions = %v, want list_data_sources", got)
+	if got := authorizer.requests; !reflect.DeepEqual(got, []access.Request{{Action: access.ActionListDataSources}}) {
+		t.Fatalf("authorization requests = %v, want action-only list_data_sources", got)
 	}
 
 	if discoverer.listCalls != 0 || discoverer.kindCalls != 1 {
@@ -382,12 +382,12 @@ func TestServiceListRelationalOperations(t *testing.T) {
 		t.Fatal("column result mutation changed discoverer page")
 	}
 
-	if !reflect.DeepEqual(authorizer.actions, []access.Action{
-		access.ActionListRelationalSchemas,
-		access.ActionListRelationalTables,
-		access.ActionListRelationalColumns,
+	if !reflect.DeepEqual(authorizer.requests, []access.Request{
+		{Action: access.ActionListRelationalSchemas, SourceID: "analytics"},
+		{Action: access.ActionListRelationalTables, SourceID: "analytics"},
+		{Action: access.ActionListRelationalColumns, SourceID: "analytics"},
 	}) {
-		t.Fatalf("authorization actions = %v", authorizer.actions)
+		t.Fatalf("authorization requests = %v", authorizer.requests)
 	}
 }
 
@@ -593,12 +593,12 @@ func (s *sourceRegistryStub) Lookup(id connection.ID) (connection.Definition, er
 }
 
 type recordingAuthorizer struct {
-	actions []access.Action
-	err     error
+	requests []access.Request
+	err      error
 }
 
-func (a *recordingAuthorizer) Authorize(_ context.Context, action access.Action) error {
-	a.actions = append(a.actions, action)
+func (a *recordingAuthorizer) Authorize(_ context.Context, request access.Request) error {
+	a.requests = append(a.requests, request)
 	return a.err
 }
 

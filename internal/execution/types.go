@@ -179,7 +179,7 @@ type SourceRegistry interface {
 }
 
 type Authorizer interface {
-	Authorize(context.Context, access.Action) error
+	Authorize(context.Context, access.Request) error
 }
 
 type RelationalDiscoverer interface {
@@ -190,10 +190,11 @@ type RelationalDiscoverer interface {
 }
 
 type Dependencies struct {
-	Sources               SourceRegistry
-	Authorizer            Authorizer
-	MaxLimit              int
-	RelationalDiscoverers []RelationalDiscoverer
+	Sources                  SourceRegistry
+	Authorizer               Authorizer
+	MaxLimit                 int
+	RelationalDiscoverers    []RelationalDiscoverer
+	RelationalQueryExecutors []RelationalQueryExecutor
 }
 
 type SchemaDiscoveryRequest struct {

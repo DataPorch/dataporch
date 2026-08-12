@@ -84,11 +84,25 @@ func newWithDependencies(
 		return nil, fmt.Errorf("creating postgres discoverer: %w", err)
 	}
 
+	relationalQuery, err := postgres.NewQueryExecutor(
+		security.postgresRuntime,
+		postgres.QueryOptions{
+			Timeout:           cfg.QueryTimeout,
+			ResponseByteLimit: cfg.QueryResponseByteLimit,
+			TruncationEnabled: cfg.QueryTruncationEnabled,
+			RowLimit:          cfg.QueryRowLimit,
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("creating postgres query executor: %w", err)
+	}
+
 	service, err := execution.New(execution.Dependencies{
-		Sources:               security.manager,
-		Authorizer:            access.New(),
-		MaxLimit:              cfg.ResourceLimit,
-		RelationalDiscoverers: []execution.RelationalDiscoverer{relational},
+		Sources:                  security.manager,
+		Authorizer:               access.New(),
+		MaxLimit:                 cfg.ResourceLimit,
+		RelationalDiscoverers:    []execution.RelationalDiscoverer{relational},
+		RelationalQueryExecutors: []execution.RelationalQueryExecutor{relationalQuery},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("creating execution service: %w", err)
@@ -99,7 +113,12 @@ func newWithDependencies(
 		return nil, fmt.Errorf("creating http adapter: %w", err)
 	}
 
-	mcpHandler, err := mcp.New(service, logger)
+	mcpHandler, err := mcp.New(mcp.Dependencies{
+		Discoverer:             service,
+		RelationalQuerier:      service,
+		QueryResponseByteLimit: cfg.QueryResponseByteLimit,
+		Logger:                 logger,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("creating mcp adapter: %w", err)
 	}

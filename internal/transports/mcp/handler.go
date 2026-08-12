@@ -21,8 +21,10 @@ const (
 )
 
 var (
-	errDiscovererRequired = errors.New("mcp: discoverer is required")
-	errLoggerRequired     = errors.New("mcp: logger is required")
+	errDiscovererRequired        = errors.New("mcp: discoverer is required")
+	errRelationalQuerierRequired = errors.New("mcp: relational querier is required")
+	errQueryByteLimitRequired    = errors.New("mcp: query response byte limit must be positive")
+	errLoggerRequired            = errors.New("mcp: logger is required")
 )
 
 type Discoverer interface {
@@ -39,6 +41,20 @@ type Discoverer interface {
 		context.Context,
 		execution.ListRelationalColumnsRequest,
 	) (execution.ListRelationalColumnsResult, error)
+}
+
+type RelationalQuerier interface {
+	QueryRelationalDatabase(
+		context.Context,
+		execution.RelationalQueryRequest,
+	) (execution.RelationalQueryResult, error)
+}
+
+type Dependencies struct {
+	Discoverer             Discoverer
+	RelationalQuerier      RelationalQuerier
+	QueryResponseByteLimit int
+	Logger                 *slog.Logger
 }
 
 type listDataSourcesInput struct {
@@ -92,12 +108,20 @@ func (e *toolExecutionError) Unwrap() error {
 	return e.cause
 }
 
-func New(discoverer Discoverer, logger *slog.Logger) (http.Handler, error) {
-	if isNilInterface(discoverer) {
+func New(dependencies Dependencies) (http.Handler, error) {
+	if isNilInterface(dependencies.Discoverer) {
 		return nil, errDiscovererRequired
 	}
 
-	if logger == nil {
+	if isNilInterface(dependencies.RelationalQuerier) {
+		return nil, errRelationalQuerierRequired
+	}
+
+	if dependencies.QueryResponseByteLimit <= 0 {
+		return nil, errQueryByteLimitRequired
+	}
+
+	if dependencies.Logger == nil {
 		return nil, errLoggerRequired
 	}
 
@@ -118,14 +142,14 @@ func New(discoverer Discoverer, logger *slog.Logger) (http.Handler, error) {
 		Description: "List configured enterprise data sources and their available " +
 			"capability families without connecting to them.",
 		Annotations: annotations,
-	}, dataSourcesToolHandler(discoverer, logger))
+	}, dataSourcesToolHandler(dependencies.Discoverer, dependencies.Logger))
 
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
 		Name:        "relational_database.list_schemas",
 		Title:       "List relational database schemas",
 		Description: "List PostgreSQL schemas accessible through a configured data source.",
 		Annotations: annotations,
-	}, schemasToolHandler(discoverer, logger))
+	}, schemasToolHandler(dependencies.Discoverer, dependencies.Logger))
 
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
 		Name:  "relational_database.list_tables",
@@ -133,7 +157,7 @@ func New(discoverer Discoverer, logger *slog.Logger) (http.Handler, error) {
 		Description: "List readable PostgreSQL tables, views, materialized views, " +
 			"partitioned tables, and foreign tables in an exact schema.",
 		Annotations: annotations,
-	}, tablesToolHandler(discoverer, logger))
+	}, tablesToolHandler(dependencies.Discoverer, dependencies.Logger))
 
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
 		Name:  "relational_database.list_columns",
@@ -141,14 +165,25 @@ func New(discoverer Discoverer, logger *slog.Logger) (http.Handler, error) {
 		Description: "List readable PostgreSQL columns, structured types, defaults, " +
 			"identity and generated metadata, and relevant constraints.",
 		Annotations: annotations,
-	}, columnsToolHandler(discoverer, logger))
+	}, columnsToolHandler(dependencies.Discoverer, dependencies.Logger))
+
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name:        relationalQueryOperation,
+		Title:       "Query a relational database",
+		Description: "Execute one caller-supplied row-producing statement in a bounded PostgreSQL read-only transaction.",
+		Annotations: relationalQueryAnnotations(),
+	}, relationalQueryToolHandler(
+		dependencies.RelationalQuerier,
+		dependencies.Logger,
+		dependencies.QueryResponseByteLimit,
+	))
 
 	streamableHandler := mcpsdk.NewStreamableHTTPHandler(
 		func(*http.Request) *mcpsdk.Server { return server },
 		&mcpsdk.StreamableHTTPOptions{
 			Stateless:                    true,
 			JSONResponse:                 true,
-			Logger:                       logger,
+			Logger:                       dependencies.Logger,
 			MaxRequestBodyBytes:          maxRequestBodyBytes,
 			PropagateRequestCancellation: true,
 		},

@@ -25,6 +25,7 @@ type runtimeInvalidator interface {
 
 type postgresRuntime interface {
 	Open(context.Context, connection.ID) (*postgres.Client, error)
+	OpenQuery(context.Context, connection.ID) (*postgres.Client, error)
 	runtimeInvalidator
 	Close(context.Context) error
 }

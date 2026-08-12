@@ -252,13 +252,17 @@ func TestAppImportDoesNotCallAdapterAuthentication(t *testing.T) {
 
 func testConfig() config.Config {
 	return config.Config{
-		HTTPAddress:          "127.0.0.1:0",
-		ResourceLimit:        10,
-		ShutdownPeriod:       time.Second,
-		AdminSocketPath:      "/tmp/dataporch/admin.sock",
-		MasterKeyPath:        "/tmp/dataporch/master.key",
-		SecretsStorePath:     "/tmp/dataporch/secrets.store",
-		ConnectionsStorePath: "/tmp/dataporch/connections.store",
+		HTTPAddress:            "127.0.0.1:0",
+		ResourceLimit:          10,
+		ShutdownPeriod:         time.Second,
+		AdminSocketPath:        "/tmp/dataporch/admin.sock",
+		MasterKeyPath:          "/tmp/dataporch/master.key",
+		SecretsStorePath:       "/tmp/dataporch/secrets.store",
+		ConnectionsStorePath:   "/tmp/dataporch/connections.store",
+		QueryTimeout:           20 * time.Second,
+		QueryResponseByteLimit: 10_485_760,
+		QueryTruncationEnabled: true,
+		QueryRowLimit:          1000,
 	}
 }
 
@@ -267,13 +271,17 @@ func testConfigFor(t *testing.T) config.Config {
 	base := t.TempDir()
 
 	return config.Config{
-		HTTPAddress:          "127.0.0.1:0",
-		ResourceLimit:        10,
-		ShutdownPeriod:       time.Second,
-		AdminSocketPath:      filepath.Join(base, "admin.sock"),
-		MasterKeyPath:        filepath.Join(base, "master.key"),
-		SecretsStorePath:     filepath.Join(base, "secrets.store"),
-		ConnectionsStorePath: filepath.Join(base, "connections.store"),
+		HTTPAddress:            "127.0.0.1:0",
+		ResourceLimit:          10,
+		ShutdownPeriod:         time.Second,
+		AdminSocketPath:        filepath.Join(base, "admin.sock"),
+		MasterKeyPath:          filepath.Join(base, "master.key"),
+		SecretsStorePath:       filepath.Join(base, "secrets.store"),
+		ConnectionsStorePath:   filepath.Join(base, "connections.store"),
+		QueryTimeout:           20 * time.Second,
+		QueryResponseByteLimit: 10_485_760,
+		QueryTruncationEnabled: true,
+		QueryRowLimit:          1000,
 	}
 }
 

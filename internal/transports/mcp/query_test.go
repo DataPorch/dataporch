@@ -25,10 +25,12 @@ func newMCPTestDependencies(logger *slog.Logger) Dependencies {
 	}
 }
 
+//nolint:gocyclo // This contract test verifies schema, annotations, and required fields together.
 func TestQueryToolHasExactInputSchemaAndAnnotations(t *testing.T) {
 	t.Parallel()
 
 	logger := slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil))
+
 	server, session := newQueryTestSession(t, newMCPTestDependencies(logger))
 	defer server.Close()
 
@@ -38,12 +40,14 @@ func TestQueryToolHasExactInputSchemaAndAnnotations(t *testing.T) {
 	}
 
 	var queryTool *mcpsdk.Tool
+
 	for _, tool := range result.Tools {
 		if tool.Name == relationalQueryOperation {
 			queryTool = tool
 			break
 		}
 	}
+
 	if queryTool == nil {
 		t.Fatal("query tool is not registered")
 	}
@@ -73,6 +77,7 @@ func TestQueryToolHasExactInputSchemaAndAnnotations(t *testing.T) {
 	for name := range properties {
 		gotNames = append(gotNames, name)
 	}
+
 	sort.Strings(gotNames)
 
 	if wantNames := []string{"kind", "query", "source_id"}; !reflect.DeepEqual(gotNames, wantNames) {
@@ -107,6 +112,7 @@ func TestQueryToolReturnsExactStructuredAndTextResult(t *testing.T) {
 	}
 	dependencies := newMCPTestDependencies(slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil)))
 	dependencies.RelationalQuerier = querier
+
 	server, session := newQueryTestSession(t, dependencies)
 	defer server.Close()
 
@@ -128,6 +134,7 @@ func TestQueryToolReturnsExactStructuredAndTextResult(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal structured content: %v", err)
 	}
+
 	if string(structured) != textContent.Text {
 		t.Fatalf("structured/text mismatch: %s != %s", structured, textContent.Text)
 	}
@@ -163,6 +170,7 @@ func TestQueryToolReturnsStructuredFailureWithoutDatabaseError(t *testing.T) {
 	querier := &recordingRelationalQuerier{err: execution.ErrInvalidQuery}
 	dependencies := newMCPTestDependencies(slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil)))
 	dependencies.RelationalQuerier = querier
+
 	server, session := newQueryTestSession(t, dependencies)
 	defer server.Close()
 
@@ -201,6 +209,7 @@ func TestQueryToolReturnsEveryDatabaseErrorField(t *testing.T) {
 	querier := &recordingRelationalQuerier{err: databaseError}
 	dependencies := newMCPTestDependencies(slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil)))
 	dependencies.RelationalQuerier = querier
+
 	server, session := newQueryTestSession(t, dependencies)
 	defer server.Close()
 
@@ -227,6 +236,7 @@ func TestQueryToolReplacesOversizedSuccess(t *testing.T) {
 	dependencies := newMCPTestDependencies(slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil)))
 	dependencies.RelationalQuerier = querier
 	dependencies.QueryResponseByteLimit = 1
+
 	server, session := newQueryTestSession(t, dependencies)
 	defer server.Close()
 
@@ -249,10 +259,12 @@ func TestQueryToolChecksExactCallToolResultBoundary(t *testing.T) {
 		Rows:     [][]*string{{&value}},
 		RowCount: 1,
 	}
+
 	_, candidateSize, err := relationalQueryCallToolResult(output)
 	if err != nil {
 		t.Fatalf("relationalQueryCallToolResult() error = %v", err)
 	}
+
 	if candidateSize < 65_536 {
 		t.Fatalf("candidate size = %d, want at least 65536", candidateSize)
 	}
@@ -272,16 +284,20 @@ func TestQueryToolChecksExactCallToolResultBoundary(t *testing.T) {
 		Content:           result.Content,
 		StructuredContent: result.StructuredContent,
 	}
+
 	encodedResult, err := json.Marshal(receivedWireResult)
 	if err != nil {
 		t.Fatalf("marshal received wire result: %v", err)
 	}
+
 	if len(encodedResult) != candidateSize {
 		t.Fatalf("received result size = %d, helper size = %d", len(encodedResult), candidateSize)
 	}
+
 	server.Close()
 
 	dependencies.QueryResponseByteLimit = candidateSize - 1
+
 	server, session = newQueryTestSession(t, dependencies)
 	defer server.Close()
 
@@ -297,6 +313,7 @@ func TestQueryToolLogsOneContextualSuccess(t *testing.T) {
 	t.Parallel()
 
 	var logs bytes.Buffer
+
 	logger := slog.New(slog.NewJSONHandler(&logs, nil))
 	value := "safe-value"
 	querier := &recordingRelationalQuerier{result: execution.RelationalQueryResult{
@@ -307,6 +324,7 @@ func TestQueryToolLogsOneContextualSuccess(t *testing.T) {
 	}}
 	dependencies := newMCPTestDependencies(logger)
 	dependencies.RelationalQuerier = querier
+
 	server, session := newQueryTestSession(t, dependencies)
 	defer server.Close()
 
@@ -332,6 +350,7 @@ func TestQueryToolLogsOneContextualFailure(t *testing.T) {
 	t.Parallel()
 
 	var logs bytes.Buffer
+
 	logger := slog.New(slog.NewJSONHandler(&logs, nil))
 	databaseError := &execution.DatabaseError{
 		Kind:    "postgres",
@@ -342,6 +361,7 @@ func TestQueryToolLogsOneContextualFailure(t *testing.T) {
 	querier := &recordingRelationalQuerier{err: databaseError}
 	dependencies := newMCPTestDependencies(logger)
 	dependencies.RelationalQuerier = querier
+
 	server, session := newQueryTestSession(t, dependencies)
 	defer server.Close()
 
@@ -369,6 +389,7 @@ func TestQueryToolDoesNotLogCellsOrCredentials(t *testing.T) {
 	t.Parallel()
 
 	var logs bytes.Buffer
+
 	logger := slog.New(slog.NewJSONHandler(&logs, nil))
 	cell := "query-result-cell-canary"
 	querier := &recordingRelationalQuerier{result: execution.RelationalQueryResult{
@@ -379,6 +400,7 @@ func TestQueryToolDoesNotLogCellsOrCredentials(t *testing.T) {
 	}}
 	dependencies := newMCPTestDependencies(logger)
 	dependencies.RelationalQuerier = querier
+
 	server, session := newQueryTestSession(t, dependencies)
 	defer server.Close()
 
@@ -447,6 +469,7 @@ func assertQueryFailure(t *testing.T, result *mcpsdk.CallToolResult, want execut
 	if err := json.Unmarshal([]byte(textContent.Text), &got); err != nil {
 		t.Fatalf("unmarshal failure = %q: %v", textContent.Text, err)
 	}
+
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("failure = %#v, want %#v", got, want)
 	}

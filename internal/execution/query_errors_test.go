@@ -80,6 +80,7 @@ func TestClassifyRelationalQueryRequestContextWins(t *testing.T) {
 
 	canceled, cancel := context.WithCancel(t.Context())
 	cancel()
+
 	failure := ClassifyRelationalQuery(canceled, databaseError)
 	if failure.Category != ErrorCategoryCancelled || failure.DatabaseError != nil {
 		t.Fatalf("canceled classification = %#v, want request cancellation without database projection", failure)
@@ -87,6 +88,7 @@ func TestClassifyRelationalQueryRequestContextWins(t *testing.T) {
 
 	deadline, stop := context.WithDeadline(t.Context(), tDeadlineBeforeNow())
 	defer stop()
+
 	failure = ClassifyRelationalQuery(deadline, databaseError)
 	if failure.Category != ErrorCategoryQueryTimeout || failure.DatabaseError != nil {
 		t.Fatalf("deadline classification = %#v, want request timeout without database projection", failure)
@@ -97,6 +99,7 @@ func TestClassifyRelationalQueryResultTooLargeWins(t *testing.T) {
 	t.Parallel()
 
 	databaseError := &DatabaseError{Code: "XX000", Message: "server detail"}
+
 	failure := ClassifyRelationalQuery(t.Context(), errors.Join(ErrResultTooLarge, databaseError))
 	if failure.Category != ErrorCategoryResultTooLarge || failure.DatabaseError != nil {
 		t.Fatalf("classification = %#v, want result-too-large without database projection", failure)
@@ -175,10 +178,12 @@ func TestClassifyRelationalQueryPreservesAllDatabaseFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Marshal() error = %v", err)
 	}
+
 	for _, value := range []string{"message canary", "detail canary", "internal_internal"} {
 		if value == "internal_internal" {
 			continue
 		}
+
 		if !containsJSONText(encoded, value) {
 			t.Fatalf("encoded failure %q missing", value)
 		}
@@ -197,6 +202,7 @@ func TestClassifyDiscoveryRemainsUnchanged(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Marshal() error = %v", err)
 	}
+
 	if containsJSONText(encoded, "database_error") {
 		t.Fatalf("discovery failure unexpectedly contains database_error: %s", encoded)
 	}

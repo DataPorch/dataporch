@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/adamraziv/dataporch/internal/connection"
 	"github.com/adamraziv/dataporch/internal/execution"
@@ -38,6 +39,7 @@ func TestProjectRelationalQueryErrorPreservesPostgresFields(t *testing.T) {
 	}
 
 	projected := projectRelationalQueryError(fmt.Errorf("outer: %w", fmt.Errorf("inner: %w", pgError)))
+
 	var databaseError *execution.DatabaseError
 	if !errors.As(projected, &databaseError) {
 		t.Fatalf("projected error = %v, want DatabaseError", projected)
@@ -73,13 +75,16 @@ func TestProjectRelationalQueryErrorHidesPrivateCauses(t *testing.T) {
 	t.Parallel()
 
 	canary := errors.New("driver credential=secret-canary")
+
 	projected := projectRelationalQueryError(canary)
 	if !errors.Is(projected, execution.ErrInternal) {
 		t.Fatalf("projected error = %v, want ErrInternal", projected)
 	}
+
 	if projected.Error() != execution.ErrInternal.Error() {
 		t.Fatalf("projected error text = %q, want %q", projected.Error(), execution.ErrInternal.Error())
 	}
+
 	if containsAny(projected.Error(), "secret-canary", "credential") {
 		t.Fatalf("projected error leaked private detail: %v", projected)
 	}
@@ -132,18 +137,22 @@ func TestOpenerSharesRawAttemptAcrossProjections(t *testing.T) {
 	opener := newTestOpener(t, &openerTestPreparer{definition: resolvedPostgresDefinition()}, factory)
 
 	queryResult := make(chan openerResult, 1)
+
 	go func() {
 		client, err := opener.OpenQuery(context.Background(), "finance")
 		queryResult <- openerResult{client: client, err: err}
 	}()
+
 	waitForSignal(t, pool.pingStarted)
 
 	discoveryContext := newWaiterContext()
 	discoveryResult := make(chan openerResult, 1)
+
 	go func() {
 		client, err := opener.Open(discoveryContext, "finance")
 		discoveryResult <- openerResult{client: client, err: err}
 	}()
+
 	<-discoveryContext.observed
 
 	if got := factory.callCount(); got != 1 {
@@ -151,7 +160,9 @@ func TestOpenerSharesRawAttemptAcrossProjections(t *testing.T) {
 	}
 
 	close(pool.pingRelease)
+
 	discovery := receiveResult(t, discoveryResult)
+
 	query := receiveResult(t, queryResult)
 	if !errors.Is(discovery.err, connection.ErrDatabaseUnavailable) {
 		t.Fatalf("Open() error = %v, want unavailable", discovery.err)
@@ -178,18 +189,22 @@ func TestOpenerQueryWaiterCancellationDoesNotCancelSharedAttempt(t *testing.T) {
 	opener := newTestOpener(t, &openerTestPreparer{definition: resolvedPostgresDefinition()}, factory)
 
 	discoveryResult := make(chan openerResult, 1)
+
 	go func() {
 		client, err := opener.Open(context.Background(), "finance")
 		discoveryResult <- openerResult{client: client, err: err}
 	}()
+
 	waitForSignal(t, pool.pingStarted)
 
 	queryContext, cancel := context.WithCancel(context.Background())
 	queryResult := make(chan openerResult, 1)
+
 	go func() {
 		client, err := opener.OpenQuery(queryContext, "finance")
 		queryResult <- openerResult{client: client, err: err}
 	}()
+
 	cancel()
 
 	query := receiveResult(t, queryResult)
@@ -198,10 +213,12 @@ func TestOpenerQueryWaiterCancellationDoesNotCancelSharedAttempt(t *testing.T) {
 	}
 
 	close(pool.pingRelease)
+
 	discovery := receiveResult(t, discoveryResult)
 	if discovery.err != nil || discovery.client == nil {
 		t.Fatalf("uncanceled Open() result = %#v, want success", discovery)
 	}
+
 	if got := factory.callCount(); got != 1 {
 		t.Fatalf("pool factory calls = %d, want one shared attempt", got)
 	}
@@ -214,19 +231,29 @@ func (retrySafeQueryError) Error() string { return "retry-safe driver error" }
 func (retrySafeQueryError) SafeToRetry() bool { return true }
 
 type waiterContext struct {
-	context.Context
 	observed chan struct{}
 	once     sync.Once
 }
 
 func newWaiterContext() *waiterContext {
 	return &waiterContext{
-		Context:  context.Background(),
 		observed: make(chan struct{}),
 	}
 }
 
+func (c *waiterContext) Deadline() (time.Time, bool) {
+	return time.Time{}, false
+}
+
 func (c *waiterContext) Done() <-chan struct{} {
 	c.once.Do(func() { close(c.observed) })
+	return nil
+}
+
+func (c *waiterContext) Err() error {
+	return nil
+}
+
+func (*waiterContext) Value(any) any {
 	return nil
 }

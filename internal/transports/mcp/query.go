@@ -54,6 +54,7 @@ func relationalQueryCallToolResult(
 		Content:           content,
 		StructuredContent: json.RawMessage(normalizedJSON),
 	}
+
 	encodedCandidate, err := json.Marshal(wireCandidate)
 	if err != nil {
 		return nil, 0, fmt.Errorf("marshaling relational query tool result: %w", err)
@@ -143,6 +144,7 @@ func finishRelationalQueryError(
 ) error {
 	failure := execution.ClassifyRelationalQuery(ctx, err)
 	fields := queryLogFields(request, start)
+
 	fields = append(
 		fields,
 		slog.String("category", string(failure.Category)),

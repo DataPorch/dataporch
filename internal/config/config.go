@@ -45,6 +45,7 @@ type Config struct {
 	QueryRowLimit          int
 }
 
+//nolint:gocyclo // Explicit environment parsing preserves operator-facing keys and error context.
 func Load(lookup LookupEnv) (Config, error) {
 	if lookup == nil {
 		return Config{}, errLookupRequired
@@ -136,6 +137,7 @@ func Load(lookup LookupEnv) (Config, error) {
 	return cfg, nil
 }
 
+//nolint:gocyclo // Each independent configuration invariant has a distinct operator-facing diagnostic.
 func (c Config) Validate() error {
 	if _, _, err := net.SplitHostPort(c.HTTPAddress); err != nil {
 		return fmt.Errorf("validating DATAPORCH_HTTP_ADDRESS: %w", err)

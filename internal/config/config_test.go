@@ -298,6 +298,7 @@ func TestValidateQueryBounds(t *testing.T) {
 
 			cfg := base
 			test.mutate(&cfg)
+
 			if err := cfg.Validate(); err != nil {
 				t.Fatalf("Validate() error = %v", err)
 			}
@@ -333,6 +334,7 @@ func TestValidateQueryBounds(t *testing.T) {
 
 			cfg := base
 			test.mutate(&cfg)
+
 			if err := cfg.Validate(); err == nil {
 				t.Fatal("Validate() error = nil, want non-nil")
 			}

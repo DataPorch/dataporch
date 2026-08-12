@@ -129,7 +129,7 @@ func validateScheme(uri *url.URL) error {
 	}
 
 	switch uri.Scheme {
-	case "postgres", "postgresql":
+	case string(Kind), "postgresql":
 		return nil
 	default:
 		return invalidConnectionString("unsupported scheme")

@@ -177,6 +177,7 @@ func TestServiceQueryRelationalDatabaseRoutesOriginalQuery(t *testing.T) {
 	)
 
 	query := " \nSELECT 1; \t"
+
 	result, err := service.QueryRelationalDatabase(t.Context(), RelationalQueryRequest{
 		Kind:     "postgres",
 		SourceID: "finance",
@@ -211,6 +212,7 @@ func TestServiceQueryRelationalDatabaseSupportsSourcePolicySeam(t *testing.T) {
 	)
 
 	authorizer.err = errors.New("payroll denied")
+
 	_, err := service.QueryRelationalDatabase(t.Context(), RelationalQueryRequest{
 		Kind:     "postgres",
 		SourceID: "payroll",
@@ -231,6 +233,7 @@ func TestNewRejectsInvalidRelationalQueryExecutors(t *testing.T) {
 	validSources := &sourceRegistryStub{}
 	validAuthorizer := &recordingAuthorizer{}
 	validExecutor := &recordingRelationalQueryExecutor{kind: "postgres"}
+
 	var typedNil *recordingRelationalQueryExecutor
 
 	tests := []struct {

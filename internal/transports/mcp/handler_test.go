@@ -25,38 +25,46 @@ func TestNewValidatesDependencies(t *testing.T) {
 	logger := slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil))
 
 	missingDiscoverer := newMCPTestDependencies(logger)
+
 	missingDiscoverer.Discoverer = nil
 	if _, err := New(missingDiscoverer); !errors.Is(err, errDiscovererRequired) {
 		t.Fatalf("New(nil) error = %v, want discoverer validation", err)
 	}
 
 	var typedNilDiscoverer *recordingDiscoverer
+
 	typedNilDiscovererDependencies := newMCPTestDependencies(logger)
+
 	typedNilDiscovererDependencies.Discoverer = typedNilDiscoverer
 	if _, err := New(typedNilDiscovererDependencies); !errors.Is(err, errDiscovererRequired) {
 		t.Fatalf("New(typed nil) error = %v, want discoverer validation", err)
 	}
 
 	missingQuerier := newMCPTestDependencies(logger)
+
 	missingQuerier.RelationalQuerier = nil
 	if _, err := New(missingQuerier); !errors.Is(err, errRelationalQuerierRequired) {
 		t.Fatalf("New(nil querier) error = %v, want querier validation", err)
 	}
 
 	var typedNilQuerier *recordingRelationalQuerier
+
 	typedNilQuerierDependencies := newMCPTestDependencies(logger)
+
 	typedNilQuerierDependencies.RelationalQuerier = typedNilQuerier
 	if _, err := New(typedNilQuerierDependencies); !errors.Is(err, errRelationalQuerierRequired) {
 		t.Fatalf("New(typed nil querier) error = %v, want querier validation", err)
 	}
 
 	missingByteLimit := newMCPTestDependencies(logger)
+
 	missingByteLimit.QueryResponseByteLimit = 0
 	if _, err := New(missingByteLimit); !errors.Is(err, errQueryByteLimitRequired) {
 		t.Fatalf("New(zero byte limit) error = %v, want byte-limit validation", err)
 	}
 
 	missingLogger := newMCPTestDependencies(logger)
+
 	missingLogger.Logger = nil
 	if _, err := New(missingLogger); !errors.Is(err, errLoggerRequired) {
 		t.Fatalf("New(nil logger) error = %v, want logger validation", err)
@@ -177,6 +185,7 @@ func TestHandlerReturnsStructuredAndTextSuccess(t *testing.T) {
 
 	dependencies := newMCPTestDependencies(logger)
 	dependencies.Discoverer = service
+
 	handler, err := New(dependencies)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
@@ -303,6 +312,7 @@ func TestHandlerReturnsSafeToolErrors(t *testing.T) {
 
 	dependencies := newMCPTestDependencies(logger)
 	dependencies.Discoverer = service
+
 	handler, err := New(dependencies)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
@@ -349,6 +359,7 @@ func TestHandlerPropagatesCancellation(t *testing.T) {
 
 	dependencies := newMCPTestDependencies(logger)
 	dependencies.Discoverer = cancelService
+
 	cancelHandler, err := New(dependencies)
 	if err != nil {
 		t.Fatalf("New(cancel) error = %v", err)

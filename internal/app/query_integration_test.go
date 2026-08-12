@@ -13,6 +13,7 @@ import (
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+//nolint:funlen,gocyclo,wsl_v5 // The acceptance flow intentionally sequences imported-source mutations and log assertions.
 func TestQueryImportToMCPPostgresIntegration(t *testing.T) {
 	t.Parallel()
 
@@ -214,10 +215,12 @@ func sameQueryRows(got, want [][]*string) bool {
 		if len(got[rowIndex]) != len(want[rowIndex]) {
 			return false
 		}
+
 		for columnIndex := range want[rowIndex] {
 			if (got[rowIndex][columnIndex] == nil) != (want[rowIndex][columnIndex] == nil) {
 				return false
 			}
+
 			if got[rowIndex][columnIndex] != nil && *got[rowIndex][columnIndex] != *want[rowIndex][columnIndex] {
 				return false
 			}

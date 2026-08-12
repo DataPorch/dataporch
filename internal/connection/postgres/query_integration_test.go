@@ -14,6 +14,7 @@ import (
 	"github.com/adamraziv/dataporch/internal/execution"
 )
 
+//nolint:funlen,gocyclo,paralleltest,wsl_v5 // The acceptance flow intentionally sequences one fixture-backed executor through dependent cleanup cases.
 func TestQueryExecutorPostgresIntegration(t *testing.T) {
 	dsn := os.Getenv("DATAPORCH_TEST_POSTGRES_DSN")
 	if dsn == "" {
@@ -268,6 +269,7 @@ func newIntegrationQueryExecutor(
 
 	definition, password := integrationDefinition(t, dsn)
 	resolver := &integrationSecretResolver{password: password}
+
 	t.Cleanup(func() {
 		resolver.clearReturned()
 		clear(password)

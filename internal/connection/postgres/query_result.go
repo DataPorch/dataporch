@@ -22,6 +22,7 @@ func (e *QueryExecutor) readResult(
 
 	defer func() {
 		rows.Close()
+
 		if terminalErr := rows.Err(); terminalErr != nil {
 			result = execution.RelationalQueryResult{}
 			returnErr = errors.Join(returnErr, terminalErr)
@@ -72,6 +73,7 @@ func (e *QueryExecutor) readRows(
 		if err != nil {
 			return execution.RelationalQueryResult{}, execution.ErrInternal
 		}
+
 		if !rowFits || !budget.FitsAdditionalRow(rowSize) {
 			return execution.RelationalQueryResult{}, execution.ErrResultTooLarge
 		}
@@ -88,6 +90,7 @@ func (e *QueryExecutor) readRows(
 
 		result.Rows = append(result.Rows, row)
 		result.RowCount = len(result.Rows)
+
 		budget.RetainRow(rowSize)
 	}
 
@@ -96,6 +99,7 @@ func (e *QueryExecutor) readRows(
 	}
 
 	result.RowCount = len(result.Rows)
+
 	return result, nil
 }
 
@@ -198,6 +202,7 @@ func (b queryResultBudget) FitsAdditionalRow(rowSize int) bool {
 	}
 
 	nextCount := b.retainedRows + 1
+
 	return b.fits(
 		b.fixedSize,
 		b.rowsSize,
@@ -225,6 +230,7 @@ func encodedRawRowSize(rawValues [][]byte, limit int) (int, bool, error) {
 		}
 
 		remaining -= size
+
 		return true
 	}
 
@@ -241,6 +247,7 @@ func encodedRawRowSize(rawValues [][]byte, limit int) (int, bool, error) {
 			if !consume(len("null")) {
 				return 0, false, nil
 			}
+
 			continue
 		}
 
@@ -252,6 +259,7 @@ func encodedRawRowSize(rawValues [][]byte, limit int) (int, bool, error) {
 		if err != nil {
 			return 0, false, err
 		}
+
 		if !consume(len(encoded)) {
 			return 0, false, nil
 		}

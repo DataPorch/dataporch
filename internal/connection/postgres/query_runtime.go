@@ -96,6 +96,7 @@ func (t *pgxQueryTransaction) Query(
 	query string,
 	mode pgx.QueryExecMode,
 ) (queryRows, error) {
+	//nolint:sqlclosecheck // The query executor owns and closes the returned rows.
 	return t.transaction.Query(ctx, query, mode)
 }
 

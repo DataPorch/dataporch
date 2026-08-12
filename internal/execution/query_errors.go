@@ -61,6 +61,7 @@ const (
 	ErrorCategoryDatabaseError                ErrorCategory = "database_error"
 )
 
+//nolint:gocyclo // Query classification preserves explicit precedence for every stable failure category.
 func ClassifyRelationalQuery(ctx context.Context, err error) Failure {
 	if err == nil {
 		return Failure{}
@@ -120,6 +121,7 @@ func ClassifyRelationalQuery(ctx context.Context, err error) Failure {
 	}
 }
 
+//nolint:gocyclo // SQLSTATE mapping is intentionally explicit and ordered by specificity.
 func classifyDatabaseError(databaseError *DatabaseError) Failure {
 	code := databaseError.Code
 

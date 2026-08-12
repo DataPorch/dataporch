@@ -91,6 +91,7 @@ func (e *QueryExecutor) Kind() connection.Kind {
 	return Kind
 }
 
+//nolint:gocyclo // Query orchestration intentionally enumerates each bounded resource and cleanup boundary.
 func (e *QueryExecutor) Query(
 	requestContext context.Context,
 	request execution.RelationalQueryExecutionRequest,
@@ -114,6 +115,7 @@ func (e *QueryExecutor) Query(
 	if err != nil {
 		return result, e.executionError(requestContext, queryContext, err)
 	}
+
 	if client == nil || client.pool == nil {
 		return result, execution.ErrInternal
 	}
@@ -127,6 +129,7 @@ func (e *QueryExecutor) Query(
 	if err != nil {
 		return result, e.executionError(requestContext, queryContext, err)
 	}
+
 	if acquired == nil {
 		return result, execution.ErrInternal
 	}
@@ -144,6 +147,7 @@ func (e *QueryExecutor) Query(
 	if err != nil {
 		return result, e.executionError(requestContext, queryContext, err)
 	}
+
 	if transaction == nil {
 		return result, execution.ErrInternal
 	}
@@ -242,6 +246,7 @@ func (e *QueryExecutor) cleanup(
 	if cleanupErr == nil {
 		cleanupErr = connection.DeallocateAll(cleanupContext)
 	}
+
 	if cleanupErr == nil {
 		cleanupErr = connection.DiscardAll(cleanupContext)
 	}

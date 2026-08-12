@@ -63,6 +63,7 @@ func projectRelationalQueryError(err error) error {
 	}
 
 	classification := execution.ErrInternal
+
 	switch {
 	case errors.Is(err, context.Canceled):
 		classification = execution.ErrCancelled

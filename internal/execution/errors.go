@@ -42,9 +42,10 @@ var (
 )
 
 type Failure struct {
-	Category  ErrorCategory `json:"category"`
-	Message   string        `json:"message"`
-	Retryable bool          `json:"retryable"`
+	Category      ErrorCategory  `json:"category"`
+	Message       string         `json:"message"`
+	Retryable     bool           `json:"retryable"`
+	DatabaseError *DatabaseError `json:"database_error,omitempty"`
 }
 
 //nolint:gocyclo // Public error classification intentionally enumerates each stable failure category.

@@ -1353,6 +1353,14 @@ func (r *countingPostgresRuntime) Open(ctx context.Context, id connection.ID) (*
 	return r.opener.Open(ctx, id)
 }
 
+func (r *countingPostgresRuntime) OpenQuery(
+	ctx context.Context,
+	id connection.ID,
+) (*postgres.Client, error) {
+	r.opens.Add(1)
+	return r.opener.OpenQuery(ctx, id)
+}
+
 func (r *countingPostgresRuntime) Invalidate(id connection.ID) {
 	r.opener.Invalidate(id)
 }

@@ -20,6 +20,10 @@ var (
 	errPoolFactoryRequired        = errors.New("postgres: pool factory is required")
 	errOpenTimeoutRequired        = errors.New("postgres: open timeout is required")
 	errOpenInvalidated            = errors.New("postgres: open invalidated")
+	errRuntimeContextRequired     = errors.New("postgres: context is required")
+	errRuntimeInvalidID           = errors.New("postgres: invalid database id")
+	errRuntimeDefinitionMismatch  = errors.New("postgres: runtime definition mismatch")
+	errRuntimePoolMissing         = errors.New("postgres: runtime pool is missing")
 )
 
 // DefinitionPreparer resolves the current saved definition and its secrets.
@@ -110,22 +114,40 @@ func newOpener(dependencies openerDependencies) (*Opener, error) {
 
 // Open returns a cached runtime or authenticates one shared opening attempt.
 func (o *Opener) Open(ctx context.Context, id connection.ID) (*Client, error) {
+	client, err := o.openRaw(ctx, id)
+	if err != nil {
+		return nil, o.discoveryOpenError(ctx, id, err)
+	}
+
+	return client, nil
+}
+
+func (o *Opener) OpenQuery(ctx context.Context, id connection.ID) (*Client, error) {
+	client, err := o.openRaw(ctx, id)
+	if err != nil {
+		return nil, projectRelationalQueryError(err)
+	}
+
+	return client, nil
+}
+
+func (o *Opener) openRaw(ctx context.Context, id connection.ID) (*Client, error) {
 	if ctx == nil {
-		return nil, unavailableContextError(nil)
+		return nil, errRuntimeContextRequired
 	}
 
 	if err := ctx.Err(); err != nil {
-		return nil, unavailableContextError(err)
+		return nil, err
 	}
 
 	if err := (connection.Definition{ID: id, Kind: Kind}).Validate(); err != nil {
-		return nil, unavailableError(id)
+		return nil, errRuntimeInvalidID
 	}
 
 	o.mu.Lock()
 	if o.isClosed {
 		o.mu.Unlock()
-		return nil, fmt.Errorf("%w: %s", ErrRuntimeClosed, id)
+		return nil, ErrRuntimeClosed
 	}
 
 	generation := o.generations[id]
@@ -169,64 +191,53 @@ func (o *Opener) runAttempt(
 	defer o.attempts.Done()
 	defer stop()
 
-	client, err := o.open(ctx, id)
+	client, err := o.openRuntime(ctx, id)
 	o.finishAttempt(id, generation, attempt, client, err)
 }
 
-func (o *Opener) open(ctx context.Context, id connection.ID) (*Client, error) {
+func (o *Opener) openRuntime(ctx context.Context, id connection.ID) (*Client, error) {
 	resolved, err := o.preparer.Prepare(ctx, id)
 	if err != nil {
-		return nil, o.safeAttemptError(ctx, id, err)
+		return nil, rawAttemptError(ctx, err)
 	}
 	defer clearResolvedSecrets(resolved.Secrets)
 
 	if resolved.ID != id {
-		return nil, unavailableError(id)
+		return nil, errRuntimeDefinitionMismatch
 	}
 
 	if resolved.Kind != Kind {
-		return nil, classifiedError(id, ErrUnsupportedKind)
+		return nil, ErrUnsupportedKind
 	}
 
 	pool, err := o.pools.New(ctx, resolved)
 	if err != nil {
-		return nil, o.safeAttemptError(ctx, id, err)
+		return nil, rawAttemptError(ctx, err)
 	}
 
 	if pool == nil {
-		return nil, unavailableError(id)
+		return nil, errRuntimePoolMissing
 	}
 
 	if err := pool.Ping(ctx); err != nil {
 		o.closeTracked(pool)
-		return nil, o.safeAttemptError(ctx, id, err)
+		return nil, rawAttemptError(ctx, err)
 	}
 
 	if context.Cause(ctx) != nil {
 		o.closeTracked(pool)
-		return nil, o.safeAttemptError(ctx, id, context.Cause(ctx))
+		return nil, context.Cause(ctx)
 	}
 
 	return &Client{pool: pool}, nil
 }
 
-func (o *Opener) safeAttemptError(ctx context.Context, id connection.ID, err error) error {
+func rawAttemptError(ctx context.Context, err error) error {
 	if cause := context.Cause(ctx); cause != nil {
-		switch {
-		case errors.Is(cause, ErrOpenTimeout):
-			return classifiedError(id, ErrOpenTimeout)
-		case errors.Is(cause, ErrRuntimeClosed):
-			return fmt.Errorf("%w: %s", ErrRuntimeClosed, id)
-		case errors.Is(cause, errOpenInvalidated):
-			return unavailableError(id)
-		}
+		return cause
 	}
 
-	if errors.Is(err, connection.ErrDatabaseNotFound) {
-		return classifiedError(id, connection.ErrDatabaseNotFound)
-	}
-
-	return unavailableError(id)
+	return err
 }
 
 func (o *Opener) finishAttempt(
@@ -278,7 +289,7 @@ func (o *Opener) publishAttemptLocked(
 	delete(o.entries, id)
 
 	if err == nil {
-		err = unavailableError(id)
+		err = errRuntimePoolMissing
 	}
 
 	attempt.err = err
@@ -297,11 +308,11 @@ func (o *Opener) rejectAttemptLocked(
 
 	switch {
 	case o.isClosed:
-		attempt.err = fmt.Errorf("%w: %s", ErrRuntimeClosed, id)
+		attempt.err = ErrRuntimeClosed
 	case err != nil:
 		attempt.err = err
 	default:
-		attempt.err = unavailableError(id)
+		attempt.err = errRuntimePoolMissing
 	}
 
 	return stalePool
@@ -311,7 +322,7 @@ func waitForAttempt(ctx context.Context, attempt *openAttempt) (*Client, error) 
 	select {
 	case <-attempt.done:
 		if err := ctx.Err(); err != nil {
-			return nil, unavailableContextError(err)
+			return nil, err
 		}
 
 		if attempt.client != nil {
@@ -320,7 +331,32 @@ func waitForAttempt(ctx context.Context, attempt *openAttempt) (*Client, error) 
 
 		return nil, attempt.err
 	case <-ctx.Done():
-		return nil, unavailableContextError(ctx.Err())
+		return nil, ctx.Err()
+	}
+}
+
+func (o *Opener) discoveryOpenError(ctx context.Context, id connection.ID, err error) error {
+	if ctx == nil {
+		return unavailableContextError(nil)
+	}
+
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return unavailableContextError(ctxErr)
+	}
+
+	switch {
+	case errors.Is(err, ErrOpenTimeout):
+		return classifiedError(id, ErrOpenTimeout)
+	case errors.Is(err, ErrUnsupportedKind):
+		return classifiedError(id, ErrUnsupportedKind)
+	case errors.Is(err, ErrRuntimeClosed):
+		return fmt.Errorf("%w: %s", ErrRuntimeClosed, id)
+	case errors.Is(err, errOpenInvalidated):
+		return unavailableError(id)
+	case errors.Is(err, connection.ErrDatabaseNotFound):
+		return classifiedError(id, connection.ErrDatabaseNotFound)
+	default:
+		return unavailableError(id)
 	}
 }
 

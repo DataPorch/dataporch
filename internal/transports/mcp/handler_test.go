@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/adamraziv/dataporch/internal/execution"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -334,10 +335,19 @@ func TestHandlerReturnsSafeToolErrorsAndPropagatesCancellation(t *testing.T) {
 	<-cancelService.started
 	cancel()
 
+	cancellationTimeout := time.NewTimer(time.Second)
+	defer cancellationTimeout.Stop()
+
 	select {
 	case <-cancelService.cancelled:
+	case <-cancellationTimeout.C:
+		t.Fatal("execution did not observe cancellation")
+	}
+
+	select {
 	case <-callDone:
-		t.Fatal("call returned before execution observed cancellation")
+	case <-time.After(time.Second):
+		t.Fatal("call did not return after execution observed cancellation")
 	}
 }
 

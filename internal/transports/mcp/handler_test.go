@@ -268,7 +268,7 @@ func TestHandlerSeparatesProtocolAndToolErrors(t *testing.T) {
 	}
 }
 
-func TestHandlerReturnsSafeToolErrorsAndPropagatesCancellation(t *testing.T) {
+func TestHandlerReturnsSafeToolErrors(t *testing.T) {
 	t.Parallel()
 
 	logger := slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil))
@@ -306,7 +306,12 @@ func TestHandlerReturnsSafeToolErrorsAndPropagatesCancellation(t *testing.T) {
 	if textIsUnsafe {
 		t.Fatalf("unsafe error text = %q", textContent.Text)
 	}
+}
 
+func TestHandlerPropagatesCancellation(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil))
 	cancelService := &recordingDiscoverer{
 		waitForCancellation: true,
 		started:             make(chan struct{}),

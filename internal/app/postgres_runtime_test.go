@@ -333,6 +333,10 @@ type appPostgresRuntimeTestStub struct {
 	invalidationRelease chan struct{}
 }
 
+func (r *appPostgresRuntimeTestStub) Open(context.Context, connection.ID) (*postgres.Client, error) {
+	return nil, nil
+}
+
 func (r *appPostgresRuntimeTestStub) Invalidate(id connection.ID) {
 	r.mu.Lock()
 	r.invalidated = append(r.invalidated, id)

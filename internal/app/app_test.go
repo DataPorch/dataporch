@@ -59,6 +59,19 @@ func TestNewStartsWithoutInitializedSecretStore(t *testing.T) {
 	}
 }
 
+func TestNewUsesDiscoveryWriteTimeout(t *testing.T) {
+	t.Parallel()
+
+	application, err := New(testConfigFor(t), slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	if application.server.WriteTimeout != 35*time.Second {
+		t.Fatalf("write timeout = %v, want 35s", application.server.WriteTimeout)
+	}
+}
+
 func TestAppRunsPublicServerWhenAdminSocketFails(t *testing.T) {
 	t.Parallel()
 

@@ -36,7 +36,19 @@ var (
 
 type runtimePool interface {
 	Ping(context.Context) error
+	Query(context.Context, string, ...any) (catalogRows, error)
 	Close()
+}
+
+type catalogRows interface {
+	Close()
+	Err() error
+	Next() bool
+	Scan(...any) error
+}
+
+type pgxRuntimePool struct {
+	pool *pgxpool.Pool
 }
 
 type poolFactory interface {
@@ -47,7 +59,19 @@ type pgxPoolFactory struct {
 	template *pgxpool.Config
 }
 
-var _ runtimePool = (*pgxpool.Pool)(nil)
+var _ runtimePool = (*pgxRuntimePool)(nil)
+
+func (p *pgxRuntimePool) Ping(ctx context.Context) error {
+	return p.pool.Ping(ctx)
+}
+
+func (p *pgxRuntimePool) Query(ctx context.Context, query string, arguments ...any) (catalogRows, error) {
+	return p.pool.Query(ctx, query, arguments...)
+}
+
+func (p *pgxRuntimePool) Close() {
+	p.pool.Close()
+}
 
 func newPGXPoolFactory() (*pgxPoolFactory, error) {
 	postgresEnvironmentMu.Lock()
@@ -146,7 +170,7 @@ func (f *pgxPoolFactory) New(ctx context.Context, definition connection.Resolved
 		return nil, errInvalidRuntimeDefinition
 	}
 
-	return pools, nil
+	return &pgxRuntimePool{pool: pools}, nil
 }
 
 func (f *pgxPoolFactory) config(definition connection.ResolvedDefinition) (*pgxpool.Config, error) {

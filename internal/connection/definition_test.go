@@ -1,10 +1,42 @@
 package connection
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/adamraziv/dataporch/internal/secret"
 )
+
+func TestIDValidate(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		id   ID
+		want bool
+	}{
+		{name: "valid", id: "finance-2026", want: true},
+		{name: "empty", id: "", want: false},
+		{name: "uppercase is valid", id: "Finance", want: true},
+		{name: "invalid character", id: "finance/team", want: false},
+		{name: "control character", id: "finance\nteam", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := tt.id.Validate()
+			if (err == nil) != tt.want {
+				t.Fatalf("ID.Validate() error = %v, want valid = %t", err, tt.want)
+			}
+
+			if err != nil && !errors.Is(err, ErrInvalidDefinition) {
+				t.Fatalf("ID.Validate() error = %v, want ErrInvalidDefinition", err)
+			}
+		})
+	}
+}
 
 func TestDefinitionValidate(t *testing.T) {
 	t.Parallel()

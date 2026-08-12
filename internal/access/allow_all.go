@@ -12,7 +12,12 @@ var (
 
 type Action string
 
-const ActionListResources Action = "list_resources"
+const (
+	ActionListDataSources       Action = "list_data_sources"
+	ActionListRelationalSchemas Action = "list_relational_database_schemas"
+	ActionListRelationalTables  Action = "list_relational_database_tables"
+	ActionListRelationalColumns Action = "list_relational_database_columns"
+)
 
 type AllowAll struct{}
 

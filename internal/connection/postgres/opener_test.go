@@ -842,6 +842,10 @@ type openerTestPool struct {
 	closeStartedOnce  sync.Once
 }
 
+func (p *openerTestPool) Query(context.Context, string, ...any) (catalogRows, error) {
+	return nil, errors.New("opener test pool query not configured")
+}
+
 func newOpenerTestPool() *openerTestPool {
 	return &openerTestPool{pingStarted: make(chan struct{})}
 }

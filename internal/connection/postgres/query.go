@@ -57,7 +57,7 @@ func newQueryExecutor(
 	options QueryOptions,
 	cleanupTimeout time.Duration,
 ) (*QueryExecutor, error) {
-	if opener == nil {
+	if isNilInterface(opener) {
 		return nil, errQueryOpenerRequired
 	}
 

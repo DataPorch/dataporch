@@ -33,6 +33,7 @@ func TestNewQueryExecutorValidatesDependenciesAndOptions(t *testing.T) {
 		want    error
 	}{
 		{name: "missing opener", options: validOptions, cleanup: time.Second, want: errQueryOpenerRequired},
+		{name: "typed nil opener", opener: (*queryOpenerStub)(nil), options: validOptions, cleanup: time.Second, want: errQueryOpenerRequired},
 		{name: "missing timeout", opener: &queryOpenerStub{}, options: QueryOptions{ResponseByteLimit: 1, TruncationEnabled: true, RowLimit: 1}, cleanup: time.Second, want: errRelationalQueryTimeoutRequired},
 		{name: "missing byte limit", opener: &queryOpenerStub{}, options: QueryOptions{Timeout: time.Second, TruncationEnabled: true, RowLimit: 1}, cleanup: time.Second, want: errQueryByteLimitRequired},
 		{name: "missing cleanup timeout", opener: &queryOpenerStub{}, options: validOptions, cleanup: 0, want: errQueryCleanupRequired},

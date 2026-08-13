@@ -45,6 +45,7 @@ func newProtocolTestServer(t *testing.T) *httptest.Server {
 	t.Helper()
 
 	logger := slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil))
+
 	handler, err := New(newMCPTestDependencies(logger))
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
@@ -97,10 +98,12 @@ func newModernRequest(
 	if err != nil {
 		t.Fatalf("NewRequestWithContext() error = %v", err)
 	}
+
 	request.Header.Set("Accept", "application/json, text/event-stream")
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("MCP-Protocol-Version", options.metaVersion)
 	request.Header.Set("Mcp-Method", options.method)
+
 	if options.name != "" {
 		request.Header.Set("Mcp-Name", options.name)
 	}
@@ -122,9 +125,11 @@ func doProtocolRequest(
 
 	body, readErr := io.ReadAll(response.Body)
 	closeErr := response.Body.Close()
+
 	if readErr != nil {
 		t.Fatalf("ReadAll() error = %v", readErr)
 	}
+
 	if closeErr != nil {
 		t.Fatalf("Body.Close() error = %v", closeErr)
 	}
@@ -142,14 +147,17 @@ func assertHeaderMismatch(t *testing.T, result protocolResult) {
 	if result.status != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d", result.status, http.StatusBadRequest)
 	}
+
 	if contentType := result.header.Get("Content-Type"); !strings.HasPrefix(contentType, "application/json") {
 		t.Fatalf("Content-Type = %q, want application/json", contentType)
 	}
 
 	var envelope jsonRPCErrorEnvelope
+
 	if err := json.Unmarshal(result.body, &envelope); err != nil {
 		t.Fatalf("Unmarshal() error = %v; body = %s", err, result.body)
 	}
+
 	if envelope.Error == nil || envelope.Error.Code != headerMismatchCode {
 		t.Fatalf("error = %#v, want code %d", envelope.Error, headerMismatchCode)
 	}
@@ -269,6 +277,7 @@ func TestHandlerAllowsNameOnlyWhenRequired(t *testing.T) {
 			t.Parallel()
 
 			request := newModernRequest(t, server.URL, options)
+
 			result := doProtocolRequest(t, server.Client(), request)
 			if result.status != http.StatusOK {
 				t.Fatalf(
@@ -286,6 +295,7 @@ func TestHandlerKeepsModernRequestsIndependent(t *testing.T) {
 	t.Parallel()
 
 	server := newProtocolTestServer(t)
+
 	clientNames := []string{"client-one", "client-two"}
 	for _, clientName := range clientNames {
 		request := newModernRequest(t, server.URL, modernRequest{
@@ -294,6 +304,7 @@ func TestHandlerKeepsModernRequestsIndependent(t *testing.T) {
 			metaVersion: protocolRevision20260728,
 		})
 		request.Header.Set("Mcp-Session-Id", "ignored-session")
+
 		result := doProtocolRequest(t, server.Client(), request)
 		if result.status != http.StatusOK {
 			t.Fatalf(
@@ -304,6 +315,7 @@ func TestHandlerKeepsModernRequestsIndependent(t *testing.T) {
 				result.body,
 			)
 		}
+
 		if sessionID := result.header.Get("Mcp-Session-Id"); sessionID != "" {
 			t.Fatalf("client %q response session id = %q, want empty", clientName, sessionID)
 		}
@@ -323,6 +335,8 @@ func TestHandlerRejectsUnsupportedHTTPShapes(t *testing.T) {
 		{
 			name: "get",
 			request: func(t *testing.T) *http.Request {
+				t.Helper()
+
 				return newRequest(t, http.MethodGet, server.URL, nil)
 			},
 			wantStatus: http.StatusMethodNotAllowed,
@@ -331,6 +345,8 @@ func TestHandlerRejectsUnsupportedHTTPShapes(t *testing.T) {
 		{
 			name: "delete",
 			request: func(t *testing.T) *http.Request {
+				t.Helper()
+
 				return newRequest(t, http.MethodDelete, server.URL, nil)
 			},
 			wantStatus: http.StatusMethodNotAllowed,
@@ -339,6 +355,8 @@ func TestHandlerRejectsUnsupportedHTTPShapes(t *testing.T) {
 		{
 			name: "invalid content type",
 			request: func(t *testing.T) *http.Request {
+				t.Helper()
+
 				request := newRequest(t, http.MethodPost, server.URL, strings.NewReader("{}"))
 				request.Header.Set("Accept", "application/json, text/event-stream")
 				request.Header.Set("Content-Type", "text/plain")
@@ -350,6 +368,8 @@ func TestHandlerRejectsUnsupportedHTTPShapes(t *testing.T) {
 		{
 			name: "incomplete accept header",
 			request: func(t *testing.T) *http.Request {
+				t.Helper()
+
 				request := newRequest(t, http.MethodPost, server.URL, strings.NewReader("{}"))
 				request.Header.Set("Accept", "application/json")
 				request.Header.Set("Content-Type", "application/json")
@@ -361,6 +381,8 @@ func TestHandlerRejectsUnsupportedHTTPShapes(t *testing.T) {
 		{
 			name: "oversized body",
 			request: func(t *testing.T) *http.Request {
+				t.Helper()
+
 				body := bytes.NewReader(bytes.Repeat([]byte{'x'}, maxRequestBodyBytes+1))
 				request := newRequest(t, http.MethodPost, server.URL, body)
 				request.Header.Set("Accept", "application/json, text/event-stream")
@@ -385,6 +407,7 @@ func TestHandlerRejectsUnsupportedHTTPShapes(t *testing.T) {
 					result.body,
 				)
 			}
+
 			if allow := result.header.Get("Allow"); allow != tt.wantAllow {
 				t.Errorf("Allow = %q, want %q", allow, tt.wantAllow)
 			}
@@ -422,6 +445,7 @@ func TestHandlerReportsUnsupportedProtocolVersion(t *testing.T) {
 	if result.status != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d", result.status, http.StatusBadRequest)
 	}
+
 	if !bytes.Contains(result.body, []byte("supported versions")) {
 		t.Fatalf("body = %s, want supported versions", result.body)
 	}
@@ -478,9 +502,11 @@ func (r *recordingRoundTripper) RoundTrip(request *http.Request) (*http.Response
 	if err != nil {
 		return nil, fmt.Errorf("reading request body: %w", err)
 	}
+
 	if err := request.Body.Close(); err != nil {
 		return nil, fmt.Errorf("closing request body: %w", err)
 	}
+
 	request.Body = io.NopCloser(bytes.NewReader(body))
 	request.Header.Set("Mcp-Session-Id", "ignored-session")
 
@@ -498,6 +524,7 @@ func (r *recordingRoundTripper) RoundTrip(request *http.Request) (*http.Response
 
 	r.mutex.Lock()
 	r.methods = append(r.methods, envelope.Method)
+
 	if response.Header.Get("Mcp-Session-Id") != "" {
 		r.hasResponseSessionID = true
 	}
@@ -526,6 +553,7 @@ func TestHandlerSupportsModernClientWithoutProtocolSessions(t *testing.T) {
 		},
 		nil,
 	)
+
 	session, err := client.Connect(
 		t.Context(),
 		&mcpsdk.StreamableClientTransport{
@@ -538,27 +566,35 @@ func TestHandlerSupportsModernClientWithoutProtocolSessions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Connect() error = %v", err)
 	}
+
 	isClosed := false
+
 	t.Cleanup(func() {
 		if isClosed {
 			return
 		}
+
 		if err := session.Close(); err != nil {
 			t.Errorf("Close() error = %v", err)
 		}
 	})
+
 	if _, err := session.ListTools(t.Context(), nil); err != nil {
 		t.Fatalf("ListTools() error = %v", err)
 	}
+
 	if err := session.Close(); err != nil {
 		t.Fatalf("Close() error = %v", err)
 	}
+
 	isClosed = true
 
 	methods, hasResponseSessionID := recorder.snapshot()
+
 	if want := []string{"server/discover", "tools/list"}; !reflect.DeepEqual(methods, want) {
 		t.Fatalf("methods = %v, want %v", methods, want)
 	}
+
 	if hasResponseSessionID {
 		t.Fatal("server emitted Mcp-Session-Id in stateless mode")
 	}

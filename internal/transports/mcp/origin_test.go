@@ -9,17 +9,17 @@ import (
 	"testing"
 )
 
-func TestWithOriginValidation(t *testing.T) {
-	t.Parallel()
+type originValidationCase struct {
+	name         string
+	method       string
+	origins      []string
+	secFetchSite string
+	wantStatus   int
+	wantCalls    int
+}
 
-	tests := []struct {
-		name         string
-		method       string
-		origins      []string
-		secFetchSite string
-		wantStatus   int
-		wantCalls    int
-	}{
+func originValidationCases() []originValidationCase {
+	return []originValidationCase{
 		{
 			name:       "absent origin",
 			method:     http.MethodGet,
@@ -117,12 +117,17 @@ func TestWithOriginValidation(t *testing.T) {
 			wantStatus: http.StatusForbidden,
 		},
 	}
+}
 
-	for _, tt := range tests {
+func TestWithOriginValidation(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range originValidationCases() {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			request := httptest.NewRequest(
+			request := httptest.NewRequestWithContext(
+				t.Context(),
 				tt.method,
 				"http://127.0.0.1:8080/mcp",
 				nil,
@@ -130,6 +135,7 @@ func TestWithOriginValidation(t *testing.T) {
 			for _, origin := range tt.origins {
 				request.Header.Add("Origin", origin)
 			}
+
 			if tt.secFetchSite != "" {
 				request.Header.Set("Sec-Fetch-Site", tt.secFetchSite)
 			}
@@ -137,6 +143,7 @@ func TestWithOriginValidation(t *testing.T) {
 			calls := 0
 			next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				calls++
+
 				w.WriteHeader(http.StatusNoContent)
 			})
 			handler := withOriginValidation(
@@ -150,6 +157,7 @@ func TestWithOriginValidation(t *testing.T) {
 			if recorder.Code != tt.wantStatus {
 				t.Errorf("status = %d, want %d", recorder.Code, tt.wantStatus)
 			}
+
 			if calls != tt.wantCalls {
 				t.Errorf("next calls = %d, want %d", calls, tt.wantCalls)
 			}
@@ -161,6 +169,7 @@ func TestHandlerRejectsInvalidOriginsForEveryMethod(t *testing.T) {
 	t.Parallel()
 
 	logger := slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil))
+
 	handler, err := New(newMCPTestDependencies(logger))
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
@@ -189,12 +198,14 @@ func TestHandlerRejectsInvalidOriginsForEveryMethod(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewRequestWithContext() error = %v", err)
 			}
+
 			request.Header.Set("Origin", "https://attacker.example")
 
 			response, err := server.Client().Do(request)
 			if err != nil {
 				t.Fatalf("Do() error = %v", err)
 			}
+
 			if err := response.Body.Close(); err != nil {
 				t.Fatalf("Body.Close() error = %v", err)
 			}

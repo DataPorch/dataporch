@@ -54,6 +54,24 @@ DataPorch supplies these endpoints:
 - `GET /healthz`
 - `POST /mcp` for Streamable HTTP MCP
 
+### MCP compatibility and transport security
+
+DataPorch v0.1 guarantees MCP revision `2026-07-28` over stateless Streamable
+HTTP. Each JSON-RPC request uses a separate `POST /mcp` request with its protocol
+version and client metadata attached. DataPorch does not depend on the legacy
+`initialize`/`notifications/initialized` handshake, GET streams, or
+`Mcp-Session-Id`.
+
+Older MCP revisions that the pinned Go SDK happens to accept are not part of the
+DataPorch v0.1 compatibility guarantee. Supporting another revision requires an
+explicit compatibility decision and DataPorch-level conformance tests.
+
+The server binds to `127.0.0.1:8080` by default. The MCP endpoint rejects invalid
+Origin and localhost Host headers before tool execution. Changing
+`DATAPORCH_HTTP_ADDRESS` does not disable those protections. Authentication and
+authorization are evaluated per request; the current allow-all policy remains a
+development default until the local access-token lifecycle is enabled.
+
 The MCP endpoint exposes exactly five typed tools. Call them in this order when
 an agent needs to inspect a source and run a bounded query:
 

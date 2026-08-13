@@ -66,6 +66,7 @@ func (p *pgxRuntimePool) Ping(ctx context.Context) error {
 }
 
 func (p *pgxRuntimePool) Query(ctx context.Context, query string, arguments ...any) (catalogRows, error) {
+	//nolint:sqlclosecheck // The catalogRows caller owns and closes the returned rows.
 	return p.pool.Query(ctx, query, arguments...)
 }
 

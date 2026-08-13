@@ -9,13 +9,21 @@ import (
 )
 
 const (
-	defaultHTTPAddress          = "127.0.0.1:8080"
-	defaultResourceLimit        = 100
-	maxResourceLimit            = 1000
-	defaultAdminSocketPath      = "/run/dataporch/admin.sock"
-	defaultMasterKeyPath        = "/etc/dataporch/master.key"
-	defaultSecretsStorePath     = "/var/lib/dataporch/secrets.store" //nolint:gosec // This is a path, not a credential.
-	defaultConnectionsStorePath = "/var/lib/dataporch/connections.store"
+	defaultHTTPAddress            = "127.0.0.1:8080"
+	defaultResourceLimit          = 100
+	maxResourceLimit              = 1000
+	defaultAdminSocketPath        = "/run/dataporch/admin.sock"
+	defaultMasterKeyPath          = "/etc/dataporch/master.key"
+	defaultSecretsStorePath       = "/var/lib/dataporch/secrets.store" //nolint:gosec // This is a path, not a credential.
+	defaultConnectionsStorePath   = "/var/lib/dataporch/connections.store"
+	defaultQueryTimeout           = 20 * time.Second
+	minQueryTimeout               = time.Second
+	maxQueryTimeout               = 20 * time.Second
+	defaultQueryResponseByteLimit = 10_485_760
+	minQueryResponseByteLimit     = 65_536
+	maxQueryResponseByteLimit     = 10_485_760
+	defaultQueryTruncationEnabled = true
+	defaultQueryRowLimit          = 1000
 )
 
 var errLookupRequired = errors.New("config: environment lookup is required")
@@ -24,28 +32,37 @@ type LookupEnv func(string) (string, bool)
 
 // Config errors retain uppercase environment variable names so diagnostics match operator-facing keys.
 type Config struct {
-	HTTPAddress          string
-	ResourceLimit        int
-	ShutdownPeriod       time.Duration
-	AdminSocketPath      string
-	MasterKeyPath        string
-	SecretsStorePath     string
-	ConnectionsStorePath string
+	HTTPAddress            string
+	ResourceLimit          int
+	ShutdownPeriod         time.Duration
+	AdminSocketPath        string
+	MasterKeyPath          string
+	SecretsStorePath       string
+	ConnectionsStorePath   string
+	QueryTimeout           time.Duration
+	QueryResponseByteLimit int
+	QueryTruncationEnabled bool
+	QueryRowLimit          int
 }
 
+//nolint:gocyclo // Explicit environment parsing preserves operator-facing keys and error context.
 func Load(lookup LookupEnv) (Config, error) {
 	if lookup == nil {
 		return Config{}, errLookupRequired
 	}
 
 	cfg := Config{
-		HTTPAddress:          defaultHTTPAddress,
-		ResourceLimit:        defaultResourceLimit,
-		ShutdownPeriod:       10 * time.Second,
-		AdminSocketPath:      defaultAdminSocketPath,
-		MasterKeyPath:        defaultMasterKeyPath,
-		SecretsStorePath:     defaultSecretsStorePath,
-		ConnectionsStorePath: defaultConnectionsStorePath,
+		HTTPAddress:            defaultHTTPAddress,
+		ResourceLimit:          defaultResourceLimit,
+		ShutdownPeriod:         10 * time.Second,
+		AdminSocketPath:        defaultAdminSocketPath,
+		MasterKeyPath:          defaultMasterKeyPath,
+		SecretsStorePath:       defaultSecretsStorePath,
+		ConnectionsStorePath:   defaultConnectionsStorePath,
+		QueryTimeout:           defaultQueryTimeout,
+		QueryResponseByteLimit: defaultQueryResponseByteLimit,
+		QueryTruncationEnabled: defaultQueryTruncationEnabled,
+		QueryRowLimit:          defaultQueryRowLimit,
 	}
 
 	if value, exists := lookup("DATAPORCH_HTTP_ADDRESS"); exists {
@@ -77,6 +94,42 @@ func Load(lookup LookupEnv) (Config, error) {
 		cfg.ConnectionsStorePath = value
 	}
 
+	if value, exists := lookup("DATAPORCH_QUERY_TIMEOUT"); exists {
+		timeout, err := time.ParseDuration(value)
+		if err != nil {
+			return Config{}, fmt.Errorf("parsing DATAPORCH_QUERY_TIMEOUT: %w", err)
+		}
+
+		cfg.QueryTimeout = timeout
+	}
+
+	if value, exists := lookup("DATAPORCH_QUERY_RESPONSE_BYTE_LIMIT"); exists {
+		limit, err := strconv.Atoi(value)
+		if err != nil {
+			return Config{}, fmt.Errorf("parsing DATAPORCH_QUERY_RESPONSE_BYTE_LIMIT: %w", err)
+		}
+
+		cfg.QueryResponseByteLimit = limit
+	}
+
+	if value, exists := lookup("DATAPORCH_QUERY_TRUNCATION_ENABLED"); exists {
+		enabled, err := strconv.ParseBool(value)
+		if err != nil {
+			return Config{}, fmt.Errorf("parsing DATAPORCH_QUERY_TRUNCATION_ENABLED: %w", err)
+		}
+
+		cfg.QueryTruncationEnabled = enabled
+	}
+
+	if value, exists := lookup("DATAPORCH_QUERY_ROW_LIMIT"); exists {
+		limit, err := strconv.Atoi(value)
+		if err != nil {
+			return Config{}, fmt.Errorf("parsing DATAPORCH_QUERY_ROW_LIMIT: %w", err)
+		}
+
+		cfg.QueryRowLimit = limit
+	}
+
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err
 	}
@@ -84,6 +137,7 @@ func Load(lookup LookupEnv) (Config, error) {
 	return cfg, nil
 }
 
+//nolint:gocyclo // Each independent configuration invariant has a distinct operator-facing diagnostic.
 func (c Config) Validate() error {
 	if _, _, err := net.SplitHostPort(c.HTTPAddress); err != nil {
 		return fmt.Errorf("validating DATAPORCH_HTTP_ADDRESS: %w", err)
@@ -114,6 +168,29 @@ func (c Config) Validate() error {
 
 	if c.ConnectionsStorePath == "" {
 		return errors.New("validating DATAPORCH_CONNECTIONS_STORE_PATH: must not be empty")
+	}
+
+	if c.QueryTimeout < minQueryTimeout || c.QueryTimeout > maxQueryTimeout {
+		return fmt.Errorf(
+			"validating DATAPORCH_QUERY_TIMEOUT: must be between %s and %s",
+			minQueryTimeout,
+			maxQueryTimeout,
+		)
+	}
+
+	if c.QueryResponseByteLimit < minQueryResponseByteLimit ||
+		c.QueryResponseByteLimit > maxQueryResponseByteLimit {
+		return fmt.Errorf(
+			"validating DATAPORCH_QUERY_RESPONSE_BYTE_LIMIT: must be between %d and %d",
+			minQueryResponseByteLimit,
+			maxQueryResponseByteLimit,
+		)
+	}
+
+	if c.QueryTruncationEnabled && c.QueryRowLimit <= 0 {
+		return errors.New(
+			"validating DATAPORCH_QUERY_ROW_LIMIT: must be positive when truncation is enabled",
+		)
 	}
 
 	if c.MasterKeyPath == c.SecretsStorePath {

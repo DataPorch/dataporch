@@ -241,6 +241,10 @@ func (r *appLifecycleRuntimeTestStub) Open(context.Context, connection.ID) (*pos
 	return nil, nil
 }
 
+func (r *appLifecycleRuntimeTestStub) OpenQuery(context.Context, connection.ID) (*postgres.Client, error) {
+	return nil, nil
+}
+
 func (r *appLifecycleRuntimeTestStub) Invalidate(connection.ID) {}
 
 func (r *appLifecycleRuntimeTestStub) Close(ctx context.Context) error {

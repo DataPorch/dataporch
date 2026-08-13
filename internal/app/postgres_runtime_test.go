@@ -112,6 +112,10 @@ func TestNewConstructsPostgresRuntimeWithoutOpening(t *testing.T) {
 		t.Fatalf("invalidations during construction = %v, want none", got)
 	}
 
+	if runtime.queryOpenCalls() != 0 {
+		t.Fatalf("query opens during construction = %d, want 0", runtime.queryOpenCalls())
+	}
+
 	if runtime.closeCalls() != 0 {
 		t.Fatalf("runtime closes during construction = %d, want 0", runtime.closeCalls())
 	}
@@ -327,6 +331,7 @@ func (i *replacementRegistrarTestInvalidator) Invalidate(id connection.ID) {
 type appPostgresRuntimeTestStub struct {
 	mu                  sync.Mutex
 	invalidated         []connection.ID
+	queryOpens          []connection.ID
 	closeErr            error
 	closes              int
 	invalidationStarted chan struct{}
@@ -335,6 +340,17 @@ type appPostgresRuntimeTestStub struct {
 
 func (r *appPostgresRuntimeTestStub) Open(context.Context, connection.ID) (*postgres.Client, error) {
 	return nil, nil
+}
+
+func (r *appPostgresRuntimeTestStub) OpenQuery(
+	ctx context.Context,
+	id connection.ID,
+) (*postgres.Client, error) {
+	r.mu.Lock()
+	r.queryOpens = append(r.queryOpens, id)
+	r.mu.Unlock()
+
+	return r.Open(ctx, id)
 }
 
 func (r *appPostgresRuntimeTestStub) Invalidate(id connection.ID) {
@@ -386,4 +402,11 @@ func (r *appPostgresRuntimeTestStub) closeCalls() int {
 	defer r.mu.Unlock()
 
 	return r.closes
+}
+
+func (r *appPostgresRuntimeTestStub) queryOpenCalls() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return len(r.queryOpens)
 }

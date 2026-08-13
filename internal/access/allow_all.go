@@ -3,6 +3,8 @@ package access
 import (
 	"context"
 	"errors"
+
+	"github.com/adamraziv/dataporch/internal/connection"
 )
 
 var (
@@ -13,11 +15,18 @@ var (
 type Action string
 
 const (
-	ActionListDataSources       Action = "list_data_sources"
-	ActionListRelationalSchemas Action = "list_relational_database_schemas"
-	ActionListRelationalTables  Action = "list_relational_database_tables"
-	ActionListRelationalColumns Action = "list_relational_database_columns"
+	ActionListDataSources         Action = "list_data_sources"
+	ActionListRelationalSchemas   Action = "list_relational_database_schemas"
+	ActionListRelationalTables    Action = "list_relational_database_tables"
+	ActionListRelationalColumns   Action = "list_relational_database_columns"
+	ActionQueryRelationalDatabase Action = "query_relational_database"
 )
+
+type Request struct {
+	Action   Action
+	Kind     connection.Kind
+	SourceID connection.ID
+}
 
 type AllowAll struct{}
 
@@ -25,7 +34,7 @@ func New() *AllowAll {
 	return &AllowAll{}
 }
 
-func (a *AllowAll) Authorize(ctx context.Context, action Action) error {
+func (a *AllowAll) Authorize(ctx context.Context, request Request) error {
 	if ctx == nil {
 		return errContextRequired
 	}
@@ -34,7 +43,7 @@ func (a *AllowAll) Authorize(ctx context.Context, action Action) error {
 		return err
 	}
 
-	if action == "" {
+	if request.Action == "" {
 		return errActionRequired
 	}
 

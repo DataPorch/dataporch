@@ -14,18 +14,22 @@ import (
 )
 
 var (
-	errSourceRegistryRequired = errors.New("execution: source registry is required")
-	errRelationalAuthorizer   = errors.New("execution: authorizer is required")
-	errDiscovererRequired     = errors.New("execution: relational discoverer is required")
-	errDiscovererKind         = errors.New("execution: relational discoverer kind is required")
-	errDuplicateDiscoverer    = errors.New("execution: duplicate relational discoverer kind")
+	errSourceRegistryRequired           = errors.New("execution: source registry is required")
+	errRelationalAuthorizer             = errors.New("execution: authorizer is required")
+	errDiscovererRequired               = errors.New("execution: relational discoverer is required")
+	errDiscovererKind                   = errors.New("execution: relational discoverer kind is required")
+	errDuplicateDiscoverer              = errors.New("execution: duplicate relational discoverer kind")
+	errRelationalQueryExecutorRequired  = errors.New("execution: relational query executor is required")
+	errRelationalQueryExecutorKind      = errors.New("execution: relational query executor kind is required")
+	errDuplicateRelationalQueryExecutor = errors.New("execution: duplicate relational query executor kind")
 )
 
 type Service struct {
-	sources    SourceRegistry
-	authorizer Authorizer
-	maxLimit   int
-	relational map[connection.Kind]RelationalDiscoverer
+	sources           SourceRegistry
+	authorizer        Authorizer
+	maxLimit          int
+	relational        map[connection.Kind]RelationalDiscoverer
+	relationalQueries map[connection.Kind]RelationalQueryExecutor
 }
 
 func New(dependencies Dependencies) (*Service, error) {
@@ -59,11 +63,33 @@ func New(dependencies Dependencies) (*Service, error) {
 		relational[kind] = discoverer
 	}
 
+	relationalQueries := make(
+		map[connection.Kind]RelationalQueryExecutor,
+		len(dependencies.RelationalQueryExecutors),
+	)
+	for _, executor := range dependencies.RelationalQueryExecutors {
+		if isNilInterface(executor) {
+			return nil, errRelationalQueryExecutorRequired
+		}
+
+		kind := executor.Kind()
+		if kind == "" {
+			return nil, errRelationalQueryExecutorKind
+		}
+
+		if _, exists := relationalQueries[kind]; exists {
+			return nil, fmt.Errorf("%w: %q", errDuplicateRelationalQueryExecutor, kind)
+		}
+
+		relationalQueries[kind] = executor
+	}
+
 	return &Service{
-		sources:    dependencies.Sources,
-		authorizer: dependencies.Authorizer,
-		maxLimit:   dependencies.MaxLimit,
-		relational: relational,
+		sources:           dependencies.Sources,
+		authorizer:        dependencies.Authorizer,
+		maxLimit:          dependencies.MaxLimit,
+		relational:        relational,
+		relationalQueries: relationalQueries,
 	}, nil
 }
 
@@ -89,7 +115,9 @@ func (s *Service) ListDataSources(ctx context.Context, request ListDataSourcesRe
 		return ListDataSourcesResult{}, err
 	}
 
-	if err := s.authorizer.Authorize(ctx, access.ActionListDataSources); err != nil {
+	if err := s.authorizer.Authorize(ctx, access.Request{
+		Action: access.ActionListDataSources,
+	}); err != nil {
 		return ListDataSourcesResult{}, fmt.Errorf("%w: %w", ErrDataPorchAccessDenied, err)
 	}
 
@@ -384,7 +412,10 @@ func (s *Service) relationalDiscoverer(
 		return nil, err
 	}
 
-	if err := s.authorizer.Authorize(ctx, action); err != nil {
+	if err := s.authorizer.Authorize(ctx, access.Request{
+		Action:   action,
+		SourceID: sourceID,
+	}); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrDataPorchAccessDenied, err)
 	}
 

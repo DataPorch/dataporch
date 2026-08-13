@@ -22,29 +22,67 @@ import (
 func TestNewValidatesDependencies(t *testing.T) {
 	t.Parallel()
 
-	var typedNil *recordingDiscoverer
-
 	logger := slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil))
-	if _, err := New(nil, logger); !errors.Is(err, errDiscovererRequired) {
+
+	missingDiscoverer := newMCPTestDependencies(logger)
+
+	missingDiscoverer.Discoverer = nil
+	if _, err := New(missingDiscoverer); !errors.Is(err, errDiscovererRequired) {
 		t.Fatalf("New(nil) error = %v, want discoverer validation", err)
 	}
 
-	if _, err := New(typedNil, logger); !errors.Is(err, errDiscovererRequired) {
+	var typedNilDiscoverer *recordingDiscoverer
+
+	typedNilDiscovererDependencies := newMCPTestDependencies(logger)
+
+	typedNilDiscovererDependencies.Discoverer = typedNilDiscoverer
+	if _, err := New(typedNilDiscovererDependencies); !errors.Is(err, errDiscovererRequired) {
 		t.Fatalf("New(typed nil) error = %v, want discoverer validation", err)
 	}
 
-	if _, err := New(&recordingDiscoverer{}, nil); !errors.Is(err, errLoggerRequired) {
+	missingQuerier := newMCPTestDependencies(logger)
+
+	missingQuerier.RelationalQuerier = nil
+	if _, err := New(missingQuerier); !errors.Is(err, errRelationalQuerierRequired) {
+		t.Fatalf("New(nil querier) error = %v, want querier validation", err)
+	}
+
+	var typedNilQuerier *recordingRelationalQuerier
+
+	typedNilQuerierDependencies := newMCPTestDependencies(logger)
+
+	typedNilQuerierDependencies.RelationalQuerier = typedNilQuerier
+	if _, err := New(typedNilQuerierDependencies); !errors.Is(err, errRelationalQuerierRequired) {
+		t.Fatalf("New(typed nil querier) error = %v, want querier validation", err)
+	}
+
+	missingByteLimit := newMCPTestDependencies(logger)
+
+	missingByteLimit.QueryResponseByteLimit = 0
+	if _, err := New(missingByteLimit); !errors.Is(err, errQueryByteLimitRequired) {
+		t.Fatalf("New(zero byte limit) error = %v, want byte-limit validation", err)
+	}
+
+	missingByteLimit.QueryResponseByteLimit = 1
+	if _, err := New(missingByteLimit); !errors.Is(err, errQueryByteLimitRequired) {
+		t.Fatalf("New(undersized byte limit) error = %v, want byte-limit validation", err)
+	}
+
+	missingLogger := newMCPTestDependencies(logger)
+
+	missingLogger.Logger = nil
+	if _, err := New(missingLogger); !errors.Is(err, errLoggerRequired) {
 		t.Fatalf("New(nil logger) error = %v, want logger validation", err)
 	}
 }
 
 //nolint:gocyclo // This protocol test covers registration, negotiation, schemas, and annotations together.
-func TestHandlerListsFourDiscoveryToolsAndNegotiatesLatestProtocol(t *testing.T) {
+func TestHandlerListsFiveToolsAndNegotiatesLatestProtocol(t *testing.T) {
 	t.Parallel()
 
 	logger := slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil))
 
-	handler, err := New(&recordingDiscoverer{}, logger)
+	handler, err := New(newMCPTestDependencies(logger))
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -68,6 +106,7 @@ func TestHandlerListsFourDiscoveryToolsAndNegotiatesLatestProtocol(t *testing.T)
 		"relational_database.list_columns",
 		"relational_database.list_schemas",
 		"relational_database.list_tables",
+		"relational_database.query",
 	}
 
 	gotNames := make([]string, len(result.Tools))
@@ -84,13 +123,12 @@ func TestHandlerListsFourDiscoveryToolsAndNegotiatesLatestProtocol(t *testing.T)
 			t.Fatal("old list_resources tool is still registered")
 		}
 
-		annotationsAreSafe := tool.Annotations != nil &&
-			tool.Annotations.ReadOnlyHint &&
-			tool.Annotations.IdempotentHint &&
-			tool.Annotations.DestructiveHint != nil &&
-			!*tool.Annotations.DestructiveHint &&
-			tool.Annotations.OpenWorldHint != nil &&
-			!*tool.Annotations.OpenWorldHint
+		annotationsAreSafe := tool.Annotations != nil && tool.Annotations.ReadOnlyHint &&
+			tool.Annotations.OpenWorldHint != nil && !*tool.Annotations.OpenWorldHint &&
+			((tool.Name == relationalQueryOperation && !tool.Annotations.IdempotentHint &&
+				tool.Annotations.DestructiveHint == nil) ||
+				(tool.Name != relationalQueryOperation && tool.Annotations.IdempotentHint &&
+					tool.Annotations.DestructiveHint != nil && !*tool.Annotations.DestructiveHint))
 		if !annotationsAreSafe {
 			t.Fatalf("annotations for %q = %#v", tool.Name, tool.Annotations)
 		}
@@ -150,7 +188,10 @@ func TestHandlerReturnsStructuredAndTextSuccess(t *testing.T) {
 		},
 	}
 
-	handler, err := New(service, logger)
+	dependencies := newMCPTestDependencies(logger)
+	dependencies.Discoverer = service
+
+	handler, err := New(dependencies)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -196,7 +237,7 @@ func TestHandlerSeparatesProtocolAndToolErrors(t *testing.T) {
 
 	logger := slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil))
 
-	handler, err := New(&recordingDiscoverer{}, logger)
+	handler, err := New(newMCPTestDependencies(logger))
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -274,7 +315,10 @@ func TestHandlerReturnsSafeToolErrors(t *testing.T) {
 	logger := slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil))
 	service := &recordingDiscoverer{sourcesErr: errors.New("host=private password=secret")}
 
-	handler, err := New(service, logger)
+	dependencies := newMCPTestDependencies(logger)
+	dependencies.Discoverer = service
+
+	handler, err := New(dependencies)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -318,7 +362,10 @@ func TestHandlerPropagatesCancellation(t *testing.T) {
 		cancelled:           make(chan struct{}),
 	}
 
-	cancelHandler, err := New(cancelService, logger)
+	dependencies := newMCPTestDependencies(logger)
+	dependencies.Discoverer = cancelService
+
+	cancelHandler, err := New(dependencies)
 	if err != nil {
 		t.Fatalf("New(cancel) error = %v", err)
 	}

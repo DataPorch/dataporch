@@ -54,8 +54,8 @@ DataPorch supplies these endpoints:
 - `GET /healthz`
 - `POST /mcp` for Streamable HTTP MCP
 
-The MCP endpoint exposes exactly four typed, read-only tools. Call them in this
-order when an agent needs to build a query plan:
+The MCP endpoint exposes exactly five typed tools. Call them in this order when
+an agent needs to inspect a source and run a bounded query:
 
 1. `data_source.list` — list configured source IDs and capability families. This
    is a local snapshot and does not check connectivity.
@@ -66,6 +66,22 @@ order when an agent needs to build a query plan:
 4. `relational_database.list_columns` — list columns, PostgreSQL type details,
    defaults, identity/generated metadata, and relevant constraints for an
    exact schema and relation.
+5. `relational_database.query` — execute one complete row-producing PostgreSQL
+   statement against a configured source in a bounded `READ ONLY` transaction.
+
+The query tool requires exactly these fields:
+
+```json
+{
+  "kind": "postgres",
+  "source_id": "finance",
+  "query": "SELECT id, total FROM invoices ORDER BY id"
+}
+```
+
+The caller supplies one opaque SQL statement. PostgreSQL parses it; DataPorch
+does not parse or rewrite the statement. PostgreSQL's extended protocol rejects
+multiple commands, and DataPorch does not add an HTTP query endpoint.
 
 The three relational tools reuse the `source_id` returned by the first tool.
 Schema and relation names are case-sensitive identifiers; pass the exact value
@@ -91,6 +107,10 @@ Use environment variables to configure DataPorch.
 | `DATAPORCH_MASTER_KEY_PATH` | `/etc/dataporch/master.key` | Sets the local secret-store master key path. |
 | `DATAPORCH_SECRETS_STORE_PATH` | `/var/lib/dataporch/secrets.store` | Sets the encrypted local secret-store path. |
 | `DATAPORCH_CONNECTIONS_STORE_PATH` | `/var/lib/dataporch/connections.store` | Sets the normalized connection-definition store path. |
+| `DATAPORCH_QUERY_TIMEOUT` | `20s` | Bounds each query call; accepts `1s` through `20s` and cannot be disabled. |
+| `DATAPORCH_QUERY_RESPONSE_BYTE_LIMIT` | `10485760` | Bounds the encoded MCP tool result; accepts `65536` through `10485760` and cannot be disabled. |
+| `DATAPORCH_QUERY_TRUNCATION_ENABLED` | `true` | Reads one extra row to report whether the configured row limit truncated the result. |
+| `DATAPORCH_QUERY_ROW_LIMIT` | `1000` | Sets the positive returned-row limit while truncation is enabled; ignored when truncation is disabled. |
 
 ## Local secrets and connection imports
 
@@ -128,11 +148,71 @@ internal lazy Postgres runtime opener: the first open authenticates within ten
 seconds, later opens reuse one pgx pool per source ID, and pgx may retire idle
 physical connections while DataPorch retains the reusable pool object.
 
-Discovery catalog queries have a separate twenty-second bound. The public HTTP
-server has a thirty-five-second write bound so a single request can safely cover
-opening plus one metadata query. Startup, health checks, `data_source.list`, and
-connection import do not contact PostgreSQL. The allow-all policy remains a
-development default; replace it before production deployment.
+Discovery catalog queries have a separate twenty-second bound. Query calls have
+the timeout and encoded-response ceilings above. Disabling row truncation does
+not disable either mandatory ceiling. Callers should add an `ORDER BY` when
+stable truncation order matters.
+
+Query results use ordered columns and positional rows. Values are text, SQL
+`NULL` remains `null`, and `row_count` reports the returned rows:
+
+```json
+{
+  "kind": "postgres",
+  "source_id": "finance",
+  "columns": [
+    {"name": "id", "database_type": "int8"},
+    {"name": "note", "database_type": "text"}
+  ],
+  "rows": [["101", null]],
+  "row_count": 1,
+  "truncated": false
+}
+```
+
+Query failures may include every PostgreSQL server field in the approved
+`database_error` object:
+
+```json
+{
+  "category": "database_conflict",
+  "message": "serialization failure",
+  "retryable": true,
+  "database_error": {
+    "kind": "postgres",
+    "code": "40001",
+    "severity": "ERROR",
+    "message": "serialization failure"
+  }
+}
+```
+
+Every query attempt logs the full SQL at INFO or WARN with operation, kind,
+source ID, duration, and result or failure metadata. SQL and PostgreSQL error
+logs are sensitive; deployments own access, retention, transport, and
+downstream redaction. Result cells are not logged as separate fields, but SQL
+literals and PostgreSQL errors can contain data. Credentials, DSNs, resolved
+settings, and secret references are never query result or log fields.
+
+`AllowAll` initially permits any MCP caller to query any configured PostgreSQL
+source. MCP network reachability and the PostgreSQL identity stored for each
+source are the initial boundaries. PostgreSQL grants, ownership, row-level
+security, security-definer functions, external functions, extensions, and
+foreign wrappers remain operator responsibilities. `READ ONLY` does not
+guarantee that arbitrary functions have no external side effects. Use separate
+source IDs and credentials for separate access levels.
+
+Query endpoints require direct connections or session pooling. Transaction and
+statement pooling are unsupported and are not auto-detected because rollback
+cleanup must target the same backend session. A connection is reused only after
+rollback, `DEALLOCATE ALL`, and `DISCARD ALL`; uncertain sessions are removed
+from the pool and physically closed.
+
+The public HTTP server has a thirty-five-second write bound so a single request
+can safely cover opening plus one metadata query. Startup, health checks,
+`data_source.list`, and connection import do not contact PostgreSQL. The
+allow-all policy remains a development default; replace it before production
+deployment.
 
 ## Development
 

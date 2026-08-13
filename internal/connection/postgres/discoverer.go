@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"reflect"
 	"strings"
 	"time"
 
@@ -34,7 +33,7 @@ func NewDiscoverer(opener clientOpener) (*Discoverer, error) {
 }
 
 func newDiscoverer(opener clientOpener, queryTimeout time.Duration) (*Discoverer, error) {
-	if isNilClientOpener(opener) {
+	if isNilInterface(opener) {
 		return nil, errClientOpenerRequired
 	}
 
@@ -122,20 +121,6 @@ func classifyQueryError(parentCtx, queryCtx context.Context, err error) error {
 	}
 
 	return fmt.Errorf("%w: %w", execution.ErrInternal, err)
-}
-
-func isNilClientOpener(opener clientOpener) bool {
-	if opener == nil {
-		return true
-	}
-
-	value := reflect.ValueOf(opener)
-	switch value.Kind() { //nolint:exhaustive // Other kinds cannot be nil.
-	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
-		return value.IsNil()
-	default:
-		return false
-	}
 }
 
 var _ execution.RelationalDiscoverer = (*Discoverer)(nil)

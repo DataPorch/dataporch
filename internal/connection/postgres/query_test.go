@@ -139,6 +139,26 @@ func TestQueryExecutorRejectsZeroColumnResults(t *testing.T) {
 	}
 }
 
+func TestQueryExecutorReturnsTerminalErrorBeforeClassifyingZeroColumns(t *testing.T) {
+	t.Parallel()
+
+	terminalErr := &pgconn.PgError{Code: "25006", Message: "cannot execute in a read-only transaction"}
+	rows := &queryRowsStub{terminalErr: terminalErr}
+	executor, _, _, _, _ := newQueryTestExecutor(t, rows, testQueryOptions())
+
+	_, err := executor.Query(t.Context(), queryRequest("CREATE TABLE probe (id integer)"))
+
+	failure := execution.ClassifyRelationalQuery(t.Context(), err)
+	if failure.Category != execution.ErrorCategoryReadOnlyViolation ||
+		failure.DatabaseError == nil || failure.DatabaseError.Code != terminalErr.Code {
+		t.Fatalf("failure = %#v, want projected read_only_violation", failure)
+	}
+
+	if !rows.closed {
+		t.Fatal("rows closed = false, want true")
+	}
+}
+
 func TestQueryExecutorPreservesColumnsTextAndNulls(t *testing.T) {
 	t.Parallel()
 

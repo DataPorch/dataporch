@@ -20,6 +20,17 @@ func (e *QueryExecutor) readResult(
 		return result, execution.ErrInternal
 	}
 
+	fields := rows.FieldDescriptions()
+	if len(fields) == 0 {
+		rows.Close()
+
+		if terminalErr := rows.Err(); terminalErr != nil {
+			return result, terminalErr
+		}
+
+		return result, execution.ErrInvalidQuery
+	}
+
 	defer func() {
 		rows.Close()
 
@@ -28,11 +39,6 @@ func (e *QueryExecutor) readResult(
 			returnErr = errors.Join(returnErr, terminalErr)
 		}
 	}()
-
-	fields := rows.FieldDescriptions()
-	if len(fields) == 0 {
-		return result, execution.ErrInvalidQuery
-	}
 
 	result = execution.RelationalQueryResult{
 		Kind:     request.Source.Kind,

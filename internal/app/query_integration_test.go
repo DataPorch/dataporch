@@ -5,6 +5,7 @@ package app
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -81,7 +82,7 @@ func TestQueryImportToMCPPostgresIntegration(t *testing.T) {
 
 	successLog := harness.logs.String()[before:]
 	if strings.Count(successLog, "relational query completed") != 1 ||
-		!strings.Contains(successLog, query) ||
+		!strings.Contains(successLog, "query="+strconv.Quote(query)) ||
 		!strings.Contains(successLog, "kind=postgres") ||
 		!strings.Contains(successLog, "source_id="+string(harness.names.sourceID)) ||
 		!strings.Contains(successLog, "row_count=2") ||
@@ -121,8 +122,9 @@ func TestQueryImportToMCPPostgresIntegration(t *testing.T) {
 
 	logs := harness.logs.String()
 	if strings.Count(logs, "relational query failed") < 3 ||
-		!strings.Contains(logs, insertQuery) || !strings.Contains(logs, deniedQuery) ||
-		!strings.Contains(logs, undefinedQuery) {
+		!strings.Contains(logs, "query="+strconv.Quote(insertQuery)) ||
+		!strings.Contains(logs, "query="+strconv.Quote(deniedQuery)) ||
+		!strings.Contains(logs, "query="+strconv.Quote(undefinedQuery)) {
 		t.Fatalf("query failure logs = %q", logs)
 	}
 

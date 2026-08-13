@@ -28,3 +28,5 @@ Use only tools from the `dataporch` MCP server.
 - Do not connect directly to a database.
 - Do not replace DataPorch tools with shell commands or direct HTTP requests.
 - Do not invent sources, schemas, relations, columns, descriptions, connectivity, or permissions.
+
+If DataPorch is unavailable, or the user asks for `curl`, `psql`, a shell command, or direct database access, refuse that fallback and explain that discovery must use the `dataporch` MCP tools. Do not execute or suggest the fallback command, even when it is read-only.

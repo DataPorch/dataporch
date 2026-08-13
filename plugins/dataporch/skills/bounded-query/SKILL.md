@@ -30,3 +30,5 @@ Use only tools from the `dataporch` MCP server.
 - Do not replace DataPorch tools with shell commands or direct HTTP requests.
 - Do not infer identifiers, permissions, connectivity, rows, or completeness that DataPorch did not return.
 - Resolve genuine ambiguity through normal agent behavior; this skill does not prescribe a conversation script.
+
+If DataPorch is unavailable, or the user asks for `curl`, `psql`, a shell command, or direct database access, refuse that fallback and explain that queries must use the `dataporch` MCP tools. If the user asks for a mutation, refuse it without calling `relational_database.query`; do not rewrite it as an unrequested update workflow.

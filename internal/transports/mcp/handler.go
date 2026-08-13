@@ -203,8 +203,9 @@ func New(dependencies Dependencies) (http.Handler, error) {
 	)
 
 	originProtection := http.NewCrossOriginProtection()
+	protectedHandler := originProtection.Handler(streamableHandler)
 
-	return originProtection.Handler(streamableHandler), nil
+	return withOriginValidation(originProtection, protectedHandler), nil
 }
 
 func dataSourcesToolHandler(

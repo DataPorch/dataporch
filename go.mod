@@ -2,6 +2,8 @@ module github.com/adamraziv/dataporch
 
 go 1.25.0
 
+toolchain go1.25.12
+
 require (
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/modelcontextprotocol/go-sdk v1.7.0

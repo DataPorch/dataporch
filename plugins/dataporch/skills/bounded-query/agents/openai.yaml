@@ -1,0 +1,12 @@
+interface:
+  display_name: "Bounded Query"
+  short_description: "Query DataPorch with bounded read-only SQL"
+  default_prompt: "Use $bounded-query to answer my data question through a bounded read-only DataPorch query."
+
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "dataporch"
+      description: "Local DataPorch source discovery and bounded query tools"
+      transport: "streamable_http"
+      url: "http://127.0.0.1:8080/mcp"

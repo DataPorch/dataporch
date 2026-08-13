@@ -1,0 +1,12 @@
+interface:
+  display_name: "Source Discovery"
+  short_description: "Discover DataPorch sources and schemas"
+  default_prompt: "Use $source-discovery to find the DataPorch source, schema, table, and columns relevant to my request."
+
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "dataporch"
+      description: "Local DataPorch source discovery and bounded query tools"
+      transport: "streamable_http"
+      url: "http://127.0.0.1:8080/mcp"

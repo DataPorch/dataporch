@@ -1,0 +1,32 @@
+{
+  "name": "dataporch",
+  "description": "Connect Codex to a local DataPorch runtime for governed data discovery and bounded read-only queries.",
+  "author": {
+    "name": "DataPorch",
+    "url": "https://github.com/adamraziv"
+  },
+  "homepage": "https://github.com/adamraziv/dataporch#readme",
+  "repository": "https://github.com/adamraziv/dataporch",
+  "license": "Apache-2.0",
+  "keywords": [
+    "dataporch",
+    "data",
+    "database",
+    "postgresql",
+    "mcp",
+    "query"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "DataPorch",
+    "shortDescription": "Discover and query governed local data",
+    "longDescription": "Connect Codex to a separately installed local DataPorch MCP runtime for progressive source discovery and bounded read-only PostgreSQL queries.",
+    "developerName": "DataPorch",
+    "category": "Data & Analytics",
+    "capabilities": [
+      "Read"
+    ],
+    "websiteURL": "https://github.com/adamraziv/dataporch"
+  }
+}

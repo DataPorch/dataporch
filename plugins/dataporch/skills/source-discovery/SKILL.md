@@ -1,6 +1,6 @@
 ---
 name: source-discovery
-description: Discover configured DataPorch data sources and progressively inspect relational schemas, tables, and columns through MCP. Use when a user asks what data is available, needs an exact source, schema, table, or column identifier, or needs catalog context before a query.
+description: Discover configured DataPorch data sources and progressively inspect relational schemas, tables, and columns through MCP. Use when a user asks what data is available, needs an exact source, schema, table, or column identifier, needs catalog context before a query, or asks to bypass an unavailable DataPorch runtime with curl, psql, shell, or direct database access.
 ---
 
 # Discover DataPorch Sources

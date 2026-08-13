@@ -232,6 +232,12 @@ can safely cover opening plus one metadata query. Startup, health checks,
 allow-all policy remains a development default; replace it before production
 deployment.
 
+## Codex plugin
+
+The repository includes a prerelease Codex plugin for the separately installed local DataPorch runtime. It bundles the fixed loopback MCP connection plus focused source-discovery and bounded-query skills; it does not install or launch the runtime.
+
+See [the Codex plugin guide](plugins/dataporch/README.md) for prerequisites, authentication status, installation, updates, removal, and troubleshooting.
+
 ## Development
 
 Use these commands:

@@ -1,6 +1,6 @@
 ---
 name: bounded-query
-description: Answer data questions by discovering missing relational context and executing one bounded read-only PostgreSQL statement through DataPorch MCP. Use when a user asks to retrieve, summarize, compare, or inspect rows from a configured DataPorch source.
+description: MCP-only bounded read-only DataPorch queries; refuse mutations and curl, psql, shell, or direct-PostgreSQL fallbacks. Use when a user asks to retrieve, summarize, compare, or inspect rows from a configured source.
 ---
 
 # Run a Bounded DataPorch Query

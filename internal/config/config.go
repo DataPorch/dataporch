@@ -16,6 +16,7 @@ const (
 	defaultMasterKeyPath          = "/etc/dataporch/master.key"
 	defaultSecretsStorePath       = "/var/lib/dataporch/secrets.store" //nolint:gosec // This is a path, not a credential.
 	defaultConnectionsStorePath   = "/var/lib/dataporch/connections.store"
+	defaultMCPTokenStorePath      = "/var/lib/dataporch/mcp-token.json" //nolint:gosec // This is a path, not a credential.
 	defaultQueryTimeout           = 20 * time.Second
 	minQueryTimeout               = time.Second
 	maxQueryTimeout               = 20 * time.Second
@@ -39,6 +40,7 @@ type Config struct {
 	MasterKeyPath          string
 	SecretsStorePath       string
 	ConnectionsStorePath   string
+	MCPTokenStorePath      string
 	QueryTimeout           time.Duration
 	QueryResponseByteLimit int
 	QueryTruncationEnabled bool
@@ -59,6 +61,7 @@ func Load(lookup LookupEnv) (Config, error) {
 		MasterKeyPath:          defaultMasterKeyPath,
 		SecretsStorePath:       defaultSecretsStorePath,
 		ConnectionsStorePath:   defaultConnectionsStorePath,
+		MCPTokenStorePath:      defaultMCPTokenStorePath,
 		QueryTimeout:           defaultQueryTimeout,
 		QueryResponseByteLimit: defaultQueryResponseByteLimit,
 		QueryTruncationEnabled: defaultQueryTruncationEnabled,
@@ -92,6 +95,10 @@ func Load(lookup LookupEnv) (Config, error) {
 
 	if value, exists := lookup("DATAPORCH_CONNECTIONS_STORE_PATH"); exists {
 		cfg.ConnectionsStorePath = value
+	}
+
+	if value, exists := lookup("DATAPORCH_MCP_TOKEN_STORE_PATH"); exists {
+		cfg.MCPTokenStorePath = value
 	}
 
 	if value, exists := lookup("DATAPORCH_QUERY_TIMEOUT"); exists {
@@ -170,6 +177,10 @@ func (c Config) Validate() error {
 		return errors.New("validating DATAPORCH_CONNECTIONS_STORE_PATH: must not be empty")
 	}
 
+	if c.MCPTokenStorePath == "" {
+		return errors.New("validating DATAPORCH_MCP_TOKEN_STORE_PATH: must not be empty")
+	}
+
 	if c.QueryTimeout < minQueryTimeout || c.QueryTimeout > maxQueryTimeout {
 		return fmt.Errorf(
 			"validating DATAPORCH_QUERY_TIMEOUT: must be between %s and %s",
@@ -199,6 +210,18 @@ func (c Config) Validate() error {
 
 	if c.SecretsStorePath == c.ConnectionsStorePath {
 		return errors.New("validating security paths: secrets and connections stores must differ")
+	}
+
+	if c.MCPTokenStorePath == c.MasterKeyPath {
+		return errors.New("validating DATAPORCH_MCP_TOKEN_STORE_PATH: must differ from master key")
+	}
+
+	if c.MCPTokenStorePath == c.SecretsStorePath {
+		return errors.New("validating DATAPORCH_MCP_TOKEN_STORE_PATH: must differ from secrets store")
+	}
+
+	if c.MCPTokenStorePath == c.ConnectionsStorePath {
+		return errors.New("validating DATAPORCH_MCP_TOKEN_STORE_PATH: must differ from connections store")
 	}
 
 	return nil

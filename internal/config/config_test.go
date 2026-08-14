@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -22,6 +23,7 @@ func TestLoadSecurityPaths(t *testing.T) {
 		wantMasterKey       string
 		wantSecretsStore    string
 		wantConnectionsFile string
+		wantTokenStore      string
 	}{
 		{
 			name:                "defaults",
@@ -30,6 +32,7 @@ func TestLoadSecurityPaths(t *testing.T) {
 			wantMasterKey:       wantMasterKey,
 			wantSecretsStore:    wantSecretsStore,
 			wantConnectionsFile: wantConnectionsFile,
+			wantTokenStore:      "/var/lib/dataporch/mcp-token.json",
 		},
 		{
 			name: "overrides",
@@ -38,11 +41,13 @@ func TestLoadSecurityPaths(t *testing.T) {
 				"DATAPORCH_MASTER_KEY_PATH":        "/tmp/dataporch/master.key",
 				"DATAPORCH_SECRETS_STORE_PATH":     "/tmp/dataporch/secrets.store",
 				"DATAPORCH_CONNECTIONS_STORE_PATH": "/tmp/dataporch/connections.store",
+				"DATAPORCH_MCP_TOKEN_STORE_PATH":   "/tmp/dataporch/mcp-token.json",
 			},
 			wantAdminSocket:     "/tmp/dataporch/admin.sock",
 			wantMasterKey:       "/tmp/dataporch/master.key",
 			wantSecretsStore:    "/tmp/dataporch/secrets.store",
 			wantConnectionsFile: "/tmp/dataporch/connections.store",
+			wantTokenStore:      "/tmp/dataporch/mcp-token.json",
 		},
 	}
 
@@ -73,6 +78,10 @@ func TestLoadSecurityPaths(t *testing.T) {
 			if cfg.ConnectionsStorePath != tt.wantConnectionsFile {
 				t.Errorf("ConnectionsStorePath = %q, want %q", cfg.ConnectionsStorePath, tt.wantConnectionsFile)
 			}
+
+			if cfg.MCPTokenStorePath != tt.wantTokenStore {
+				t.Errorf("MCPTokenStorePath = %q, want %q", cfg.MCPTokenStorePath, tt.wantTokenStore)
+			}
 		})
 	}
 }
@@ -88,6 +97,7 @@ func TestValidateRejectsInvalidSecurityPaths(t *testing.T) {
 		MasterKeyPath:          "/etc/dataporch/master.key",
 		SecretsStorePath:       "/var/lib/dataporch/secrets.store",
 		ConnectionsStorePath:   "/var/lib/dataporch/connections.store",
+		MCPTokenStorePath:      "/var/lib/dataporch/mcp-token.json",
 		QueryTimeout:           20 * time.Second,
 		QueryResponseByteLimit: 10_485_760,
 		QueryTruncationEnabled: true,
@@ -102,6 +112,7 @@ func TestValidateRejectsInvalidSecurityPaths(t *testing.T) {
 		{name: "empty master key", change: func(cfg *Config) { cfg.MasterKeyPath = "" }},
 		{name: "empty secrets store", change: func(cfg *Config) { cfg.SecretsStorePath = "" }},
 		{name: "empty connections store", change: func(cfg *Config) { cfg.ConnectionsStorePath = "" }},
+		{name: "empty token store", change: func(cfg *Config) { cfg.MCPTokenStorePath = "" }},
 		{name: "key equals secret store", change: func(cfg *Config) { cfg.SecretsStorePath = cfg.MasterKeyPath }},
 		{
 			name: "secret equals connection store",
@@ -109,6 +120,9 @@ func TestValidateRejectsInvalidSecurityPaths(t *testing.T) {
 				cfg.ConnectionsStorePath = cfg.SecretsStorePath
 			},
 		},
+		{name: "token store equals master key", change: func(cfg *Config) { cfg.MCPTokenStorePath = cfg.MasterKeyPath }},
+		{name: "token store equals secret store", change: func(cfg *Config) { cfg.MCPTokenStorePath = cfg.SecretsStorePath }},
+		{name: "token store equals connection store", change: func(cfg *Config) { cfg.MCPTokenStorePath = cfg.ConnectionsStorePath }},
 	}
 
 	for _, tt := range tests {
@@ -120,6 +134,52 @@ func TestValidateRejectsInvalidSecurityPaths(t *testing.T) {
 
 			if err := cfg.Validate(); err == nil {
 				t.Fatal("Validate() error = nil, want non-nil")
+			}
+		})
+	}
+}
+
+func TestLoadRejectsInvalidMCPTokenStorePath(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		values map[string]string
+	}{
+		{name: "empty path", values: map[string]string{"DATAPORCH_MCP_TOKEN_STORE_PATH": ""}},
+		{
+			name: "master key collision",
+			values: map[string]string{
+				"DATAPORCH_MCP_TOKEN_STORE_PATH": "/etc/dataporch/master.key",
+			},
+		},
+		{
+			name: "encrypted connector secret store collision",
+			values: map[string]string{
+				"DATAPORCH_MCP_TOKEN_STORE_PATH": "/var/lib/dataporch/secrets.store",
+			},
+		},
+		{
+			name: "connection definition store collision",
+			values: map[string]string{
+				"DATAPORCH_MCP_TOKEN_STORE_PATH": "/var/lib/dataporch/connections.store",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := Load(func(key string) (string, bool) {
+				value, exists := tt.values[key]
+				return value, exists
+			})
+			if err == nil {
+				t.Fatal("Load() error = nil, want non-nil")
+			}
+			if !strings.Contains(err.Error(), "DATAPORCH_MCP_TOKEN_STORE_PATH") {
+				t.Fatalf("Load() error = %q, want DATAPORCH_MCP_TOKEN_STORE_PATH", err)
 			}
 		})
 	}
@@ -272,6 +332,7 @@ func TestValidateQueryBounds(t *testing.T) {
 		MasterKeyPath:          "/etc/dataporch/master.key",
 		SecretsStorePath:       "/var/lib/dataporch/secrets.store",
 		ConnectionsStorePath:   "/var/lib/dataporch/connections.store",
+		MCPTokenStorePath:      "/var/lib/dataporch/mcp-token.json",
 		QueryTimeout:           time.Second,
 		QueryResponseByteLimit: 65_536,
 		QueryTruncationEnabled: true,

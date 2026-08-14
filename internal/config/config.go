@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"path/filepath"
 	"strconv"
 	"time"
 )
@@ -202,6 +203,10 @@ func (c Config) Validate() error {
 		return errors.New(
 			"validating DATAPORCH_QUERY_ROW_LIMIT: must be positive when truncation is enabled",
 		)
+	}
+
+	if filepath.Clean(c.MCPTokenStorePath) == filepath.Clean(c.AdminSocketPath) {
+		return errors.New("validating DATAPORCH_MCP_TOKEN_STORE_PATH: must differ from admin socket")
 	}
 
 	if c.MasterKeyPath == c.SecretsStorePath {

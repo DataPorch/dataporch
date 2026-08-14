@@ -123,6 +123,7 @@ func TestValidateRejectsInvalidSecurityPaths(t *testing.T) {
 		{name: "token store equals master key", change: func(cfg *Config) { cfg.MCPTokenStorePath = cfg.MasterKeyPath }},
 		{name: "token store equals secret store", change: func(cfg *Config) { cfg.MCPTokenStorePath = cfg.SecretsStorePath }},
 		{name: "token store equals connection store", change: func(cfg *Config) { cfg.MCPTokenStorePath = cfg.ConnectionsStorePath }},
+		{name: "token store equals admin socket", change: func(cfg *Config) { cfg.MCPTokenStorePath = cfg.AdminSocketPath }},
 	}
 
 	for _, tt := range tests {
@@ -163,6 +164,12 @@ func TestLoadRejectsInvalidMCPTokenStorePath(t *testing.T) {
 			name: "connection definition store collision",
 			values: map[string]string{
 				"DATAPORCH_MCP_TOKEN_STORE_PATH": "/var/lib/dataporch/connections.store",
+			},
+		},
+		{
+			name: "admin socket collision",
+			values: map[string]string{
+				"DATAPORCH_MCP_TOKEN_STORE_PATH": "/run/dataporch/./admin.sock",
 			},
 		},
 	}

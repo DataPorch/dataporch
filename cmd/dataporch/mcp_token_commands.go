@@ -17,7 +17,9 @@ import (
 const (
 	mcpTokenCommand       = "mcp-token"
 	mcpTokenCreateCommand = "create"
+	mcpTokenListCommand   = "list"
 	mcpTokenRevokeCommand = "revoke"
+	mcpTokenRotateCommand = "rotate"
 )
 
 var errMCPTokenConfirmationRequired = errors.New("mcp token revoke requires an interactive terminal")
@@ -41,13 +43,13 @@ func mcpTokenCommandRun(args []string, dependencies commandDependencies) error {
 		}
 
 		return createMCPToken(dependencies)
-	case "list":
+	case mcpTokenListCommand:
 		if len(args) != 1 {
 			return errUnexpectedArguments
 		}
 
 		return listMCPToken(dependencies)
-	case "rotate":
+	case mcpTokenRotateCommand:
 		if len(args) != 1 {
 			return errUnexpectedArguments
 		}
@@ -61,6 +63,10 @@ func mcpTokenCommandRun(args []string, dependencies commandDependencies) error {
 }
 
 func createMCPToken(dependencies commandDependencies) error {
+	if err := requireCommandOutput(dependencies.stdout); err != nil {
+		return err
+	}
+
 	client, err := newMCPTokenClient(dependencies)
 	if err != nil {
 		return err
@@ -71,13 +77,17 @@ func createMCPToken(dependencies commandDependencies) error {
 		return errors.New("creating MCP token: request failed")
 	}
 
-	if err := requireCommandOutput(dependencies.stdout); err != nil {
-		return err
+	if err := writeMCPTokenOutput(
+		dependencies.stdout,
+		"MCP token created successfully.\n\n",
+		token,
+		metadata,
+	); err != nil {
+		return fmt.Errorf(
+			"mcp token was changed but could not be displayed; run mcp-token rotate with working output: %w",
+			err,
+		)
 	}
-
-	_, _ = fmt.Fprintln(dependencies.stdout, "MCP token created successfully.")
-	_, _ = fmt.Fprintln(dependencies.stdout)
-	writeMCPTokenOnce(dependencies.stdout, token, metadata)
 
 	return nil
 }
@@ -114,6 +124,10 @@ func listMCPToken(dependencies commandDependencies) error {
 }
 
 func rotateMCPToken(dependencies commandDependencies) error {
+	if err := requireCommandOutput(dependencies.stdout); err != nil {
+		return err
+	}
+
 	client, err := newMCPTokenClient(dependencies)
 	if err != nil {
 		return err
@@ -124,14 +138,17 @@ func rotateMCPToken(dependencies commandDependencies) error {
 		return errors.New("rotating MCP token: request failed")
 	}
 
-	if err := requireCommandOutput(dependencies.stdout); err != nil {
-		return err
+	if err := writeMCPTokenOutput(
+		dependencies.stdout,
+		"MCP token rotated successfully.\nThe previous token is no longer valid.\n\n",
+		token,
+		metadata,
+	); err != nil {
+		return fmt.Errorf(
+			"mcp token was changed but could not be displayed; run mcp-token rotate with working output: %w",
+			err,
+		)
 	}
-
-	_, _ = fmt.Fprintln(dependencies.stdout, "MCP token rotated successfully.")
-	_, _ = fmt.Fprintln(dependencies.stdout, "The previous token is no longer valid.")
-	_, _ = fmt.Fprintln(dependencies.stdout)
-	writeMCPTokenOnce(dependencies.stdout, token, metadata)
 
 	return nil
 }
@@ -242,13 +259,41 @@ func confirmMCPTokenRevoke(dependencies commandDependencies) (bool, error) {
 	return true, nil
 }
 
-func writeMCPTokenOnce(writer io.Writer, token string, metadata mcptoken.Metadata) {
-	_, _ = fmt.Fprintln(writer, "Save this token now. It will not be shown again:")
-	_, _ = fmt.Fprintln(writer)
-	_, _ = fmt.Fprintln(writer, token)
-	_, _ = fmt.Fprintln(writer)
-	_, _ = fmt.Fprintln(writer, "Set it as DATAPORCH_MCP_TOKEN before starting your MCP client.")
-	writeMCPTokenMetadata(writer, metadata)
+func writeMCPTokenOutput(
+	writer io.Writer,
+	prefix string,
+	token string,
+	metadata mcptoken.Metadata,
+) error {
+	output := []string{
+		prefix,
+		"Save this token now. It will not be shown again:\n\n",
+		token,
+		"\n\nSet it as DATAPORCH_MCP_TOKEN before starting your MCP client.\n",
+	}
+
+	if !metadata.CreatedAt.IsZero() {
+		output = append(output, fmt.Sprintf("Created: %s\n", metadata.CreatedAt.UTC().Format(time.RFC3339Nano)))
+	}
+
+	if metadata.RotatedAt != nil {
+		output = append(output, fmt.Sprintf("Rotated: %s\n", metadata.RotatedAt.UTC().Format(time.RFC3339Nano)))
+	}
+
+	return writeCommandOutput(writer, strings.Join(output, ""))
+}
+
+func writeCommandOutput(writer io.Writer, output string) error {
+	written, err := io.WriteString(writer, output)
+	if err != nil {
+		return fmt.Errorf("writing command output: %w", err)
+	}
+
+	if written != len(output) {
+		return fmt.Errorf("writing command output: %w", io.ErrShortWrite)
+	}
+
+	return nil
 }
 
 func writeMCPTokenMetadata(writer io.Writer, metadata mcptoken.Metadata) {

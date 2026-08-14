@@ -42,6 +42,23 @@ func TestMCPTokenCommandsCreate(t *testing.T) {
 	}
 }
 
+func TestMCPTokenCommandsCreateRequiresOutputBeforeMutation(t *testing.T) {
+	t.Parallel()
+
+	dependencies, client := mcpTokenCommandDependencies(t)
+	dependencies.stdout = nil
+	client.createToken = "dp-created"
+
+	err := run([]string{"mcp-token", "create"}, dependencies)
+	if err == nil || err.Error() != "standard output is required" {
+		t.Fatalf("run() error = %v, want standard output error", err)
+	}
+
+	if client.createCalls != 0 {
+		t.Fatalf("create calls = %d, want 0", client.createCalls)
+	}
+}
+
 func TestMCPTokenCommandsListStates(t *testing.T) {
 	t.Parallel()
 
@@ -114,6 +131,80 @@ func TestMCPTokenCommandsRotate(t *testing.T) {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("stdout = %q, missing %q", stdout, want)
 		}
+	}
+}
+
+func TestMCPTokenCommandsRotateRequiresOutputBeforeMutation(t *testing.T) {
+	t.Parallel()
+
+	dependencies, client := mcpTokenCommandDependencies(t)
+	dependencies.stdout = nil
+	client.rotateToken = "dp-rotated"
+
+	err := run([]string{"mcp-token", "rotate"}, dependencies)
+	if err == nil || err.Error() != "standard output is required" {
+		t.Fatalf("run() error = %v, want standard output error", err)
+	}
+
+	if client.rotateCalls != 0 {
+		t.Fatalf("rotate calls = %d, want 0", client.rotateCalls)
+	}
+}
+
+func TestMCPTokenCommandsReportTokenDeliveryFailure(t *testing.T) {
+	t.Parallel()
+
+	outputErr := errors.New("broken pipe")
+	tests := []struct {
+		name      string
+		args      []string
+		prepare   func(*mcpTokenClientStub)
+		callCount func(*mcpTokenClientStub) int
+	}{
+		{
+			name: "create",
+			args: []string{"mcp-token", "create"},
+			prepare: func(client *mcpTokenClientStub) {
+				client.createToken = "dp-created"
+			},
+			callCount: func(client *mcpTokenClientStub) int {
+				return client.createCalls
+			},
+		},
+		{
+			name: "rotate",
+			args: []string{"mcp-token", "rotate"},
+			prepare: func(client *mcpTokenClientStub) {
+				client.rotateToken = "dp-rotated"
+			},
+			callCount: func(client *mcpTokenClientStub) int {
+				return client.rotateCalls
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			dependencies, client := mcpTokenCommandDependencies(t)
+			dependencies.stdout = failingCommandOutput{err: outputErr}
+
+			tt.prepare(client)
+
+			err := run(tt.args, dependencies)
+			if err == nil || !strings.Contains(err.Error(), "mcp token was changed but could not be displayed") {
+				t.Fatalf("run() error = %v, want token delivery recovery error", err)
+			}
+
+			if !errors.Is(err, outputErr) {
+				t.Fatalf("run() error = %v, want wrapped output error %v", err, outputErr)
+			}
+
+			if got := tt.callCount(client); got != 1 {
+				t.Fatalf("mutation calls = %d, want 1", got)
+			}
+		})
 	}
 }
 
@@ -226,16 +317,20 @@ type mcpTokenClientStub struct {
 	createToken    string
 	createMetadata mcptoken.Metadata
 	createErr      error
+	createCalls    int
 	status         mcptoken.Status
 	statusErr      error
 	rotateToken    string
 	rotateMetadata mcptoken.Metadata
 	rotateErr      error
+	rotateCalls    int
 	revokeErr      error
 	revokeCalls    int
 }
 
 func (c *mcpTokenClientStub) CreateMCPToken(context.Context) (string, mcptoken.Metadata, error) {
+	c.createCalls++
+
 	return c.createToken, c.createMetadata, c.createErr
 }
 
@@ -244,10 +339,20 @@ func (c *mcpTokenClientStub) MCPTokenStatus(context.Context) (mcptoken.Status, e
 }
 
 func (c *mcpTokenClientStub) RotateMCPToken(context.Context) (string, mcptoken.Metadata, error) {
+	c.rotateCalls++
+
 	return c.rotateToken, c.rotateMetadata, c.rotateErr
 }
 
 func (c *mcpTokenClientStub) RevokeMCPToken(context.Context) error {
 	c.revokeCalls++
 	return c.revokeErr
+}
+
+type failingCommandOutput struct {
+	err error
+}
+
+func (w failingCommandOutput) Write([]byte) (int, error) {
+	return 0, w.err
 }

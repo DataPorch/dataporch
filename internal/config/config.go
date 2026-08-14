@@ -18,6 +18,7 @@ const (
 	defaultSecretsStorePath       = "/var/lib/dataporch/secrets.store" //nolint:gosec // This is a path, not a credential.
 	defaultConnectionsStorePath   = "/var/lib/dataporch/connections.store"
 	defaultMCPTokenStorePath      = "/var/lib/dataporch/mcp-token.json" //nolint:gosec // This is a path, not a credential.
+	mcpTokenStorePathEnv          = "DATAPORCH_MCP_TOKEN_STORE_PATH"    //nolint:gosec // This is an environment variable name, not a credential.
 	defaultQueryTimeout           = 20 * time.Second
 	minQueryTimeout               = time.Second
 	maxQueryTimeout               = 20 * time.Second
@@ -98,7 +99,7 @@ func Load(lookup LookupEnv) (Config, error) {
 		cfg.ConnectionsStorePath = value
 	}
 
-	if value, exists := lookup("DATAPORCH_MCP_TOKEN_STORE_PATH"); exists {
+	if value, exists := lookup(mcpTokenStorePathEnv); exists {
 		cfg.MCPTokenStorePath = value
 	}
 
@@ -179,7 +180,7 @@ func (c Config) Validate() error {
 	}
 
 	if c.MCPTokenStorePath == "" {
-		return errors.New("validating DATAPORCH_MCP_TOKEN_STORE_PATH: must not be empty")
+		return fmt.Errorf("validating %s: must not be empty", mcpTokenStorePathEnv)
 	}
 
 	for _, path := range []struct {
@@ -190,7 +191,7 @@ func (c Config) Validate() error {
 		{name: "DATAPORCH_MASTER_KEY_PATH", value: c.MasterKeyPath},
 		{name: "DATAPORCH_SECRETS_STORE_PATH", value: c.SecretsStorePath},
 		{name: "DATAPORCH_CONNECTIONS_STORE_PATH", value: c.ConnectionsStorePath},
-		{name: "DATAPORCH_MCP_TOKEN_STORE_PATH", value: c.MCPTokenStorePath},
+		{name: mcpTokenStorePathEnv, value: c.MCPTokenStorePath},
 	} {
 		if !filepath.IsAbs(path.value) {
 			return fmt.Errorf("validating %s: must be absolute", path.name)

@@ -99,14 +99,17 @@ func newIntegrationHarness(t *testing.T) *integrationHarness {
 	if err := InitializeSecrets(cfg); err != nil {
 		t.Fatalf("InitializeSecrets() error = %v", err)
 	}
+
 	tokenStore, err := mcpTokenLocal.New(cfg.MCPTokenStorePath)
 	if err != nil {
 		t.Fatalf("mcpTokenLocal.New() error = %v", err)
 	}
+
 	tokenService, err := mcptoken.New(tokenStore, time.Now)
 	if err != nil {
 		t.Fatalf("mcptoken.New() error = %v", err)
 	}
+
 	mcpToken, _, err := tokenService.Create(t.Context())
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)

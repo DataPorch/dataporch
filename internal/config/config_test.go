@@ -41,7 +41,7 @@ func TestLoadSecurityPaths(t *testing.T) {
 				"DATAPORCH_MASTER_KEY_PATH":        "/tmp/dataporch/master.key",
 				"DATAPORCH_SECRETS_STORE_PATH":     "/tmp/dataporch/secrets.store",
 				"DATAPORCH_CONNECTIONS_STORE_PATH": "/tmp/dataporch/connections.store",
-				"DATAPORCH_MCP_TOKEN_STORE_PATH":   "/tmp/dataporch/mcp-token.json",
+				mcpTokenStorePathEnv:               "/tmp/dataporch/mcp-token.json",
 			},
 			wantAdminSocket:     "/tmp/dataporch/admin.sock",
 			wantMasterKey:       "/tmp/dataporch/master.key",
@@ -187,34 +187,34 @@ func TestLoadRejectsInvalidMCPTokenStorePath(t *testing.T) {
 	}{
 		{
 			name:          "empty path",
-			values:        map[string]string{"DATAPORCH_MCP_TOKEN_STORE_PATH": ""},
-			wantErrorPart: "DATAPORCH_MCP_TOKEN_STORE_PATH: must not be empty",
+			values:        map[string]string{mcpTokenStorePathEnv: ""},
+			wantErrorPart: mcpTokenStorePathEnv + ": must not be empty",
 		},
 		{
 			name: "master key collision",
 			values: map[string]string{
-				"DATAPORCH_MCP_TOKEN_STORE_PATH": "/etc/dataporch/master.key",
+				mcpTokenStorePathEnv: "/etc/dataporch/master.key",
 			},
 			wantErrorPart: "MCP token store must differ from",
 		},
 		{
 			name: "encrypted connector secret store collision",
 			values: map[string]string{
-				"DATAPORCH_MCP_TOKEN_STORE_PATH": "/var/lib/dataporch/secrets.store",
+				mcpTokenStorePathEnv: "/var/lib/dataporch/secrets.store",
 			},
 			wantErrorPart: "MCP token store must differ from",
 		},
 		{
 			name: "connection definition store collision",
 			values: map[string]string{
-				"DATAPORCH_MCP_TOKEN_STORE_PATH": "/var/lib/dataporch/connections.store",
+				mcpTokenStorePathEnv: "/var/lib/dataporch/connections.store",
 			},
 			wantErrorPart: "MCP token store must differ from",
 		},
 		{
 			name: "admin socket collision",
 			values: map[string]string{
-				"DATAPORCH_MCP_TOKEN_STORE_PATH": "/run/dataporch/./admin.sock",
+				mcpTokenStorePathEnv: "/run/dataporch/./admin.sock",
 			},
 			wantErrorPart: "MCP token store must differ from",
 		},

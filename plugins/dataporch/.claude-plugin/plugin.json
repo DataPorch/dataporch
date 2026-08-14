@@ -1,0 +1,29 @@
+{
+  "name": "dataporch",
+  "displayName": "DataPorch",
+  "description": "Connect Claude Code to a local DataPorch runtime for governed data discovery and bounded read-only queries.",
+  "author": {
+    "name": "DataPorch",
+    "url": "https://github.com/adamraziv"
+  },
+  "homepage": "https://github.com/adamraziv/dataporch#readme",
+  "repository": "https://github.com/adamraziv/dataporch",
+  "license": "Apache-2.0",
+  "keywords": [
+    "dataporch",
+    "data",
+    "database",
+    "postgresql",
+    "mcp",
+    "query"
+  ],
+  "mcpServers": {
+    "dataporch": {
+      "type": "http",
+      "url": "http://127.0.0.1:8080/mcp",
+      "headers": {
+        "Authorization": "Bearer ${DATAPORCH_MCP_TOKEN}"
+      }
+    }
+  }
+}

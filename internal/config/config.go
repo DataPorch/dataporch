@@ -220,34 +220,28 @@ func (c Config) Validate() error {
 		)
 	}
 
-	adminSocketPath := filepath.Clean(c.AdminSocketPath)
-	masterKeyPath := filepath.Clean(c.MasterKeyPath)
-	secretsStorePath := filepath.Clean(c.SecretsStorePath)
-	connectionsStorePath := filepath.Clean(c.ConnectionsStorePath)
-	mcpTokenStorePath := filepath.Clean(c.MCPTokenStorePath)
-
-	if mcpTokenStorePath == adminSocketPath {
-		return errors.New("validating DATAPORCH_MCP_TOKEN_STORE_PATH: must differ from admin socket")
+	paths := []struct {
+		name string
+		path string
+	}{
+		{name: "admin socket", path: filepath.Clean(c.AdminSocketPath)},
+		{name: "master key", path: filepath.Clean(c.MasterKeyPath)},
+		{name: "secrets store", path: filepath.Clean(c.SecretsStorePath)},
+		{name: "connections store", path: filepath.Clean(c.ConnectionsStorePath)},
+		{name: "MCP token store", path: filepath.Clean(c.MCPTokenStorePath)},
 	}
 
-	if masterKeyPath == secretsStorePath {
-		return errors.New("validating security paths: master key and secrets store must differ")
-	}
+	seen := make(map[string]string, len(paths))
+	for _, current := range paths {
+		if previous, exists := seen[current.path]; exists {
+			return fmt.Errorf(
+				"validating security paths: %s must differ from %s",
+				current.name,
+				previous,
+			)
+		}
 
-	if secretsStorePath == connectionsStorePath {
-		return errors.New("validating security paths: secrets and connections stores must differ")
-	}
-
-	if mcpTokenStorePath == masterKeyPath {
-		return errors.New("validating DATAPORCH_MCP_TOKEN_STORE_PATH: must differ from master key")
-	}
-
-	if mcpTokenStorePath == secretsStorePath {
-		return errors.New("validating DATAPORCH_MCP_TOKEN_STORE_PATH: must differ from secrets store")
-	}
-
-	if mcpTokenStorePath == connectionsStorePath {
-		return errors.New("validating DATAPORCH_MCP_TOKEN_STORE_PATH: must differ from connections store")
+		seen[current.path] = current.name
 	}
 
 	return nil

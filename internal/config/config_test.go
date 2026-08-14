@@ -130,6 +130,22 @@ func TestValidateRejectsInvalidSecurityPaths(t *testing.T) {
 		{name: "token store equals connection store", change: func(cfg *Config) { cfg.MCPTokenStorePath = cfg.ConnectionsStorePath }},
 		{name: "token store equals admin socket", change: func(cfg *Config) { cfg.MCPTokenStorePath = cfg.AdminSocketPath }},
 		{
+			name:   "admin socket aliases master key",
+			change: func(cfg *Config) { cfg.MasterKeyPath = "/run/dataporch/./admin.sock" },
+		},
+		{
+			name:   "admin socket aliases secrets store",
+			change: func(cfg *Config) { cfg.SecretsStorePath = "/run/dataporch/./admin.sock" },
+		},
+		{
+			name:   "admin socket aliases connections store",
+			change: func(cfg *Config) { cfg.ConnectionsStorePath = "/run/dataporch/tmp/../admin.sock" },
+		},
+		{
+			name:   "master key aliases connections store",
+			change: func(cfg *Config) { cfg.MasterKeyPath = "/var/lib/dataporch/tmp/../connections.store" },
+		},
+		{
 			name:   "token store aliases master key",
 			change: func(cfg *Config) { cfg.MCPTokenStorePath = "/etc/dataporch/./master.key" },
 		},
@@ -165,33 +181,42 @@ func TestLoadRejectsInvalidMCPTokenStorePath(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name   string
-		values map[string]string
+		name          string
+		values        map[string]string
+		wantErrorPart string
 	}{
-		{name: "empty path", values: map[string]string{"DATAPORCH_MCP_TOKEN_STORE_PATH": ""}},
+		{
+			name:          "empty path",
+			values:        map[string]string{"DATAPORCH_MCP_TOKEN_STORE_PATH": ""},
+			wantErrorPart: "DATAPORCH_MCP_TOKEN_STORE_PATH: must not be empty",
+		},
 		{
 			name: "master key collision",
 			values: map[string]string{
 				"DATAPORCH_MCP_TOKEN_STORE_PATH": "/etc/dataporch/master.key",
 			},
+			wantErrorPart: "MCP token store must differ from",
 		},
 		{
 			name: "encrypted connector secret store collision",
 			values: map[string]string{
 				"DATAPORCH_MCP_TOKEN_STORE_PATH": "/var/lib/dataporch/secrets.store",
 			},
+			wantErrorPart: "MCP token store must differ from",
 		},
 		{
 			name: "connection definition store collision",
 			values: map[string]string{
 				"DATAPORCH_MCP_TOKEN_STORE_PATH": "/var/lib/dataporch/connections.store",
 			},
+			wantErrorPart: "MCP token store must differ from",
 		},
 		{
 			name: "admin socket collision",
 			values: map[string]string{
 				"DATAPORCH_MCP_TOKEN_STORE_PATH": "/run/dataporch/./admin.sock",
 			},
+			wantErrorPart: "MCP token store must differ from",
 		},
 	}
 
@@ -207,8 +232,8 @@ func TestLoadRejectsInvalidMCPTokenStorePath(t *testing.T) {
 				t.Fatal("Load() error = nil, want non-nil")
 			}
 
-			if !strings.Contains(err.Error(), "DATAPORCH_MCP_TOKEN_STORE_PATH") {
-				t.Fatalf("Load() error = %q, want DATAPORCH_MCP_TOKEN_STORE_PATH", err)
+			if !strings.Contains(err.Error(), tt.wantErrorPart) {
+				t.Fatalf("Load() error = %q, want %q", err, tt.wantErrorPart)
 			}
 		})
 	}

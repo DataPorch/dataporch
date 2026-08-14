@@ -267,14 +267,11 @@ can safely cover opening plus one metadata query. Startup, health checks,
 allow-all policy remains a development default; replace it before production
 deployment.
 
-## Codex plugin
+## Agent plugins
 
-The repository includes a Codex plugin for the separately installed local
-DataPorch runtime. It bundles the fixed loopback MCP connection plus focused
-source-discovery and bounded-query skills; it does not install or launch the
-runtime.
+The repository includes plugins for Codex and Claude Code that connect to the separately installed local DataPorch runtime. Both clients reuse the same source-discovery and bounded-query skills; neither plugin installs or launches the runtime.
 
-See [the Codex plugin guide](plugins/dataporch/README.md) for prerequisites, authentication status, installation, updates, removal, and troubleshooting.
+See [the agent plugin guide](plugins/dataporch/README.md) for prerequisites, authentication, installation, updates, removal, and troubleshooting for each client.
 
 ## Development
 

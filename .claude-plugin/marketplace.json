@@ -1,0 +1,14 @@
+{
+  "name": "dataporch",
+  "owner": {
+    "name": "DataPorch"
+  },
+  "description": "Claude Code plugins for the local DataPorch runtime.",
+  "plugins": [
+    {
+      "name": "dataporch",
+      "source": "./plugins/dataporch",
+      "description": "Discover and query governed local data through the DataPorch MCP runtime."
+    }
+  ]
+}

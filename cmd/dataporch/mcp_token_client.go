@@ -31,13 +31,26 @@ type mcpTokenMutationResponse struct {
 }
 
 func (c *unixClient) CreateMCPToken(ctx context.Context) (string, mcptoken.Metadata, error) {
-	response, err := c.doMCPTokenRequest(ctx, http.MethodPost, "/v1/mcp-token")
+	return c.mutateMCPToken(ctx, http.MethodPost, "/v1/mcp-token", http.StatusCreated)
+}
+
+func (c *unixClient) mutateMCPToken(
+	ctx context.Context,
+	method string,
+	path string,
+	wantStatus int,
+) (string, mcptoken.Metadata, error) {
+	response, err := c.doMCPTokenRequest(ctx, method, path)
 	if err != nil {
 		return "", mcptoken.Metadata{}, err
 	}
-	defer closeMCPTokenResponse(c, response)
+	defer func() {
+		_ = response.Body.Close()
 
-	if response.StatusCode != http.StatusCreated {
+		c.client.CloseIdleConnections()
+	}()
+
+	if response.StatusCode != wantStatus {
 		return "", mcptoken.Metadata{}, mcpTokenResponseError(response)
 	}
 
@@ -45,6 +58,7 @@ func (c *unixClient) CreateMCPToken(ctx context.Context) (string, mcptoken.Metad
 	if err := decodeMCPTokenResponse(response.Body, &result); err != nil {
 		return "", mcptoken.Metadata{}, errors.New("decoding MCP token response")
 	}
+
 	metadata, err := metadataFromResponse(result.Metadata, true)
 	if err != nil || result.Token == "" {
 		return "", mcptoken.Metadata{}, errors.New("invalid MCP token response")
@@ -58,7 +72,11 @@ func (c *unixClient) MCPTokenStatus(ctx context.Context) (mcptoken.Status, error
 	if err != nil {
 		return mcptoken.Status{}, err
 	}
-	defer closeMCPTokenResponse(c, response)
+	defer func() {
+		_ = response.Body.Close()
+
+		c.client.CloseIdleConnections()
+	}()
 
 	if response.StatusCode != http.StatusOK {
 		return mcptoken.Status{}, mcpTokenResponseError(response)
@@ -68,10 +86,12 @@ func (c *unixClient) MCPTokenStatus(ctx context.Context) (mcptoken.Status, error
 	if err := decodeMCPTokenResponse(response.Body, &result); err != nil {
 		return mcptoken.Status{}, errors.New("decoding MCP token status response")
 	}
+
 	metadata, err := metadataFromResponse(result.Metadata, result.State == mcptoken.StateActive)
 	if err != nil {
 		return mcptoken.Status{}, errors.New("invalid MCP token status response")
 	}
+
 	switch result.State {
 	case mcptoken.StateNone, mcptoken.StateActive, mcptoken.StateDegraded:
 	default:
@@ -82,26 +102,7 @@ func (c *unixClient) MCPTokenStatus(ctx context.Context) (mcptoken.Status, error
 }
 
 func (c *unixClient) RotateMCPToken(ctx context.Context) (string, mcptoken.Metadata, error) {
-	response, err := c.doMCPTokenRequest(ctx, http.MethodPost, "/v1/mcp-token/rotate")
-	if err != nil {
-		return "", mcptoken.Metadata{}, err
-	}
-	defer closeMCPTokenResponse(c, response)
-
-	if response.StatusCode != http.StatusOK {
-		return "", mcptoken.Metadata{}, mcpTokenResponseError(response)
-	}
-
-	var result mcpTokenMutationResponse
-	if err := decodeMCPTokenResponse(response.Body, &result); err != nil {
-		return "", mcptoken.Metadata{}, errors.New("decoding MCP token response")
-	}
-	metadata, err := metadataFromResponse(result.Metadata, true)
-	if err != nil || result.Token == "" {
-		return "", mcptoken.Metadata{}, errors.New("invalid MCP token response")
-	}
-
-	return result.Token, metadata, nil
+	return c.mutateMCPToken(ctx, http.MethodPost, "/v1/mcp-token/rotate", http.StatusOK)
 }
 
 func (c *unixClient) RevokeMCPToken(ctx context.Context) error {
@@ -109,7 +110,11 @@ func (c *unixClient) RevokeMCPToken(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	defer closeMCPTokenResponse(c, response)
+	defer func() {
+		_ = response.Body.Close()
+
+		c.client.CloseIdleConnections()
+	}()
 
 	if response.StatusCode != http.StatusNoContent {
 		return mcpTokenResponseError(response)
@@ -136,33 +141,23 @@ func (c *unixClient) doMCPTokenRequest(ctx context.Context, method, path string)
 	return response, nil
 }
 
-func (c *unixClient) closeMCPTokenResponse(response *http.Response) {
-	if response != nil && response.Body != nil {
-		_ = response.Body.Close()
-	}
-	if c != nil && c.client != nil {
-		c.client.CloseIdleConnections()
-	}
-}
-
-func closeMCPTokenResponse(c *unixClient, response *http.Response) {
-	c.closeMCPTokenResponse(response)
-}
-
 func decodeMCPTokenResponse(reader io.Reader, target any) error {
 	data, err := io.ReadAll(io.LimitReader(reader, mcpTokenResponseLimit+1))
 	if err != nil {
 		return err
 	}
+
 	if len(data) > mcpTokenResponseLimit {
 		return errors.New("MCP token response is too large")
 	}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
+
 	if err := decoder.Decode(target); err != nil {
 		return err
 	}
+
 	var extra any
 	if err := decoder.Decode(&extra); err != io.EOF {
 		return errors.New("MCP token response has trailing data")
@@ -175,15 +170,19 @@ func metadataFromResponse(response mcpTokenMetadataResponse, requireCreated bool
 	if requireCreated && response.CreatedAt == nil {
 		return mcptoken.Metadata{}, errors.New("created_at is missing")
 	}
+
 	if response.RotatedAt != nil && response.CreatedAt == nil {
 		return mcptoken.Metadata{}, errors.New("created_at is missing")
 	}
+
 	if response.CreatedAt != nil && response.CreatedAt.IsZero() {
 		return mcptoken.Metadata{}, errors.New("created_at is invalid")
 	}
+
 	if response.RotatedAt != nil && response.RotatedAt.IsZero() {
 		return mcptoken.Metadata{}, errors.New("rotated_at is invalid")
 	}
+
 	if response.CreatedAt != nil && response.RotatedAt != nil && response.RotatedAt.Before(*response.CreatedAt) {
 		return mcptoken.Metadata{}, errors.New("rotated_at precedes created_at")
 	}
@@ -198,6 +197,7 @@ func valueOrZero(value *time.Time) time.Time {
 	if value == nil {
 		return time.Time{}
 	}
+
 	return *value
 }
 

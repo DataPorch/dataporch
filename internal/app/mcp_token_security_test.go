@@ -20,62 +20,74 @@ import (
 )
 
 func TestApplicationMCPAuthProtectsOnlyMCPAndAllowsHealth(t *testing.T) {
+	t.Parallel()
 	application := newAppWithPostgresRuntimeTestStub(t, testConfigFor(t), &appPostgresRuntimeTestStub{})
 
-	mcpResponse := serveApplicationRequest(application, http.MethodGet, "/mcp", "")
+	mcpResponse := serveApplicationRequest(t, application, http.MethodGet, "/mcp", "")
 	if mcpResponse.Code != http.StatusUnauthorized {
 		t.Fatalf("/mcp status = %d, want %d", mcpResponse.Code, http.StatusUnauthorized)
 	}
+
 	if got := mcpResponse.Header().Get("WWW-Authenticate"); got != "Bearer" {
 		t.Fatalf("/mcp challenge = %q, want %q", got, "Bearer")
 	}
 
-	healthResponse := serveApplicationRequest(application, http.MethodGet, "/healthz", "")
+	healthResponse := serveApplicationRequest(t, application, http.MethodGet, "/healthz", "")
 	if healthResponse.Code != http.StatusOK {
 		t.Fatalf("/healthz status = %d, want %d", healthResponse.Code, http.StatusOK)
 	}
 }
 
 func TestApplicationMCPLoadsActiveToken(t *testing.T) {
+	t.Parallel()
 	cfg := testConfigFor(t)
 	token := seedMCPToken(t, cfg.MCPTokenStorePath)
 	application := newAppWithPostgresRuntimeTestStub(t, cfg, &appPostgresRuntimeTestStub{})
 
-	response := serveApplicationRequest(application, http.MethodPost, "/mcp", "Bearer "+token)
+	response := serveApplicationRequest(t, application, http.MethodPost, "/mcp", "Bearer "+token)
 	if response.Code == http.StatusUnauthorized || response.Code == http.StatusServiceUnavailable {
 		t.Fatalf("authenticated /mcp status = %d, want request to reach MCP handler", response.Code)
 	}
+
 	if challenge := response.Header().Get("WWW-Authenticate"); challenge != "" {
 		t.Fatalf("authenticated /mcp challenge = %q, want empty", challenge)
 	}
 }
 
 func TestApplicationMCPDegradedStateFailsClosedButHealthRemainsAvailable(t *testing.T) {
+	t.Parallel()
+
 	cfg := testConfigFor(t)
 	if err := os.WriteFile(cfg.MCPTokenStorePath, []byte("{"), 0o600); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
+
 	application := newAppWithPostgresRuntimeTestStub(t, cfg, &appPostgresRuntimeTestStub{})
 
-	mcpResponse := serveApplicationRequest(application, http.MethodGet, "/mcp", "Bearer dp-any-token")
+	mcpResponse := serveApplicationRequest(t, application, http.MethodGet, "/mcp", "Bearer dp-any-token")
 	if mcpResponse.Code != http.StatusServiceUnavailable {
 		t.Fatalf("degraded /mcp status = %d, want %d", mcpResponse.Code, http.StatusServiceUnavailable)
 	}
+
 	if challenge := mcpResponse.Header().Get("WWW-Authenticate"); challenge != "" {
 		t.Fatalf("degraded /mcp challenge = %q, want empty", challenge)
 	}
 
-	healthResponse := serveApplicationRequest(application, http.MethodGet, "/healthz", "")
+	healthResponse := serveApplicationRequest(t, application, http.MethodGet, "/healthz", "")
 	if healthResponse.Code != http.StatusOK {
 		t.Fatalf("degraded /healthz status = %d, want %d", healthResponse.Code, http.StatusOK)
 	}
 }
 
+//nolint:gocyclo // The acceptance flow intentionally checks each immediate lifecycle transition.
 func TestComposedMCPTokenLifecycleIsImmediate(t *testing.T) {
+	t.Parallel()
+
 	store, err := mcpTokenLocal.New(t.TempDir() + "/mcp-token.json")
 	if err != nil {
 		t.Fatalf("mcpTokenLocal.New() error = %v", err)
 	}
+
 	service, err := mcptoken.New(store, time.Now)
 	if err != nil {
 		t.Fatalf("mcptoken.New() error = %v", err)
@@ -91,10 +103,12 @@ func TestComposedMCPTokenLifecycleIsImmediate(t *testing.T) {
 	}
 
 	downstreamCalls := 0
+
 	mcpHandler, err := mcpauth.New(
 		service,
 		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			downstreamCalls++
+
 			w.WriteHeader(http.StatusNoContent)
 		}),
 	)
@@ -111,6 +125,7 @@ func TestComposedMCPTokenLifecycleIsImmediate(t *testing.T) {
 	if created.Code != http.StatusCreated {
 		t.Fatalf("create status = %d, want %d", created.Code, http.StatusCreated)
 	}
+
 	firstToken := decodeMCPTokenLifecycleResponse(t, created.Body.Bytes())
 
 	firstAccepted := serveMCPTokenLifecycleRequest(t, mcpHandler, http.MethodGet, "/mcp", firstToken)
@@ -122,6 +137,7 @@ func TestComposedMCPTokenLifecycleIsImmediate(t *testing.T) {
 	if rotated.Code != http.StatusOK {
 		t.Fatalf("rotate status = %d, want %d", rotated.Code, http.StatusOK)
 	}
+
 	secondToken := decodeMCPTokenLifecycleResponse(t, rotated.Body.Bytes())
 	if secondToken == firstToken {
 		t.Fatal("rotate returned the same token")
@@ -150,26 +166,32 @@ func TestComposedMCPTokenLifecycleIsImmediate(t *testing.T) {
 
 func serveMCPTokenLifecycleRequest(t *testing.T, handler http.Handler, method, path, token string) *httptest.ResponseRecorder {
 	t.Helper()
+
 	request := httptest.NewRequestWithContext(t.Context(), method, path, bytes.NewReader(nil))
 	if token != "" {
 		request.Header.Set("Authorization", "Bearer "+token)
 	}
+
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
+
 	return response
 }
 
 func decodeMCPTokenLifecycleResponse(t *testing.T, data []byte) string {
 	t.Helper()
+
 	var response struct {
 		Token string `json:"token"`
 	}
 	if err := json.Unmarshal(data, &response); err != nil {
 		t.Fatalf("token response JSON error = %v", err)
 	}
+
 	if response.Token == "" {
 		t.Fatal("token response omitted token")
 	}
+
 	return response.Token
 }
 
@@ -186,10 +208,12 @@ func seedMCPToken(t *testing.T, path string) string {
 	if err != nil {
 		t.Fatalf("mcpTokenLocal.New() error = %v", err)
 	}
+
 	service, err := mcptoken.New(store, time.Now)
 	if err != nil {
 		t.Fatalf("mcptoken.New() error = %v", err)
 	}
+
 	token, _, err := service.Create(t.Context())
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
@@ -198,12 +222,16 @@ func seedMCPToken(t *testing.T, path string) string {
 	return token
 }
 
-func serveApplicationRequest(application *App, method, path, authorization string) *httptest.ResponseRecorder {
-	request := httptest.NewRequest(method, path, nil)
+func serveApplicationRequest(t *testing.T, application *App, method, path, authorization string) *httptest.ResponseRecorder {
+	t.Helper()
+
+	request := httptest.NewRequestWithContext(t.Context(), method, path, nil)
 	if authorization != "" {
 		request.Header.Set("Authorization", authorization)
 	}
+
 	response := httptest.NewRecorder()
 	application.server.Handler.ServeHTTP(response, request)
+
 	return response
 }

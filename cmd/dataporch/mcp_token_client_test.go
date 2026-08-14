@@ -11,7 +11,10 @@ import (
 	"github.com/adamraziv/dataporch/internal/mcptoken"
 )
 
+//nolint:gocyclo // The table exercises each client operation and its wire contract.
 func TestMCPTokenClientRequests(t *testing.T) {
+	t.Parallel()
+
 	createdAt := time.Date(2026, 8, 14, 8, 50, 0, 0, time.UTC)
 	rotatedAt := createdAt.Add(time.Hour)
 
@@ -34,9 +37,11 @@ func TestMCPTokenClientRequests(t *testing.T) {
 				if err != nil {
 					return err
 				}
+
 				if token != "dp-created" || !metadata.CreatedAt.Equal(createdAt) || metadata.RotatedAt != nil {
 					return fmt.Errorf("result = %q/%#v", token, metadata)
 				}
+
 				return nil
 			},
 		},
@@ -51,10 +56,12 @@ func TestMCPTokenClientRequests(t *testing.T) {
 				if err != nil {
 					return err
 				}
+
 				if status.State != mcptoken.StateActive || !status.Metadata.CreatedAt.Equal(createdAt) ||
 					status.Metadata.RotatedAt == nil || !status.Metadata.RotatedAt.Equal(rotatedAt) {
 					return fmt.Errorf("status = %#v", status)
 				}
+
 				return nil
 			},
 		},
@@ -69,10 +76,12 @@ func TestMCPTokenClientRequests(t *testing.T) {
 				if err != nil {
 					return err
 				}
+
 				if token != "dp-rotated" || !metadata.CreatedAt.Equal(createdAt) ||
 					metadata.RotatedAt == nil || !metadata.RotatedAt.Equal(rotatedAt) {
 					return fmt.Errorf("result = %q/%#v", token, metadata)
 				}
+
 				return nil
 			},
 		},
@@ -89,15 +98,21 @@ func TestMCPTokenClientRequests(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			var gotMethod, gotPath string
+
 			path := startSocketHTTPServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				gotMethod, gotPath = r.Method, r.URL.Path
+
 				if tt.response != "" {
 					w.Header().Set("Content-Type", "application/json")
 					w.WriteHeader(tt.statusCode)
 					_, _ = w.Write([]byte(tt.response))
+
 					return
 				}
+
 				w.WriteHeader(tt.statusCode)
 			}))
 
@@ -105,9 +120,11 @@ func TestMCPTokenClientRequests(t *testing.T) {
 			if err != nil {
 				t.Fatalf("newUnixClient() error = %v", err)
 			}
+
 			if err := tt.call(client); err != nil {
 				t.Fatalf("client call error = %v", err)
 			}
+
 			if gotMethod != tt.method || gotPath != tt.path {
 				t.Fatalf("request = %s %s, want %s %s", gotMethod, gotPath, tt.method, tt.path)
 			}
@@ -116,6 +133,8 @@ func TestMCPTokenClientRequests(t *testing.T) {
 }
 
 func TestMCPTokenClientMapsSafeErrors(t *testing.T) {
+	t.Parallel()
+
 	canary := "dp-client-error-canary"
 	tests := []struct {
 		name       string
@@ -165,11 +184,13 @@ func TestMCPTokenClientMapsSafeErrors(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			path := startSocketHTTPServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(tt.statusCode)
 				_, _ = fmt.Fprintf(w, `{"code":%q,"message":%q}`, tt.code, canary)
 			}))
+
 			client, err := newUnixClient(path)
 			if err != nil {
 				t.Fatalf("newUnixClient() error = %v", err)
@@ -179,9 +200,11 @@ func TestMCPTokenClientMapsSafeErrors(t *testing.T) {
 			if err == nil {
 				t.Fatal("client call error = nil, want error")
 			}
+
 			if tt.wantPart != "" && !strings.Contains(err.Error(), tt.wantPart) {
 				t.Fatalf("error = %q, want code %q", err, tt.wantPart)
 			}
+
 			if strings.Contains(err.Error(), canary) {
 				t.Fatalf("error leaked response detail: %q", err)
 			}
@@ -190,11 +213,13 @@ func TestMCPTokenClientMapsSafeErrors(t *testing.T) {
 }
 
 func TestMCPTokenClientBoundsResponses(t *testing.T) {
+	t.Parallel()
 	path := startSocketHTTPServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_, _ = fmt.Fprintf(w, `{"state":"active","metadata":{"created_at":"2026-08-14T08:50:00Z","padding":%q}}`, strings.Repeat("x", mcpTokenResponseLimit))
 	}))
+
 	client, err := newUnixClient(path)
 	if err != nil {
 		t.Fatalf("newUnixClient() error = %v", err)
@@ -207,12 +232,15 @@ func TestMCPTokenClientBoundsResponses(t *testing.T) {
 }
 
 func TestMCPTokenClientRejectsSensitiveInvalidSuccess(t *testing.T) {
+	t.Parallel()
+
 	canary := "dp-sensitive-success-canary"
 	path := startSocketHTTPServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
 		_, _ = fmt.Fprintf(w, `{"token":%q,"metadata":{}}`, canary)
 	}))
+
 	client, err := newUnixClient(path)
 	if err != nil {
 		t.Fatalf("newUnixClient() error = %v", err)

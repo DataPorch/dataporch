@@ -64,6 +64,7 @@ func New(store Store, now func() time.Time) (*Service, error) {
 	if store == nil {
 		return nil, errors.New("mcp token store is nil")
 	}
+
 	if now == nil {
 		now = time.Now
 	}
@@ -77,8 +78,10 @@ func New(store Store, now func() time.Time) (*Service, error) {
 	persisted, exists, err := store.Load(context.Background())
 	if err != nil {
 		service.state = StateDegraded
+		//nolint:nilerr // Store load failures intentionally leave a usable degraded service.
 		return service, nil
 	}
+
 	if !exists {
 		return service, nil
 	}
@@ -86,6 +89,7 @@ func New(store Store, now func() time.Time) (*Service, error) {
 	service.state = StateActive
 	service.verifier = persisted.Verifier
 	service.metadata = metadataFromPersisted(persisted)
+
 	return service, nil
 }
 
@@ -94,17 +98,22 @@ func (s *Service) Create(ctx context.Context) (string, Metadata, error) {
 	defer s.mutationMu.Unlock()
 
 	switch s.currentState() {
+	case StateNone:
 	case StateDegraded:
 		return "", Metadata{}, ErrUnavailable
 	case StateActive:
 		return "", Metadata{}, ErrTokenExists
+	default:
+		return "", Metadata{}, ErrUnavailable
 	}
 
 	token, verifier, err := generateToken()
 	if err != nil {
 		return "", Metadata{}, err
 	}
+
 	metadata := Metadata{CreatedAt: s.now()}
+
 	persisted := PersistedState{
 		Verifier:  verifier,
 		CreatedAt: metadata.CreatedAt,
@@ -114,12 +123,14 @@ func (s *Service) Create(ctx context.Context) (string, Metadata, error) {
 	}
 
 	s.commitActive(verifier, metadata)
+
 	return token, cloneMetadata(metadata), nil
 }
 
 func (s *Service) Status() Status {
 	s.runtimeMu.RLock()
 	defer s.runtimeMu.RUnlock()
+
 	return Status{
 		State:    s.state,
 		Metadata: cloneMetadata(s.metadata),
@@ -132,21 +143,26 @@ func (s *Service) Rotate(ctx context.Context) (string, Metadata, error) {
 
 	current := s.Status()
 	switch current.State {
+	case StateActive:
 	case StateDegraded:
 		return "", Metadata{}, ErrUnavailable
 	case StateNone:
 		return "", Metadata{}, ErrNoToken
+	default:
+		return "", Metadata{}, ErrUnavailable
 	}
 
 	token, verifier, err := generateToken()
 	if err != nil {
 		return "", Metadata{}, err
 	}
+
 	rotatedAt := s.now()
 	metadata := Metadata{
 		CreatedAt: current.Metadata.CreatedAt,
 		RotatedAt: &rotatedAt,
 	}
+
 	persisted := PersistedState{
 		Verifier:  verifier,
 		CreatedAt: metadata.CreatedAt,
@@ -157,6 +173,7 @@ func (s *Service) Rotate(ctx context.Context) (string, Metadata, error) {
 	}
 
 	s.commitActive(verifier, metadata)
+
 	return token, cloneMetadata(metadata), nil
 }
 
@@ -167,6 +184,9 @@ func (s *Service) Revoke(ctx context.Context) error {
 	switch s.currentState() {
 	case StateNone:
 		return nil
+	case StateActive, StateDegraded:
+	default:
+		return ErrUnavailable
 	}
 
 	if err := s.store.Delete(ctx); err != nil {
@@ -178,6 +198,7 @@ func (s *Service) Revoke(ctx context.Context) error {
 	s.verifier = [sha256.Size]byte{}
 	s.metadata = Metadata{}
 	s.runtimeMu.Unlock()
+
 	return nil
 }
 
@@ -192,18 +213,23 @@ func (s *Service) Verify(token string) error {
 		return ErrUnavailable
 	case StateNone:
 		return ErrNoToken
+	case StateActive:
+	default:
+		return ErrUnavailable
 	}
 
 	candidate := sha256.Sum256([]byte(token))
 	if subtle.ConstantTimeCompare(candidate[:], expected[:]) != 1 {
 		return ErrInvalidToken
 	}
+
 	return nil
 }
 
 func (s *Service) currentState() State {
 	s.runtimeMu.RLock()
 	defer s.runtimeMu.RUnlock()
+
 	return s.state
 }
 
@@ -220,7 +246,9 @@ func generateToken() (string, [sha256.Size]byte, error) {
 	if _, err := rand.Read(random); err != nil {
 		return "", [sha256.Size]byte{}, fmt.Errorf("generating mcp token: %w", err)
 	}
+
 	token := "dp-" + base64.RawURLEncoding.EncodeToString(random)
+
 	return token, sha256.Sum256([]byte(token)), nil
 }
 
@@ -242,6 +270,8 @@ func cloneTime(value *time.Time) *time.Time {
 	if value == nil {
 		return nil
 	}
+
 	cloned := *value
+
 	return &cloned
 }

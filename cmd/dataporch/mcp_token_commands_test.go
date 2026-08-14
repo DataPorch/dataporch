@@ -13,6 +13,8 @@ import (
 )
 
 func TestMCPTokenCommandsCreate(t *testing.T) {
+	t.Parallel()
+
 	createdAt := time.Date(2026, 8, 14, 8, 50, 0, 0, time.UTC)
 	dependencies, client := mcpTokenCommandDependencies(t)
 	client.createToken = "dp-created"
@@ -22,7 +24,7 @@ func TestMCPTokenCommandsCreate(t *testing.T) {
 		t.Fatalf("run() error = %v", err)
 	}
 
-	stdout := dependencies.stdout.(*bytes.Buffer).String()
+	stdout := commandOutputBuffer(t, dependencies).String()
 	for _, want := range []string{
 		"MCP token created successfully.\n",
 		"Save this token now. It will not be shown again:\n",
@@ -34,12 +36,15 @@ func TestMCPTokenCommandsCreate(t *testing.T) {
 			t.Fatalf("stdout = %q, missing %q", stdout, want)
 		}
 	}
+
 	if got := strings.Count(stdout, "dp-created"); got != 1 {
 		t.Fatalf("token occurrences = %d, want 1", got)
 	}
 }
 
 func TestMCPTokenCommandsListStates(t *testing.T) {
+	t.Parallel()
+
 	createdAt := time.Date(2026, 8, 14, 8, 50, 0, 0, time.UTC)
 	rotatedAt := createdAt.Add(time.Hour)
 
@@ -70,16 +75,19 @@ func TestMCPTokenCommandsListStates(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			dependencies, client := mcpTokenCommandDependencies(t)
 			client.status = tt.status
 
 			if err := run([]string{"mcp-token", "list"}, dependencies); err != nil {
 				t.Fatalf("run() error = %v", err)
 			}
-			stdout := dependencies.stdout.(*bytes.Buffer).String()
+
+			stdout := commandOutputBuffer(t, dependencies).String()
 			if !strings.Contains(stdout, tt.want) || (tt.wantExtra != "" && !strings.Contains(stdout, tt.wantExtra)) {
 				t.Fatalf("stdout = %q, want %q and %q", stdout, tt.want, tt.wantExtra)
 			}
+
 			if strings.Contains(stdout, "dp-") || strings.Contains(stdout, "verifier") {
 				t.Fatalf("list output contains sensitive token material: %q", stdout)
 			}
@@ -88,6 +96,7 @@ func TestMCPTokenCommandsListStates(t *testing.T) {
 }
 
 func TestMCPTokenCommandsRotate(t *testing.T) {
+	t.Parallel()
 	dependencies, client := mcpTokenCommandDependencies(t)
 	client.rotateToken = "dp-rotated"
 	client.rotateMetadata = mcptoken.Metadata{CreatedAt: time.Date(2026, 8, 14, 8, 50, 0, 0, time.UTC)}
@@ -95,7 +104,8 @@ func TestMCPTokenCommandsRotate(t *testing.T) {
 	if err := run([]string{"mcp-token", "rotate"}, dependencies); err != nil {
 		t.Fatalf("run() error = %v", err)
 	}
-	stdout := dependencies.stdout.(*bytes.Buffer).String()
+
+	stdout := commandOutputBuffer(t, dependencies).String()
 	for _, want := range []string{
 		"MCP token rotated successfully.",
 		"The previous token is no longer valid.",
@@ -108,6 +118,8 @@ func TestMCPTokenCommandsRotate(t *testing.T) {
 }
 
 func TestMCPTokenCommandsRevokeConfirmation(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name          string
 		answer        string
@@ -123,6 +135,7 @@ func TestMCPTokenCommandsRevokeConfirmation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			dependencies, client := mcpTokenCommandDependencies(t)
 			readCalls := 0
 			dependencies.readConfirmation = func(*os.File) (string, error) {
@@ -131,17 +144,21 @@ func TestMCPTokenCommandsRevokeConfirmation(t *testing.T) {
 			}
 
 			args := []string{"mcp-token", "revoke"}
+
 			args = append(args, tt.args...)
 			if err := run(args, dependencies); err != nil {
 				t.Fatalf("run() error = %v", err)
 			}
-			stdout := dependencies.stdout.(*bytes.Buffer).String()
+
+			stdout := commandOutputBuffer(t, dependencies).String()
 			if !strings.Contains(stdout, tt.wantOutput) {
 				t.Fatalf("stdout = %q, missing %q", stdout, tt.wantOutput)
 			}
+
 			if client.revokeCalls != tt.wantCalls {
 				t.Fatalf("revoke calls = %d, want %d", client.revokeCalls, tt.wantCalls)
 			}
+
 			if readCalls != tt.wantReadCalls {
 				t.Fatalf("confirmation reads = %d, want %d", readCalls, tt.wantReadCalls)
 			}
@@ -150,6 +167,7 @@ func TestMCPTokenCommandsRevokeConfirmation(t *testing.T) {
 }
 
 func TestMCPTokenCommandsRejectUnexpectedArgumentsAndSanitizeFailures(t *testing.T) {
+	t.Parallel()
 	dependencies, client := mcpTokenCommandDependencies(t)
 	client.createErr = errors.New("dp-command-secret-canary")
 
@@ -161,12 +179,14 @@ func TestMCPTokenCommandsRejectUnexpectedArgumentsAndSanitizeFailures(t *testing
 	if err == nil || strings.Contains(err.Error(), "dp-command-secret-canary") {
 		t.Fatalf("create error = %v, want safe error", err)
 	}
-	if dependencies.stdout.(*bytes.Buffer).Len() != 0 {
+
+	if commandOutputBuffer(t, dependencies).Len() != 0 {
 		t.Fatalf("stdout = %q, want empty on client failure", dependencies.stdout)
 	}
 }
 
 func TestMCPTokenCommandsRequireConfirmationForNonInteractiveRevoke(t *testing.T) {
+	t.Parallel()
 	dependencies, client := mcpTokenCommandDependencies(t)
 	dependencies.isTerminal = func(int) bool { return false }
 
@@ -174,6 +194,7 @@ func TestMCPTokenCommandsRequireConfirmationForNonInteractiveRevoke(t *testing.T
 	if !errors.Is(err, errMCPTokenConfirmationRequired) {
 		t.Fatalf("run() error = %v, want confirmation error", err)
 	}
+
 	if client.revokeCalls != 0 {
 		t.Fatalf("revoke calls = %d, want 0", client.revokeCalls)
 	}
@@ -181,11 +202,24 @@ func TestMCPTokenCommandsRequireConfirmationForNonInteractiveRevoke(t *testing.T
 
 func mcpTokenCommandDependencies(t *testing.T) (commandDependencies, *mcpTokenClientStub) {
 	t.Helper()
+
 	client := &mcpTokenClientStub{}
 	dependencies := testCommandDependencies(t)
 	dependencies.newAdminClient = func(string) (mcpTokenClient, error) { return client, nil }
 	dependencies.readConfirmation = func(*os.File) (string, error) { return "no", nil }
+
 	return dependencies, client
+}
+
+func commandOutputBuffer(t *testing.T, dependencies commandDependencies) *bytes.Buffer {
+	t.Helper()
+
+	buffer, ok := dependencies.stdout.(*bytes.Buffer)
+	if !ok {
+		t.Fatalf("stdout type = %T, want *bytes.Buffer", dependencies.stdout)
+	}
+
+	return buffer
 }
 
 type mcpTokenClientStub struct {

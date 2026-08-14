@@ -178,6 +178,7 @@ func TestLoadRejectsInvalidMCPTokenStorePath(t *testing.T) {
 			if err == nil {
 				t.Fatal("Load() error = nil, want non-nil")
 			}
+
 			if !strings.Contains(err.Error(), "DATAPORCH_MCP_TOKEN_STORE_PATH") {
 				t.Fatalf("Load() error = %q, want DATAPORCH_MCP_TOKEN_STORE_PATH", err)
 			}

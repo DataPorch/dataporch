@@ -9,6 +9,8 @@ import (
 	"github.com/adamraziv/dataporch/internal/mcptoken"
 )
 
+const invalidRequestChallenge = `Bearer error="invalid_request"`
+
 type Verifier interface {
 	Verify(string) error
 }
@@ -17,6 +19,7 @@ func New(verifier Verifier, next http.Handler) (http.Handler, error) {
 	if isNilInterface(verifier) {
 		return nil, errors.New("mcp token verifier is required")
 	}
+
 	if next == nil {
 		return nil, errors.New("mcp downstream handler is required")
 	}
@@ -37,6 +40,7 @@ func New(verifier Verifier, next http.Handler) (http.Handler, error) {
 			default:
 				writeUnavailable(w)
 			}
+
 			return
 		}
 
@@ -49,13 +53,14 @@ func credentialFromRequest(r *http.Request) (string, string) {
 	if len(values) == 0 {
 		return "", "Bearer"
 	}
+
 	if len(values) != 1 {
-		return "", `Bearer error="invalid_request"`
+		return "", invalidRequestChallenge
 	}
 
 	parts := strings.Fields(values[0])
 	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
-		return "", `Bearer error="invalid_request"`
+		return "", invalidRequestChallenge
 	}
 
 	return parts[1], ""
@@ -76,10 +81,9 @@ func isNilInterface(value any) bool {
 	}
 
 	rv := reflect.ValueOf(value)
-	switch rv.Kind() {
-	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Ptr, reflect.Slice:
-		return rv.IsNil()
-	default:
-		return false
-	}
+	kind := rv.Kind()
+	canBeNil := kind == reflect.Chan || kind == reflect.Func || kind == reflect.Interface ||
+		kind == reflect.Map || kind == reflect.Pointer || kind == reflect.Slice
+
+	return canBeNil && rv.IsNil()
 }

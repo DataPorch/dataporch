@@ -53,7 +53,10 @@ func TestHandlerImportsConnection(t *testing.T) {
 	}
 }
 
+//nolint:gocyclo // The table covers status and all lifecycle route response shapes.
 func TestHandlerMCPTokenRoutes(t *testing.T) {
+	t.Parallel()
+
 	createdAt := time.Date(2026, 8, 14, 8, 50, 0, 0, time.UTC)
 	rotatedAt := createdAt.Add(time.Hour)
 
@@ -117,6 +120,7 @@ func TestHandlerMCPTokenRoutes(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			handler := testHandlerWithTokenManager(t, &importerStub{}, tt.manager)
 			request := httptest.NewRequestWithContext(t.Context(), tt.method, tt.path, nil)
 			response := httptest.NewRecorder()
@@ -126,10 +130,12 @@ func TestHandlerMCPTokenRoutes(t *testing.T) {
 			if response.Code != tt.wantStatus {
 				t.Fatalf("status = %d, want %d", response.Code, tt.wantStatus)
 			}
+
 			if tt.wantStatus == http.StatusNoContent {
 				if response.Body.Len() != 0 {
 					t.Fatalf("revoke response body = %q, want empty", response.Body.String())
 				}
+
 				return
 			}
 
@@ -137,25 +143,32 @@ func TestHandlerMCPTokenRoutes(t *testing.T) {
 			if err := json.Unmarshal(response.Body.Bytes(), &document); err != nil {
 				t.Fatalf("response JSON error = %v", err)
 			}
+
 			if strings.Contains(response.Body.String(), "verifier") {
 				t.Fatalf("response leaked verifier: %s", response.Body)
 			}
+
 			if tt.wantToken == "" && strings.Contains(response.Body.String(), "token") {
 				t.Fatalf("status response leaked token field: %s", response.Body)
 			}
+
 			if tt.wantToken != "" && document["token"] != tt.wantToken {
 				t.Fatalf("token = %v, want %q", document["token"], tt.wantToken)
 			}
+
 			if tt.wantState != "" && document["state"] != string(tt.wantState) {
 				t.Fatalf("state = %v, want %q", document["state"], tt.wantState)
 			}
+
 			metadata, ok := document["metadata"].(map[string]any)
 			if !ok {
 				t.Fatalf("metadata = %#v, want object", document["metadata"])
 			}
+
 			if tt.wantCreated != "" && metadata["created_at"] != tt.wantCreated {
 				t.Fatalf("created_at = %v, want %q", metadata["created_at"], tt.wantCreated)
 			}
+
 			if tt.wantRotated != "" && metadata["rotated_at"] != tt.wantRotated {
 				t.Fatalf("rotated_at = %v, want %q", metadata["rotated_at"], tt.wantRotated)
 			}
@@ -164,6 +177,8 @@ func TestHandlerMCPTokenRoutes(t *testing.T) {
 }
 
 func TestHandlerMCPTokenErrors(t *testing.T) {
+	t.Parallel()
+
 	canary := "token-management-secret-canary"
 	tests := []struct {
 		name       string
@@ -209,6 +224,7 @@ func TestHandlerMCPTokenErrors(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			handler := testHandlerWithTokenManager(t, &importerStub{}, tt.manager)
 			request := httptest.NewRequestWithContext(t.Context(), tt.method, tt.path, nil)
 			response := httptest.NewRecorder()
@@ -218,15 +234,18 @@ func TestHandlerMCPTokenErrors(t *testing.T) {
 			if response.Code != tt.wantStatus {
 				t.Fatalf("status = %d, want %d", response.Code, tt.wantStatus)
 			}
+
 			var document struct {
 				Code string `json:"code"`
 			}
 			if err := json.Unmarshal(response.Body.Bytes(), &document); err != nil {
 				t.Fatalf("response JSON error = %v", err)
 			}
+
 			if document.Code != tt.wantCode {
 				t.Fatalf("error code = %q, want %q", document.Code, tt.wantCode)
 			}
+
 			if strings.Contains(response.Body.String(), canary) {
 				t.Fatalf("response leaked internal error: %s", response.Body)
 			}
@@ -235,6 +254,8 @@ func TestHandlerMCPTokenErrors(t *testing.T) {
 }
 
 func TestNewHandlerRequiresMCPTokenManager(t *testing.T) {
+	t.Parallel()
+
 	_, err := NewHandler(
 		&importerStub{},
 		nil,

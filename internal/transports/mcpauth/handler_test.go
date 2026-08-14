@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/adamraziv/dataporch/internal/mcptoken"
@@ -17,6 +18,8 @@ func (f verifierFunc) Verify(token string) error {
 }
 
 func TestNewValidatesDependencies(t *testing.T) {
+	t.Parallel()
+
 	validVerifier := verifierFunc(func(string) error { return nil })
 	validNext := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})
 
@@ -31,6 +34,8 @@ func TestNewValidatesDependencies(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			if _, err := New(tt.verifier, tt.next); err == nil {
 				t.Fatal("New() error = nil, want validation error")
 			}
@@ -38,7 +43,10 @@ func TestNewValidatesDependencies(t *testing.T) {
 	}
 }
 
+//nolint:funlen // The table covers every approved authentication response and downstream gate.
 func TestHandlerAuthorization(t *testing.T) {
+	t.Parallel()
+
 	const validToken = "dp-valid-token"
 
 	tests := []struct {
@@ -141,38 +149,47 @@ func TestHandlerAuthorization(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			calls := 0
 			verifier := verifierFunc(func(token string) error {
 				if token != validToken {
 					return mcptoken.ErrInvalidToken
 				}
+
 				return tt.verifyError
 			})
 			next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				calls++
+
 				w.WriteHeader(http.StatusNoContent)
 			})
+
 			handler, err := New(verifier, next)
 			if err != nil {
 				t.Fatalf("New() error = %v", err)
 			}
 
-			req := httptest.NewRequest(http.MethodGet, "/mcp", nil)
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/mcp", nil)
 			if tt.configureRequest != nil {
 				tt.configureRequest(req)
 			}
+
 			rr := httptest.NewRecorder()
 			handler.ServeHTTP(rr, req)
 
 			if rr.Code != tt.wantStatus {
 				t.Fatalf("status = %d, want %d", rr.Code, tt.wantStatus)
 			}
+
 			if got := rr.Header().Get("WWW-Authenticate"); got != tt.wantChallenge {
 				t.Fatalf("WWW-Authenticate = %q, want %q", got, tt.wantChallenge)
 			}
+
 			if calls != tt.wantCalls {
 				t.Fatalf("downstream calls = %d, want %d", calls, tt.wantCalls)
 			}
+
 			if strings.Contains(rr.Body.String(), validToken) {
 				t.Fatalf("response body contains credential: %q", rr.Body.String())
 			}
@@ -181,10 +198,13 @@ func TestHandlerAuthorization(t *testing.T) {
 }
 
 func TestHandlerDoesNotUseAlternateTokenSources(t *testing.T) {
-	var calls int
+	t.Parallel()
+
+	var calls atomic.Int32
+
 	handler, err := New(
 		verifierFunc(func(string) error { return nil }),
-		http.HandlerFunc(func(http.ResponseWriter, *http.Request) { calls++ }),
+		http.HandlerFunc(func(http.ResponseWriter, *http.Request) { calls.Add(1) }),
 	)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
@@ -192,20 +212,24 @@ func TestHandlerDoesNotUseAlternateTokenSources(t *testing.T) {
 
 	for _, source := range []string{"query", "cookie"} {
 		t.Run(source, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, "/mcp?access_token=dp-token", nil)
+			t.Parallel()
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/mcp?access_token=dp-token", nil)
 			req.AddCookie(&http.Cookie{Name: "access_token", Value: "dp-token"})
+
 			rr := httptest.NewRecorder()
 			handler.ServeHTTP(rr, req)
 
 			if rr.Code != http.StatusUnauthorized {
 				t.Fatalf("status = %d, want %d", rr.Code, http.StatusUnauthorized)
 			}
+
 			if got := rr.Header().Get("WWW-Authenticate"); got != "Bearer" {
 				t.Fatalf("WWW-Authenticate = %q, want %q", got, "Bearer")
 			}
 		})
 	}
-	if calls != 0 {
-		t.Fatalf("downstream calls = %d, want 0", calls)
+
+	if got := calls.Load(); got != 0 {
+		t.Fatalf("downstream calls = %d, want 0", got)
 	}
 }

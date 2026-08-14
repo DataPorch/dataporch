@@ -55,6 +55,7 @@ func (s *Store) Load(ctx context.Context) (mcptoken.PersistedState, bool, error)
 	if err := validContext(ctx); err != nil {
 		return mcptoken.PersistedState{}, false, err
 	}
+
 	if s == nil || s.path == "" {
 		return mcptoken.PersistedState{}, false, ErrInvalidPath
 	}
@@ -63,26 +64,32 @@ func (s *Store) Load(ctx context.Context) (mcptoken.PersistedState, bool, error)
 	if errors.Is(err, fs.ErrNotExist) {
 		return mcptoken.PersistedState{}, false, nil
 	}
+
 	if err != nil {
 		return mcptoken.PersistedState{}, false, fmt.Errorf("stating mcp token store: %w", err)
 	}
+
 	if err := validateRegularFile(info); err != nil {
 		return mcptoken.PersistedState{}, false, err
 	}
+
 	if info.Mode().Perm()&0o077 != 0 {
 		return mcptoken.PersistedState{}, false, fmt.Errorf("%w: %s", ErrInvalidPermissions, s.path)
 	}
+
 	if info.Size() > maxStoreSize {
 		return mcptoken.PersistedState{}, false, fmt.Errorf("%w: file is too large", ErrStoreCorrupt)
 	}
+
 	if err := validContext(ctx); err != nil {
 		return mcptoken.PersistedState{}, false, err
 	}
 
-	data, err := os.ReadFile(s.path) //nolint:gosec // The configured path was checked as a protected regular file.
+	data, err := os.ReadFile(s.path)
 	if err != nil {
 		return mcptoken.PersistedState{}, false, fmt.Errorf("reading mcp token store: %w", err)
 	}
+
 	if err := validContext(ctx); err != nil {
 		return mcptoken.PersistedState{}, false, err
 	}
@@ -99,6 +106,7 @@ func (s *Store) Save(ctx context.Context, state mcptoken.PersistedState) error {
 	if err := validContext(ctx); err != nil {
 		return err
 	}
+
 	if s == nil || s.path == "" {
 		return ErrInvalidPath
 	}
@@ -107,6 +115,7 @@ func (s *Store) Save(ctx context.Context, state mcptoken.PersistedState) error {
 	if err != nil {
 		return err
 	}
+
 	if err := validContext(ctx); err != nil {
 		return err
 	}
@@ -122,6 +131,7 @@ func (s *Store) Delete(ctx context.Context) error {
 	if err := validContext(ctx); err != nil {
 		return err
 	}
+
 	if s == nil || s.path == "" {
 		return ErrInvalidPath
 	}
@@ -130,15 +140,19 @@ func (s *Store) Delete(ctx context.Context) error {
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
 	}
+
 	if err != nil {
 		return fmt.Errorf("stating mcp token store for deletion: %w", err)
 	}
+
 	if info.IsDir() {
 		return fmt.Errorf("%w: refusing to delete directory", ErrStoreCorrupt)
 	}
+
 	if info.Mode()&os.ModeSymlink == 0 && !info.Mode().IsRegular() {
 		return fmt.Errorf("%w: refusing to delete non-regular file", ErrStoreCorrupt)
 	}
+
 	if err := validContext(ctx); err != nil {
 		return err
 	}
@@ -147,6 +161,7 @@ func (s *Store) Delete(ctx context.Context) error {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil
 		}
+
 		return fmt.Errorf("deleting mcp token store: %w", err)
 	}
 
@@ -168,6 +183,7 @@ func encode(state mcptoken.PersistedState) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	if state.RotatedAt != nil && state.RotatedAt.Before(state.CreatedAt) {
 		return nil, fmt.Errorf("%w: rotated_at precedes created_at", ErrStoreCorrupt)
 	}
@@ -178,6 +194,7 @@ func encode(state mcptoken.PersistedState) ([]byte, error) {
 		CreatedAt: createdAt,
 		RotatedAt: rotatedAt,
 	}
+
 	data, err := json.Marshal(file)
 	if err != nil {
 		return nil, fmt.Errorf("encoding mcp token store: %w", err)
@@ -214,16 +231,19 @@ func decode(data []byte) (mcptoken.PersistedState, error) {
 	if err != nil {
 		return mcptoken.PersistedState{}, fmt.Errorf("%w: invalid created_at", ErrStoreCorrupt)
 	}
+
 	rotatedAt, err := parseOptionalTimestamp(file.RotatedAt)
 	if err != nil {
 		return mcptoken.PersistedState{}, fmt.Errorf("%w: invalid rotated_at", ErrStoreCorrupt)
 	}
+
 	if rotatedAt != nil && rotatedAt.Before(createdAt) {
 		return mcptoken.PersistedState{}, fmt.Errorf("%w: rotated_at precedes created_at", ErrStoreCorrupt)
 	}
 
 	var verifier [sha256.Size]byte
 	copy(verifier[:], verifierBytes)
+
 	return mcptoken.PersistedState{
 		Verifier:  verifier,
 		CreatedAt: createdAt,
@@ -243,6 +263,7 @@ func formatOptionalTimestamp(value *time.Time) (*string, error) {
 	if value == nil {
 		return nil, nil
 	}
+
 	formatted, err := formatTimestamp(*value)
 	if err != nil {
 		return nil, fmt.Errorf("%w: rotated_at is zero", ErrStoreCorrupt)
@@ -268,6 +289,7 @@ func parseOptionalTimestamp(value *string) (*time.Time, error) {
 	if value == nil {
 		return nil, nil
 	}
+
 	parsed, err := parseTimestamp(*value)
 	if err != nil {
 		return nil, err
@@ -288,6 +310,7 @@ func validContext(ctx context.Context) error {
 	if ctx == nil {
 		return errors.New("mcp token store context is nil")
 	}
+
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("mcp token store context: %w", err)
 	}

@@ -50,6 +50,7 @@ func NewHandler(importer Importer, tokenManager MCPTokenManager, logger *slog.Lo
 	if importer == nil {
 		return nil, errImporterRequired
 	}
+
 	if tokenManager == nil {
 		return nil, errTokenManagerRequired
 	}
@@ -169,10 +170,12 @@ func mcpTokenStatusResponseFromStatus(status mcptoken.Status) mcpTokenStatusResp
 
 func mcpTokenMetadataResponseFromMetadata(metadata mcptoken.Metadata) mcpTokenMetadataResponse {
 	response := mcpTokenMetadataResponse{}
+
 	if !metadata.CreatedAt.IsZero() {
 		createdAt := metadata.CreatedAt.UTC()
 		response.CreatedAt = &createdAt
 	}
+
 	if metadata.RotatedAt != nil {
 		rotatedAt := metadata.RotatedAt.UTC()
 		response.RotatedAt = &rotatedAt

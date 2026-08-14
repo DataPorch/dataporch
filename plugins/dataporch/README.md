@@ -7,22 +7,40 @@ This package connects Codex and Claude Code to a separately installed DataPorch 
 - A current Codex CLI with plugin support, Claude Code with plugin support, or both.
 - A separately installed DataPorch runtime listening at `http://127.0.0.1:8080/mcp`.
 - DataPorch source configuration completed through the runtime's local administration interface.
-- `DATAPORCH_MCP_TOKEN` available to the process that launches the client once DAT-15 supplies the token lifecycle.
+- A local MCP token created through `dataporch mcp-token create`.
+- `DATAPORCH_MCP_TOKEN` exported to the process that launches the client.
 
-This is a prerelease distribution package. Both client manifests are intentionally unversioned, and the current development runtime does not enforce bearer tokens until DAT-15 is delivered. Do not describe this package alone as the secure `0.1.0` experience.
+Keep the runtime and plugin on the same local machine unless a separate TLS and authorization boundary is provided.
 
 ## Authentication
 
-The package contains only the environment-variable name `DATAPORCH_MCP_TOKEN`. It does not contain, issue, print, or persist a token.
+The package contains only the environment-variable name `DATAPORCH_MCP_TOKEN`. It does not contain, issue, print, or persist a token. The runtime stores only a SHA-256 verifier at the server-side `DATAPORCH_MCP_TOKEN_STORE_PATH`; the client-side `DATAPORCH_MCP_TOKEN` is the plaintext credential used by the MCP connection.
 
-After DAT-15 provides a token, make it available to the shell that launches the client without writing it into this repository:
+Start the runtime, then create the token through its local Unix admin socket:
+
+```bash
+dataporch mcp-token create
+```
+
+Make the displayed value available to the shell that launches the client without writing it into this repository:
 
 ```bash
 read -rsp 'DataPorch MCP token: ' DATAPORCH_MCP_TOKEN
 export DATAPORCH_MCP_TOKEN
 ```
 
-Codex reads the token through its existing `.mcp.json` declaration. Claude Code sends `Authorization: Bearer ${DATAPORCH_MCP_TOKEN}` from its plugin manifest. The package does not support a static credential, OAuth fallback, another credential variable, or a configurable endpoint.
+Codex reads the token through its existing `.mcp.json` declaration. Claude Code sends `Authorization: Bearer ${DATAPORCH_MCP_TOKEN}` from its plugin manifest.
+
+Rotate or revoke through the same local interface when needed:
+
+```bash
+dataporch mcp-token list
+dataporch mcp-token rotate
+dataporch mcp-token revoke
+dataporch mcp-token revoke --yes
+```
+
+The package does not support a static credential, OAuth fallback, another credential variable, or a configurable endpoint. This feature provides local Bearer access control, not full OAuth authorization; remote cleartext Bearer exposure is unsupported.
 
 ## Codex
 
@@ -130,7 +148,7 @@ Set and export `DATAPORCH_MCP_TOKEN` in the environment of the process that laun
 
 ### The runtime rejects the token
 
-After DAT-15 is delivered, obtain a valid token through its documented runtime interface and restart or reconnect the client. Neither plugin has a fallback credential mechanism.
+Run `dataporch mcp-token list` through the local admin socket. If the token was rotated, update `DATAPORCH_MCP_TOKEN` and restart or reload the client. If the verifier store is degraded, use `dataporch mcp-token revoke --yes` to attempt recovery, then create a new token. Neither plugin has a fallback credential mechanism.
 
 ### Two DataPorch MCP servers appear
 

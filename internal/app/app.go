@@ -17,6 +17,7 @@ import (
 	"github.com/adamraziv/dataporch/internal/transports/httpapi"
 	"github.com/adamraziv/dataporch/internal/transports/localadmin"
 	"github.com/adamraziv/dataporch/internal/transports/mcp"
+	"github.com/adamraziv/dataporch/internal/transports/mcpauth"
 )
 
 const (
@@ -123,8 +124,13 @@ func newWithDependencies(
 		return nil, fmt.Errorf("creating mcp adapter: %w", err)
 	}
 
+	authenticatedMCP, err := mcpauth.New(security.mcpTokens, mcpHandler)
+	if err != nil {
+		return nil, fmt.Errorf("creating mcp auth adapter: %w", err)
+	}
+
 	mux := http.NewServeMux()
-	mux.Handle("/mcp", mcpHandler)
+	mux.Handle("/mcp", authenticatedMCP)
 	mux.Handle("/", httpHandler)
 
 	return &App{

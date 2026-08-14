@@ -22,6 +22,8 @@ import (
 	"github.com/adamraziv/dataporch/internal/connection"
 	"github.com/adamraziv/dataporch/internal/connection/postgres"
 	"github.com/adamraziv/dataporch/internal/execution"
+	"github.com/adamraziv/dataporch/internal/mcptoken"
+	mcpTokenLocal "github.com/adamraziv/dataporch/internal/mcptoken/local"
 	"github.com/jackc/pgx/v5"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -98,6 +100,21 @@ func newIntegrationHarness(t *testing.T) *integrationHarness {
 		t.Fatalf("InitializeSecrets() error = %v", err)
 	}
 
+	tokenStore, err := mcpTokenLocal.New(cfg.MCPTokenStorePath)
+	if err != nil {
+		t.Fatalf("mcpTokenLocal.New() error = %v", err)
+	}
+
+	tokenService, err := mcptoken.New(tokenStore, time.Now)
+	if err != nil {
+		t.Fatalf("mcptoken.New() error = %v", err)
+	}
+
+	mcpToken, _, err := tokenService.Create(t.Context())
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
 	logs := &strings.Builder{}
 
 	var runtime *countingPostgresRuntime
@@ -137,7 +154,7 @@ func newIntegrationHarness(t *testing.T) *integrationHarness {
 		dsn,
 		names,
 	)
-	session := connectIntegrationMCP(t, cfg.HTTPAddress)
+	session := connectIntegrationMCP(t, cfg.HTTPAddress, mcpToken)
 
 	return &integrationHarness{
 		t:                t,
@@ -251,7 +268,7 @@ func importIntegrationSource(
 	return readerDSN
 }
 
-func connectIntegrationMCP(t *testing.T, address string) *mcpsdk.ClientSession {
+func connectIntegrationMCP(t *testing.T, address, token string) *mcpsdk.ClientSession {
 	t.Helper()
 
 	client := mcpsdk.NewClient(
@@ -265,8 +282,11 @@ func connectIntegrationMCP(t *testing.T, address string) *mcpsdk.ClientSession {
 	session, err := client.Connect(
 		t.Context(),
 		&mcpsdk.StreamableClientTransport{
-			Endpoint:             "http://" + address + "/mcp",
-			HTTPClient:           &http.Client{Timeout: 30 * time.Second},
+			Endpoint: "http://" + address + "/mcp",
+			HTTPClient: &http.Client{
+				Timeout:   30 * time.Second,
+				Transport: integrationBearerTransport{token: token},
+			},
 			DisableStandaloneSSE: true,
 		},
 		nil,
@@ -282,6 +302,17 @@ func connectIntegrationMCP(t *testing.T, address string) *mcpsdk.ClientSession {
 	})
 
 	return session
+}
+
+type integrationBearerTransport struct {
+	token string
+}
+
+func (t integrationBearerTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	cloned := request.Clone(request.Context())
+	cloned.Header.Set("Authorization", "Bearer "+t.token)
+
+	return http.DefaultTransport.RoundTrip(cloned)
 }
 
 func (h *integrationHarness) assertDataSources() execution.ListDataSourcesResult {

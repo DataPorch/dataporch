@@ -45,9 +45,11 @@ type commandDependencies struct {
 	lookupEnv         config.LookupEnv
 	isTerminal        func(int) bool
 	readPassword      func(int) ([]byte, error)
+	readConfirmation  func(*os.File) (string, error)
 	initializeSecrets func(config.Config) error
 	runApplication    func(context.Context, config.Config) error
 	newClient         func(string) (importClient, error)
+	newAdminClient    func(string) (mcpTokenClient, error)
 }
 
 type importArguments struct {
@@ -63,6 +65,8 @@ func run(args []string, dependencies commandDependencies) error {
 		return initializeSecrets(dependencies)
 	case len(args) >= 2 && args[0] == connectionsCommand && args[1] == importCommand:
 		return importConnection(args[2:], dependencies)
+	case len(args) >= 2 && args[0] == mcpTokenCommand:
+		return mcpTokenCommandRun(args[1:], dependencies)
 	default:
 		return errUnknownCommand
 	}

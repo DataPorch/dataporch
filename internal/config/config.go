@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"path/filepath"
 	"strconv"
 	"time"
 )
@@ -16,6 +17,8 @@ const (
 	defaultMasterKeyPath          = "/etc/dataporch/master.key"
 	defaultSecretsStorePath       = "/var/lib/dataporch/secrets.store" //nolint:gosec // This is a path, not a credential.
 	defaultConnectionsStorePath   = "/var/lib/dataporch/connections.store"
+	defaultMCPTokenStorePath      = "/var/lib/dataporch/mcp-token.json" //nolint:gosec // This is a path, not a credential.
+	mcpTokenStorePathEnv          = "DATAPORCH_MCP_TOKEN_STORE_PATH"    //nolint:gosec // This is an environment variable name, not a credential.
 	defaultQueryTimeout           = 20 * time.Second
 	minQueryTimeout               = time.Second
 	maxQueryTimeout               = 20 * time.Second
@@ -39,6 +42,7 @@ type Config struct {
 	MasterKeyPath          string
 	SecretsStorePath       string
 	ConnectionsStorePath   string
+	MCPTokenStorePath      string
 	QueryTimeout           time.Duration
 	QueryResponseByteLimit int
 	QueryTruncationEnabled bool
@@ -59,6 +63,7 @@ func Load(lookup LookupEnv) (Config, error) {
 		MasterKeyPath:          defaultMasterKeyPath,
 		SecretsStorePath:       defaultSecretsStorePath,
 		ConnectionsStorePath:   defaultConnectionsStorePath,
+		MCPTokenStorePath:      defaultMCPTokenStorePath,
 		QueryTimeout:           defaultQueryTimeout,
 		QueryResponseByteLimit: defaultQueryResponseByteLimit,
 		QueryTruncationEnabled: defaultQueryTruncationEnabled,
@@ -92,6 +97,10 @@ func Load(lookup LookupEnv) (Config, error) {
 
 	if value, exists := lookup("DATAPORCH_CONNECTIONS_STORE_PATH"); exists {
 		cfg.ConnectionsStorePath = value
+	}
+
+	if value, exists := lookup(mcpTokenStorePathEnv); exists {
+		cfg.MCPTokenStorePath = value
 	}
 
 	if value, exists := lookup("DATAPORCH_QUERY_TIMEOUT"); exists {
@@ -170,6 +179,25 @@ func (c Config) Validate() error {
 		return errors.New("validating DATAPORCH_CONNECTIONS_STORE_PATH: must not be empty")
 	}
 
+	if c.MCPTokenStorePath == "" {
+		return fmt.Errorf("validating %s: must not be empty", mcpTokenStorePathEnv)
+	}
+
+	for _, path := range []struct {
+		name  string
+		value string
+	}{
+		{name: "DATAPORCH_ADMIN_SOCKET_PATH", value: c.AdminSocketPath},
+		{name: "DATAPORCH_MASTER_KEY_PATH", value: c.MasterKeyPath},
+		{name: "DATAPORCH_SECRETS_STORE_PATH", value: c.SecretsStorePath},
+		{name: "DATAPORCH_CONNECTIONS_STORE_PATH", value: c.ConnectionsStorePath},
+		{name: mcpTokenStorePathEnv, value: c.MCPTokenStorePath},
+	} {
+		if !filepath.IsAbs(path.value) {
+			return fmt.Errorf("validating %s: must be absolute", path.name)
+		}
+	}
+
 	if c.QueryTimeout < minQueryTimeout || c.QueryTimeout > maxQueryTimeout {
 		return fmt.Errorf(
 			"validating DATAPORCH_QUERY_TIMEOUT: must be between %s and %s",
@@ -193,12 +221,28 @@ func (c Config) Validate() error {
 		)
 	}
 
-	if c.MasterKeyPath == c.SecretsStorePath {
-		return errors.New("validating security paths: master key and secrets store must differ")
+	paths := []struct {
+		name string
+		path string
+	}{
+		{name: "admin socket", path: filepath.Clean(c.AdminSocketPath)},
+		{name: "master key", path: filepath.Clean(c.MasterKeyPath)},
+		{name: "secrets store", path: filepath.Clean(c.SecretsStorePath)},
+		{name: "connections store", path: filepath.Clean(c.ConnectionsStorePath)},
+		{name: "MCP token store", path: filepath.Clean(c.MCPTokenStorePath)},
 	}
 
-	if c.SecretsStorePath == c.ConnectionsStorePath {
-		return errors.New("validating security paths: secrets and connections stores must differ")
+	seen := make(map[string]string, len(paths))
+	for _, current := range paths {
+		if previous, exists := seen[current.path]; exists {
+			return fmt.Errorf(
+				"validating security paths: %s must differ from %s",
+				current.name,
+				previous,
+			)
+		}
+
+		seen[current.path] = current.name
 	}
 
 	return nil

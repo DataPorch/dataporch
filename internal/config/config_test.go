@@ -113,6 +113,11 @@ func TestValidateRejectsInvalidSecurityPaths(t *testing.T) {
 		{name: "empty secrets store", change: func(cfg *Config) { cfg.SecretsStorePath = "" }},
 		{name: "empty connections store", change: func(cfg *Config) { cfg.ConnectionsStorePath = "" }},
 		{name: "empty token store", change: func(cfg *Config) { cfg.MCPTokenStorePath = "" }},
+		{name: "relative admin socket", change: func(cfg *Config) { cfg.AdminSocketPath = "run/dataporch/admin.sock" }},
+		{name: "relative master key", change: func(cfg *Config) { cfg.MasterKeyPath = "etc/dataporch/master.key" }},
+		{name: "relative secrets store", change: func(cfg *Config) { cfg.SecretsStorePath = "var/lib/dataporch/secrets.store" }},
+		{name: "relative connections store", change: func(cfg *Config) { cfg.ConnectionsStorePath = "var/lib/dataporch/connections.store" }},
+		{name: "relative token store", change: func(cfg *Config) { cfg.MCPTokenStorePath = "var/lib/dataporch/mcp-token.json" }},
 		{name: "key equals secret store", change: func(cfg *Config) { cfg.SecretsStorePath = cfg.MasterKeyPath }},
 		{
 			name: "secret equals connection store",
@@ -124,6 +129,22 @@ func TestValidateRejectsInvalidSecurityPaths(t *testing.T) {
 		{name: "token store equals secret store", change: func(cfg *Config) { cfg.MCPTokenStorePath = cfg.SecretsStorePath }},
 		{name: "token store equals connection store", change: func(cfg *Config) { cfg.MCPTokenStorePath = cfg.ConnectionsStorePath }},
 		{name: "token store equals admin socket", change: func(cfg *Config) { cfg.MCPTokenStorePath = cfg.AdminSocketPath }},
+		{
+			name:   "token store aliases master key",
+			change: func(cfg *Config) { cfg.MCPTokenStorePath = "/etc/dataporch/./master.key" },
+		},
+		{
+			name:   "token store aliases secrets store",
+			change: func(cfg *Config) { cfg.MCPTokenStorePath = "/var/lib/dataporch/./secrets.store" },
+		},
+		{
+			name:   "token store aliases connections store",
+			change: func(cfg *Config) { cfg.MCPTokenStorePath = "/var/lib/dataporch/tmp/../connections.store" },
+		},
+		{
+			name:   "token store aliases admin socket",
+			change: func(cfg *Config) { cfg.MCPTokenStorePath = "/run/dataporch/tmp/../admin.sock" },
+		},
 	}
 
 	for _, tt := range tests {

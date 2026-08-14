@@ -182,6 +182,21 @@ func (c Config) Validate() error {
 		return errors.New("validating DATAPORCH_MCP_TOKEN_STORE_PATH: must not be empty")
 	}
 
+	for _, path := range []struct {
+		name  string
+		value string
+	}{
+		{name: "DATAPORCH_ADMIN_SOCKET_PATH", value: c.AdminSocketPath},
+		{name: "DATAPORCH_MASTER_KEY_PATH", value: c.MasterKeyPath},
+		{name: "DATAPORCH_SECRETS_STORE_PATH", value: c.SecretsStorePath},
+		{name: "DATAPORCH_CONNECTIONS_STORE_PATH", value: c.ConnectionsStorePath},
+		{name: "DATAPORCH_MCP_TOKEN_STORE_PATH", value: c.MCPTokenStorePath},
+	} {
+		if !filepath.IsAbs(path.value) {
+			return fmt.Errorf("validating %s: must be absolute", path.name)
+		}
+	}
+
 	if c.QueryTimeout < minQueryTimeout || c.QueryTimeout > maxQueryTimeout {
 		return fmt.Errorf(
 			"validating DATAPORCH_QUERY_TIMEOUT: must be between %s and %s",
@@ -205,27 +220,33 @@ func (c Config) Validate() error {
 		)
 	}
 
-	if filepath.Clean(c.MCPTokenStorePath) == filepath.Clean(c.AdminSocketPath) {
+	adminSocketPath := filepath.Clean(c.AdminSocketPath)
+	masterKeyPath := filepath.Clean(c.MasterKeyPath)
+	secretsStorePath := filepath.Clean(c.SecretsStorePath)
+	connectionsStorePath := filepath.Clean(c.ConnectionsStorePath)
+	mcpTokenStorePath := filepath.Clean(c.MCPTokenStorePath)
+
+	if mcpTokenStorePath == adminSocketPath {
 		return errors.New("validating DATAPORCH_MCP_TOKEN_STORE_PATH: must differ from admin socket")
 	}
 
-	if c.MasterKeyPath == c.SecretsStorePath {
+	if masterKeyPath == secretsStorePath {
 		return errors.New("validating security paths: master key and secrets store must differ")
 	}
 
-	if c.SecretsStorePath == c.ConnectionsStorePath {
+	if secretsStorePath == connectionsStorePath {
 		return errors.New("validating security paths: secrets and connections stores must differ")
 	}
 
-	if c.MCPTokenStorePath == c.MasterKeyPath {
+	if mcpTokenStorePath == masterKeyPath {
 		return errors.New("validating DATAPORCH_MCP_TOKEN_STORE_PATH: must differ from master key")
 	}
 
-	if c.MCPTokenStorePath == c.SecretsStorePath {
+	if mcpTokenStorePath == secretsStorePath {
 		return errors.New("validating DATAPORCH_MCP_TOKEN_STORE_PATH: must differ from secrets store")
 	}
 
-	if c.MCPTokenStorePath == c.ConnectionsStorePath {
+	if mcpTokenStorePath == connectionsStorePath {
 		return errors.New("validating DATAPORCH_MCP_TOKEN_STORE_PATH: must differ from connections store")
 	}
 

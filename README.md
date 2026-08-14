@@ -68,9 +68,28 @@ explicit compatibility decision and DataPorch-level conformance tests.
 
 The server binds to `127.0.0.1:8080` by default. The MCP endpoint rejects invalid
 Origin and localhost Host headers before tool execution. Changing
-`DATAPORCH_HTTP_ADDRESS` does not disable those protections. Authentication and
-authorization are evaluated per request; the current allow-all policy remains a
-development default until the local access-token lifecycle is enabled.
+`DATAPORCH_HTTP_ADDRESS` does not disable those protections. `/mcp` also requires
+one `Authorization: Bearer ...` header; missing, malformed, duplicate, and
+invalid credentials are rejected before MCP execution. `/healthz` remains
+unauthenticated.
+
+Manage the one local MCP token through the Unix admin socket after starting the
+runtime:
+
+```bash
+dataporch mcp-token create
+export DATAPORCH_MCP_TOKEN='dp-...'
+dataporch mcp-token list
+dataporch mcp-token rotate
+dataporch mcp-token revoke
+```
+
+The plaintext token is shown only by `create` and `rotate`. The server keeps the
+active verifier in memory and persists only its SHA-256 digest and timestamps.
+`DATAPORCH_MCP_TOKEN` is client-side configuration; the server-side verifier
+path is `DATAPORCH_MCP_TOKEN_STORE_PATH`. This is local Bearer access control,
+not OAuth authorization. Keep the default loopback boundary; exposing cleartext
+Bearer tokens remotely is unsupported.
 
 The MCP endpoint exposes exactly five typed tools. Call them in this order when
 an agent needs to inspect a source and run a bounded query:
@@ -125,6 +144,7 @@ Use environment variables to configure DataPorch.
 | `DATAPORCH_MASTER_KEY_PATH` | `/etc/dataporch/master.key` | Sets the local secret-store master key path. |
 | `DATAPORCH_SECRETS_STORE_PATH` | `/var/lib/dataporch/secrets.store` | Sets the encrypted local secret-store path. |
 | `DATAPORCH_CONNECTIONS_STORE_PATH` | `/var/lib/dataporch/connections.store` | Sets the normalized connection-definition store path. |
+| `DATAPORCH_MCP_TOKEN_STORE_PATH` | `/var/lib/dataporch/mcp-token.json` | Sets the server-side MCP token verifier path. |
 | `DATAPORCH_QUERY_TIMEOUT` | `20s` | Bounds each query call; accepts `1s` through `20s` and cannot be disabled. |
 | `DATAPORCH_QUERY_RESPONSE_BYTE_LIMIT` | `10485760` | Bounds the encoded MCP tool result; accepts `65536` through `10485760` and cannot be disabled. |
 | `DATAPORCH_QUERY_TRUNCATION_ENABLED` | `true` | Reads one extra row to report whether the configured row limit truncated the result. |
@@ -154,6 +174,21 @@ The local admin path uses a Unix socket. It is not exposed through public TCP
 HTTP or MCP. Losing the master key makes locally stored secrets unrecoverable.
 Root or compromise of the DataPorch process is outside the protection provided
 by the local store.
+
+MCP access tokens use the same local admin boundary:
+
+```bash
+dataporch mcp-token create
+dataporch mcp-token list
+dataporch mcp-token rotate
+dataporch mcp-token revoke
+dataporch mcp-token revoke --yes
+```
+
+`create` and `rotate` display the plaintext once; set it as
+`DATAPORCH_MCP_TOKEN` in the environment of the MCP client. `list` exposes only
+state and timestamps. `revoke --yes` is also the recovery operation for a
+corrupt or unsafe verifier file when removing that configured file is safe.
 
 Postgres imports accept `postgres://` and `postgresql://` URIs with a username,
 password, one TCP host, a database, an optional explicit port, and an optional
@@ -234,9 +269,9 @@ deployment.
 
 ## Agent plugins
 
-The repository includes prerelease plugins for Codex and Claude Code that connect to the separately installed local DataPorch runtime. Both clients reuse the same source-discovery and bounded-query skills; neither plugin installs or launches the runtime.
+The repository includes plugins for Codex and Claude Code that connect to the separately installed local DataPorch runtime. Both clients reuse the same source-discovery and bounded-query skills; neither plugin installs or launches the runtime.
 
-See [the agent plugin guide](plugins/dataporch/README.md) for prerequisites, authentication status, installation, updates, removal, and troubleshooting for each client.
+See [the agent plugin guide](plugins/dataporch/README.md) for prerequisites, authentication, installation, updates, removal, and troubleshooting for each client.
 
 ## Development
 

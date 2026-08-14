@@ -165,8 +165,6 @@ func (s *Service) Revoke(ctx context.Context) error {
 	defer s.mutationMu.Unlock()
 
 	switch s.currentState() {
-	case StateDegraded:
-		return ErrUnavailable
 	case StateNone:
 		return nil
 	}

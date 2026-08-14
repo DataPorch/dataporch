@@ -333,12 +333,6 @@ func TestService_DegradedRejectsRuntimeOperations(t *testing.T) {
 			},
 		},
 		{
-			name: "revoke",
-			operation: func() error {
-				return service.Revoke(context.Background())
-			},
-		},
-		{
 			name: "verify",
 			operation: func() error {
 				return service.Verify("dp-any-token")
@@ -353,6 +347,39 @@ func TestService_DegradedRejectsRuntimeOperations(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestService_DegradedRevokeRecoversWhenDeleteSucceeds(t *testing.T) {
+	store := &fakeStore{loadErr: errors.New("load failed")}
+	service, err := New(store, time.Now)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	if err := service.Revoke(context.Background()); err != nil {
+		t.Fatalf("Revoke() error = %v", err)
+	}
+	assertStatus(t, service.Status(), Status{State: StateNone})
+	if got := store.deleteCount(); got != 1 {
+		t.Fatalf("Delete() calls = %d, want 1", got)
+	}
+}
+
+func TestService_DegradedRevokePreservesStateWhenDeleteFails(t *testing.T) {
+	persistenceErr := errors.New("persistence failed")
+	store := &fakeStore{
+		loadErr:   errors.New("load failed"),
+		deleteErr: persistenceErr,
+	}
+	service, err := New(store, time.Now)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	if err := service.Revoke(context.Background()); !errors.Is(err, persistenceErr) {
+		t.Fatalf("Revoke() error = %v, want persistence error", err)
+	}
+	assertStatus(t, service.Status(), Status{State: StateDegraded})
 }
 
 func TestService_VerifyDoesNotBlockOnPersistence(t *testing.T) {

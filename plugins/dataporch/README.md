@@ -7,15 +7,29 @@ This plugin connects Codex to a separately installed DataPorch runtime. It bundl
 - A current Codex CLI with plugin support.
 - A separately installed DataPorch runtime listening at `http://127.0.0.1:8080/mcp`.
 - DataPorch source configuration completed through the runtime's local administration interface.
-- `DATAPORCH_MCP_TOKEN` available to the process that launches Codex once DAT-15 supplies the token lifecycle.
+- A local MCP token created through `dataporch mcp-token create`.
+- `DATAPORCH_MCP_TOKEN` exported to the process that launches Codex.
 
-This is a prerelease distribution package. Its Codex manifest is intentionally unversioned, and the current development runtime does not enforce bearer tokens until DAT-15 is delivered. Do not describe this package alone as the secure `0.1.0` experience.
+The plugin does not install or launch the runtime. Keep the runtime and plugin
+on the same local machine unless a separate TLS and authorization boundary is
+provided.
 
 ## Authentication
 
-The plugin contains only the environment-variable name `DATAPORCH_MCP_TOKEN`. It does not contain, issue, print, or persist a token.
+The plugin contains only the environment-variable name `DATAPORCH_MCP_TOKEN`. It
+does not contain, issue, print, or persist a token. The runtime stores only a
+SHA-256 verifier at the server-side `DATAPORCH_MCP_TOKEN_STORE_PATH`; the
+client-side `DATAPORCH_MCP_TOKEN` is the plaintext credential used by the MCP
+connection.
 
-After DAT-15 provides a token, make it available to the shell that launches Codex without writing it into this repository:
+Start the runtime, then create the token through its local Unix admin socket:
+
+```bash
+dataporch mcp-token create
+```
+
+Make the displayed value available to the shell that launches Codex without
+writing it into this repository:
 
 ```bash
 read -rsp 'DataPorch MCP token: ' DATAPORCH_MCP_TOKEN
@@ -23,7 +37,19 @@ export DATAPORCH_MCP_TOKEN
 codex
 ```
 
-The plugin does not support a static authorization header, OAuth fallback, another credential variable, or a configurable endpoint.
+Rotate or revoke through the same local interface when needed:
+
+```bash
+dataporch mcp-token list
+dataporch mcp-token rotate
+dataporch mcp-token revoke
+dataporch mcp-token revoke --yes
+```
+
+The plugin does not support a static authorization header, OAuth fallback,
+another credential variable, or a configurable endpoint. This feature provides
+local Bearer access control, not full OAuth authorization; remote cleartext
+Bearer exposure is unsupported.
 
 ## Install from a checked-out repository
 
@@ -93,7 +119,10 @@ Set and export `DATAPORCH_MCP_TOKEN` in the environment of the process that laun
 
 ### The runtime rejects the token
 
-After DAT-15 is delivered, obtain a valid token through its documented runtime interface and restart or reconnect Codex. The plugin has no fallback credential mechanism.
+Run `dataporch mcp-token list` through the local admin socket. If the token was
+rotated, update `DATAPORCH_MCP_TOKEN` and restart Codex. If the verifier store
+is degraded, use `dataporch mcp-token revoke --yes` to attempt recovery, then
+create a new token. The plugin has no fallback credential mechanism.
 
 ### Two DataPorch MCP servers appear
 

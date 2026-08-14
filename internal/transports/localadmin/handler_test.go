@@ -12,9 +12,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/adamraziv/dataporch/internal/connection"
 	"github.com/adamraziv/dataporch/internal/connection/filestore"
+	"github.com/adamraziv/dataporch/internal/mcptoken"
 	"github.com/adamraziv/dataporch/internal/secret/local"
 )
 
@@ -48,6 +50,219 @@ func TestHandlerImportsConnection(t *testing.T) {
 
 	if strings.Contains(response.Body.String(), "private") {
 		t.Fatal("response leaked connection string")
+	}
+}
+
+//nolint:gocyclo // The table covers status and all lifecycle route response shapes.
+func TestHandlerMCPTokenRoutes(t *testing.T) {
+	t.Parallel()
+
+	createdAt := time.Date(2026, 8, 14, 8, 50, 0, 0, time.UTC)
+	rotatedAt := createdAt.Add(time.Hour)
+
+	tests := []struct {
+		name        string
+		method      string
+		path        string
+		manager     *tokenManagerStub
+		wantStatus  int
+		wantToken   string
+		wantState   mcptoken.State
+		wantCode    string
+		wantCreated string
+		wantRotated string
+	}{
+		{
+			name:        "list active",
+			method:      http.MethodGet,
+			path:        "/v1/mcp-token",
+			manager:     &tokenManagerStub{status: mcptoken.Status{State: mcptoken.StateActive, Metadata: mcptoken.Metadata{CreatedAt: createdAt, RotatedAt: &rotatedAt}}},
+			wantStatus:  http.StatusOK,
+			wantState:   mcptoken.StateActive,
+			wantCreated: createdAt.Format(time.RFC3339),
+			wantRotated: rotatedAt.Format(time.RFC3339),
+		},
+		{
+			name:       "list degraded without sensitive detail",
+			method:     http.MethodGet,
+			path:       "/v1/mcp-token",
+			manager:    &tokenManagerStub{status: mcptoken.Status{State: mcptoken.StateDegraded}},
+			wantStatus: http.StatusOK,
+			wantState:  mcptoken.StateDegraded,
+		},
+		{
+			name:        "create",
+			method:      http.MethodPost,
+			path:        "/v1/mcp-token",
+			manager:     &tokenManagerStub{createToken: "dp-created", createMeta: mcptoken.Metadata{CreatedAt: createdAt}},
+			wantStatus:  http.StatusCreated,
+			wantToken:   "dp-created",
+			wantCreated: createdAt.Format(time.RFC3339),
+		},
+		{
+			name:        "rotate",
+			method:      http.MethodPost,
+			path:        "/v1/mcp-token/rotate",
+			manager:     &tokenManagerStub{rotateToken: "dp-rotated", rotateMeta: mcptoken.Metadata{CreatedAt: createdAt, RotatedAt: &rotatedAt}},
+			wantStatus:  http.StatusOK,
+			wantToken:   "dp-rotated",
+			wantCreated: createdAt.Format(time.RFC3339),
+			wantRotated: rotatedAt.Format(time.RFC3339),
+		},
+		{
+			name:       "revoke",
+			method:     http.MethodDelete,
+			path:       "/v1/mcp-token",
+			manager:    &tokenManagerStub{},
+			wantStatus: http.StatusNoContent,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			handler := testHandlerWithTokenManager(t, &importerStub{}, tt.manager)
+			request := httptest.NewRequestWithContext(t.Context(), tt.method, tt.path, nil)
+			response := httptest.NewRecorder()
+
+			handler.ServeHTTP(response, request)
+
+			if response.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d", response.Code, tt.wantStatus)
+			}
+
+			if tt.wantStatus == http.StatusNoContent {
+				if response.Body.Len() != 0 {
+					t.Fatalf("revoke response body = %q, want empty", response.Body.String())
+				}
+
+				return
+			}
+
+			var document map[string]any
+			if err := json.Unmarshal(response.Body.Bytes(), &document); err != nil {
+				t.Fatalf("response JSON error = %v", err)
+			}
+
+			if strings.Contains(response.Body.String(), "verifier") {
+				t.Fatalf("response leaked verifier: %s", response.Body)
+			}
+
+			if tt.wantToken == "" && strings.Contains(response.Body.String(), "token") {
+				t.Fatalf("status response leaked token field: %s", response.Body)
+			}
+
+			if tt.wantToken != "" && document["token"] != tt.wantToken {
+				t.Fatalf("token = %v, want %q", document["token"], tt.wantToken)
+			}
+
+			if tt.wantState != "" && document["state"] != string(tt.wantState) {
+				t.Fatalf("state = %v, want %q", document["state"], tt.wantState)
+			}
+
+			metadata, ok := document["metadata"].(map[string]any)
+			if !ok {
+				t.Fatalf("metadata = %#v, want object", document["metadata"])
+			}
+
+			if tt.wantCreated != "" && metadata["created_at"] != tt.wantCreated {
+				t.Fatalf("created_at = %v, want %q", metadata["created_at"], tt.wantCreated)
+			}
+
+			if tt.wantRotated != "" && metadata["rotated_at"] != tt.wantRotated {
+				t.Fatalf("rotated_at = %v, want %q", metadata["rotated_at"], tt.wantRotated)
+			}
+		})
+	}
+}
+
+func TestHandlerMCPTokenErrors(t *testing.T) {
+	t.Parallel()
+
+	canary := "token-management-secret-canary"
+	tests := []struct {
+		name       string
+		method     string
+		path       string
+		manager    *tokenManagerStub
+		wantStatus int
+		wantCode   string
+	}{
+		{
+			name:       "create conflict",
+			method:     http.MethodPost,
+			path:       "/v1/mcp-token",
+			manager:    &tokenManagerStub{createErr: mcptoken.ErrTokenExists},
+			wantStatus: http.StatusConflict,
+			wantCode:   "token_exists",
+		},
+		{
+			name:       "rotate without token",
+			method:     http.MethodPost,
+			path:       "/v1/mcp-token/rotate",
+			manager:    &tokenManagerStub{rotateErr: mcptoken.ErrNoToken},
+			wantStatus: http.StatusConflict,
+			wantCode:   "token_not_configured",
+		},
+		{
+			name:       "create unavailable",
+			method:     http.MethodPost,
+			path:       "/v1/mcp-token",
+			manager:    &tokenManagerStub{createErr: errors.New(canary)},
+			wantStatus: http.StatusServiceUnavailable,
+			wantCode:   "token_unavailable",
+		},
+		{
+			name:       "revoke unavailable",
+			method:     http.MethodDelete,
+			path:       "/v1/mcp-token",
+			manager:    &tokenManagerStub{revokeErr: errors.New(canary)},
+			wantStatus: http.StatusServiceUnavailable,
+			wantCode:   "token_unavailable",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			handler := testHandlerWithTokenManager(t, &importerStub{}, tt.manager)
+			request := httptest.NewRequestWithContext(t.Context(), tt.method, tt.path, nil)
+			response := httptest.NewRecorder()
+
+			handler.ServeHTTP(response, request)
+
+			if response.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d", response.Code, tt.wantStatus)
+			}
+
+			var document struct {
+				Code string `json:"code"`
+			}
+			if err := json.Unmarshal(response.Body.Bytes(), &document); err != nil {
+				t.Fatalf("response JSON error = %v", err)
+			}
+
+			if document.Code != tt.wantCode {
+				t.Fatalf("error code = %q, want %q", document.Code, tt.wantCode)
+			}
+
+			if strings.Contains(response.Body.String(), canary) {
+				t.Fatalf("response leaked internal error: %s", response.Body)
+			}
+		})
+	}
+}
+
+func TestNewHandlerRequiresMCPTokenManager(t *testing.T) {
+	t.Parallel()
+
+	_, err := NewHandler(
+		&importerStub{},
+		nil,
+		slog.New(slog.DiscardHandler),
+	)
+	if !errors.Is(err, errTokenManagerRequired) {
+		t.Fatalf("NewHandler() error = %v, want token manager validation error", err)
 	}
 }
 
@@ -216,7 +431,7 @@ func newSecretIsolationFixture(t *testing.T, canary string) secretIsolationFixtu
 
 	logs := &bytes.Buffer{}
 
-	handler, err := NewHandler(importer, slog.New(slog.NewJSONHandler(logs, nil)))
+	handler, err := NewHandler(importer, &tokenManagerStub{}, slog.New(slog.NewJSONHandler(logs, nil)))
 	if err != nil {
 		t.Fatalf("NewHandler() error = %v", err)
 	}
@@ -233,7 +448,18 @@ func newSecretIsolationFixture(t *testing.T, canary string) secretIsolationFixtu
 func testHandler(t *testing.T, importer Importer) http.Handler {
 	t.Helper()
 
-	handler, err := NewHandler(importer, slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)))
+	handler, err := NewHandler(importer, &tokenManagerStub{}, slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)))
+	if err != nil {
+		t.Fatalf("NewHandler() error = %v", err)
+	}
+
+	return handler
+}
+
+func testHandlerWithTokenManager(t *testing.T, importer Importer, tokenManager MCPTokenManager) http.Handler {
+	t.Helper()
+
+	handler, err := NewHandler(importer, tokenManager, slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)))
 	if err != nil {
 		t.Fatalf("NewHandler() error = %v", err)
 	}
@@ -246,6 +472,29 @@ type importerStub struct {
 	err    error
 	got    connection.ImportRequest
 }
+
+type tokenManagerStub struct {
+	createToken string
+	createMeta  mcptoken.Metadata
+	createErr   error
+	status      mcptoken.Status
+	rotateToken string
+	rotateMeta  mcptoken.Metadata
+	rotateErr   error
+	revokeErr   error
+}
+
+func (s *tokenManagerStub) Create(context.Context) (string, mcptoken.Metadata, error) {
+	return s.createToken, s.createMeta, s.createErr
+}
+
+func (s *tokenManagerStub) Status() mcptoken.Status { return s.status }
+
+func (s *tokenManagerStub) Rotate(context.Context) (string, mcptoken.Metadata, error) {
+	return s.rotateToken, s.rotateMeta, s.rotateErr
+}
+
+func (s *tokenManagerStub) Revoke(context.Context) error { return s.revokeErr }
 
 func (i *importerStub) Import(_ context.Context, request connection.ImportRequest) (connection.ImportResult, error) {
 	i.got = connection.ImportRequest{

@@ -23,7 +23,7 @@ func TestUnixClientImportsThroughLocalAdminSocket(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "admin.sock")
 	importer := &socketImporter{result: connection.ImportResult{ID: "finance", IsUpdated: true}}
 
-	handler, err := localadmin.NewHandler(importer, slog.New(slog.DiscardHandler))
+	handler, err := localadmin.NewHandler(importer, &testMCPTokenManager{}, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewHandler() error = %v", err)
 	}

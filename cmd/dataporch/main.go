@@ -30,8 +30,12 @@ func productionDependencies(logger *slog.Logger) commandDependencies {
 		lookupEnv:         os.LookupEnv,
 		isTerminal:        term.IsTerminal,
 		readPassword:      term.ReadPassword,
+		readConfirmation:  readConfirmationLine,
 		initializeSecrets: app.InitializeSecrets,
 		newClient: func(socketPath string) (importClient, error) {
+			return newUnixClient(socketPath)
+		},
+		newAdminClient: func(socketPath string) (mcpTokenClient, error) {
 			return newUnixClient(socketPath)
 		},
 		runApplication: func(ctx context.Context, cfg config.Config) error {

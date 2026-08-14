@@ -5,10 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/adamraziv/dataporch/internal/config"
 	"github.com/adamraziv/dataporch/internal/connection"
 	"github.com/adamraziv/dataporch/internal/connection/filestore"
+	"github.com/adamraziv/dataporch/internal/mcptoken"
+	mcpTokenLocal "github.com/adamraziv/dataporch/internal/mcptoken/local"
 	"github.com/adamraziv/dataporch/internal/secret"
 	"github.com/adamraziv/dataporch/internal/secret/local"
 	"github.com/adamraziv/dataporch/internal/transports/localadmin"
@@ -18,6 +21,7 @@ var errSecurityUnavailable = errors.New("security component unavailable")
 
 type securityComponents struct {
 	manager         *connection.Manager
+	mcpTokens       *mcptoken.Service
 	adminServer     *localadmin.Server
 	postgresRuntime postgresRuntime
 }
@@ -73,7 +77,17 @@ func newSecurityComponents(
 		return securityComponents{}, err
 	}
 
-	handler, err := localadmin.NewHandler(importer, logger)
+	tokenStore, err := mcpTokenLocal.New(cfg.MCPTokenStorePath)
+	if err != nil {
+		return securityComponents{}, fmt.Errorf("creating mcp token store: %w", err)
+	}
+
+	mcpTokens, err := mcptoken.New(tokenStore, time.Now)
+	if err != nil {
+		return securityComponents{}, fmt.Errorf("creating mcp token service: %w", err)
+	}
+
+	handler, err := localadmin.NewHandler(importer, mcpTokens, logger)
 	if err != nil {
 		return securityComponents{}, err
 	}
@@ -85,6 +99,7 @@ func newSecurityComponents(
 
 	return securityComponents{
 		manager:         manager,
+		mcpTokens:       mcpTokens,
 		adminServer:     server,
 		postgresRuntime: runtime,
 	}, nil

@@ -3,67 +3,52 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/adamraziv/dataporch/internal/connection"
 	"github.com/adamraziv/dataporch/internal/connection/postgres"
 )
 
-var (
-	errPostgresRuntimeFactoryRequired = errors.New("app: postgres runtime factory is required")
-	errDefinitionRegistrarRequired    = errors.New("app: definition registrar is required")
-	errRuntimeInvalidatorRequired     = errors.New("app: runtime invalidator is required")
-)
-
-type appDependencies struct {
-	adapters           []connection.Adapter
-	newPostgresRuntime postgresRuntimeFactory
-}
-
-type runtimeInvalidator interface {
-	Invalidate(connection.ID)
-}
-
-type postgresRuntime interface {
-	Open(context.Context, connection.ID) (*postgres.Client, error)
-	OpenQuery(context.Context, connection.ID) (*postgres.Client, error)
-	runtimeInvalidator
-	Close(context.Context) error
-}
-
-type postgresRuntimeFactory func(postgres.DefinitionPreparer) (postgresRuntime, error)
-
-type replacementRegistrar struct {
-	registrar   connection.DefinitionRegistrar
-	invalidator runtimeInvalidator
-}
-
-var _ connection.DefinitionRegistrar = (*replacementRegistrar)(nil)
-
-func newReplacementRegistrar(
-	registrar connection.DefinitionRegistrar,
-	invalidator runtimeInvalidator,
-) (*replacementRegistrar, error) {
-	if registrar == nil {
-		return nil, errDefinitionRegistrarRequired
+func newPostgresModule(
+	manager *connection.Manager,
+	policy queryPolicy,
+) (relationalModule, error) {
+	if manager == nil {
+		return relationalModule{}, errRelationalManagerRequired
 	}
 
-	if invalidator == nil {
-		return nil, errRuntimeInvalidatorRequired
+	adapter := postgres.New()
+
+	runtime, err := postgres.NewOpener(manager)
+	if err != nil {
+		return relationalModule{}, fmt.Errorf("creating postgres runtime: %w", err)
 	}
 
-	return &replacementRegistrar{registrar: registrar, invalidator: invalidator}, nil
-}
-
-func (r *replacementRegistrar) Register(definition connection.Definition) error {
-	if err := r.registrar.Register(definition); err != nil {
-		return err
+	discoverer, err := postgres.NewDiscoverer(runtime)
+	if err != nil {
+		return relationalModule{}, errors.Join(
+			fmt.Errorf("creating postgres discoverer: %w", err),
+			runtime.Close(context.Background()),
+		)
 	}
 
-	r.invalidator.Invalidate(definition.ID)
+	queryExecutor, err := postgres.NewQueryExecutor(runtime, postgres.QueryOptions{
+		Timeout:           policy.timeout,
+		ResponseByteLimit: policy.responseByteLimit,
+		TruncationEnabled: policy.truncationEnabled,
+		RowLimit:          policy.rowLimit,
+	})
+	if err != nil {
+		return relationalModule{}, errors.Join(
+			fmt.Errorf("creating postgres query executor: %w", err),
+			runtime.Close(context.Background()),
+		)
+	}
 
-	return nil
-}
-
-func newPostgresRuntime(preparer postgres.DefinitionPreparer) (postgresRuntime, error) {
-	return postgres.NewOpener(preparer)
+	return relationalModule{
+		adapter:       adapter,
+		discoverer:    discoverer,
+		queryExecutor: queryExecutor,
+		runtime:       runtime,
+	}, nil
 }

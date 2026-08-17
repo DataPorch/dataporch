@@ -27,6 +27,11 @@ type Manager struct {
 	definitions map[ID]Definition
 }
 
+type RegistrationResult struct {
+	Previous Definition
+	Replaced bool
+}
+
 func NewManager(resolver SecretResolver, definitions []Definition) (*Manager, error) {
 	if resolver == nil {
 		return nil, errResolverRequired
@@ -48,16 +53,24 @@ func NewManager(resolver SecretResolver, definitions []Definition) (*Manager, er
 	return &Manager{resolver: resolver, definitions: managed}, nil
 }
 
-func (m *Manager) Register(definition Definition) error {
+func (m *Manager) Register(definition Definition) (RegistrationResult, error) {
 	if err := definition.Validate(); err != nil {
-		return fmt.Errorf("validating definition: %w", err)
+		return RegistrationResult{}, fmt.Errorf("validating definition: %w", err)
 	}
 
+	next := definition.Clone()
+
 	m.mu.Lock()
-	m.definitions[definition.ID] = definition.Clone()
+	previous, replaced := m.definitions[definition.ID]
+	m.definitions[definition.ID] = next
+
+	result := RegistrationResult{Replaced: replaced}
+	if replaced {
+		result.Previous = previous.Clone()
+	}
 	m.mu.Unlock()
 
-	return nil
+	return result, nil
 }
 
 func (m *Manager) Lookup(id ID) (Definition, error) {

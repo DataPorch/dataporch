@@ -7,12 +7,12 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/adamraziv/dataporch/internal/access"
 	"github.com/adamraziv/dataporch/internal/config"
 	"github.com/adamraziv/dataporch/internal/connection"
-	"github.com/adamraziv/dataporch/internal/connection/postgres"
 	"github.com/adamraziv/dataporch/internal/execution"
 	"github.com/adamraziv/dataporch/internal/transports/httpapi"
 	"github.com/adamraziv/dataporch/internal/transports/localadmin"
@@ -29,32 +29,32 @@ const (
 )
 
 var (
-	errContextRequired = errors.New("app: context is required")
-	errLoggerRequired  = errors.New("app: logger is required")
+	errContextRequired                 = errors.New("app: context is required")
+	errLoggerRequired                  = errors.New("app: logger is required")
+	errExecutionServiceFactoryRequired = errors.New("app: execution service factory is required")
 )
 
+type executionServiceFactory func(execution.Dependencies) (*execution.Service, error)
+
+type appDependencies struct {
+	relationalModuleFactories []relationalModuleFactory
+	newExecutionService       executionServiceFactory
+}
+
 type App struct {
-	server          *http.Server
-	adminServer     *localadmin.Server
-	manager         *connection.Manager
-	service         *execution.Service
-	postgresRuntime postgresRuntime
-	logger          *slog.Logger
-	shutdownPeriod  time.Duration
+	server         *http.Server
+	adminServer    *localadmin.Server
+	manager        *connection.Manager
+	service        *execution.Service
+	runtimes       []runtimeLifecycle
+	logger         *slog.Logger
+	shutdownPeriod time.Duration
 }
 
 func New(cfg config.Config, logger *slog.Logger) (*App, error) {
-	return newWithAdapters(cfg, logger, postgres.New())
-}
-
-func newWithAdapters(
-	cfg config.Config,
-	logger *slog.Logger,
-	adapters ...connection.Adapter,
-) (*App, error) {
 	return newWithDependencies(cfg, logger, appDependencies{
-		adapters:           adapters,
-		newPostgresRuntime: newPostgresRuntime,
+		relationalModuleFactories: []relationalModuleFactory{newPostgresModule},
+		newExecutionService:       execution.New,
 	})
 }
 
@@ -67,8 +67,8 @@ func newWithDependencies(
 		return nil, errLoggerRequired
 	}
 
-	if dependencies.newPostgresRuntime == nil {
-		return nil, errPostgresRuntimeFactoryRequired
+	if dependencies.newExecutionService == nil {
+		return nil, errExecutionServiceFactoryRequired
 	}
 
 	if err := cfg.Validate(); err != nil {
@@ -80,38 +80,28 @@ func newWithDependencies(
 		return nil, fmt.Errorf("creating security components: %w", err)
 	}
 
-	relational, err := postgres.NewDiscoverer(security.postgresRuntime)
-	if err != nil {
-		return nil, fmt.Errorf("creating postgres discoverer: %w", err)
-	}
-
-	relationalQuery, err := postgres.NewQueryExecutor(
-		security.postgresRuntime,
-		postgres.QueryOptions{
-			Timeout:           cfg.QueryTimeout,
-			ResponseByteLimit: cfg.QueryResponseByteLimit,
-			TruncationEnabled: cfg.QueryTruncationEnabled,
-			RowLimit:          cfg.QueryRowLimit,
-		},
-	)
-	if err != nil {
-		return nil, fmt.Errorf("creating postgres query executor: %w", err)
-	}
-
-	service, err := execution.New(execution.Dependencies{
+	service, err := dependencies.newExecutionService(execution.Dependencies{
 		Sources:                  security.manager,
 		Authorizer:               access.New(),
 		MaxLimit:                 cfg.ResourceLimit,
-		RelationalDiscoverers:    []execution.RelationalDiscoverer{relational},
-		RelationalQueryExecutors: []execution.RelationalQueryExecutor{relationalQuery},
+		RelationalDiscoverers:    security.relational.discoverers,
+		RelationalQueryExecutors: security.relational.queryExecutors,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("creating execution service: %w", err)
+		return nil, joinRuntimeCleanup(
+			fmt.Errorf("creating execution service: %w", err),
+			cfg.ShutdownPeriod,
+			security.relational.runtimes,
+		)
 	}
 
 	httpHandler, err := httpapi.New(logger)
 	if err != nil {
-		return nil, fmt.Errorf("creating http adapter: %w", err)
+		return nil, joinRuntimeCleanup(
+			fmt.Errorf("creating http adapter: %w", err),
+			cfg.ShutdownPeriod,
+			security.relational.runtimes,
+		)
 	}
 
 	mcpHandler, err := mcp.New(mcp.Dependencies{
@@ -121,12 +111,20 @@ func newWithDependencies(
 		Logger:                 logger,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("creating mcp adapter: %w", err)
+		return nil, joinRuntimeCleanup(
+			fmt.Errorf("creating mcp adapter: %w", err),
+			cfg.ShutdownPeriod,
+			security.relational.runtimes,
+		)
 	}
 
 	authenticatedMCP, err := mcpauth.New(security.mcpTokens, mcpHandler)
 	if err != nil {
-		return nil, fmt.Errorf("creating mcp auth adapter: %w", err)
+		return nil, joinRuntimeCleanup(
+			fmt.Errorf("creating mcp auth adapter: %w", err),
+			cfg.ShutdownPeriod,
+			security.relational.runtimes,
+		)
 	}
 
 	mux := http.NewServeMux()
@@ -143,12 +141,12 @@ func newWithDependencies(
 			IdleTimeout:       idleTimeout,
 			MaxHeaderBytes:    maxHeaderBytes,
 		},
-		adminServer:     security.adminServer,
-		manager:         security.manager,
-		service:         service,
-		postgresRuntime: security.postgresRuntime,
-		logger:          logger,
-		shutdownPeriod:  cfg.ShutdownPeriod,
+		adminServer:    security.adminServer,
+		manager:        security.manager,
+		service:        service,
+		runtimes:       slices.Clone(security.relational.runtimes),
+		logger:         logger,
+		shutdownPeriod: cfg.ShutdownPeriod,
 	}, nil
 }
 
@@ -158,7 +156,7 @@ func (a *App) Run(ctx context.Context) error {
 	}
 
 	if ctx.Err() != nil {
-		return a.closeRuntimeWithTimeout(ctx)
+		return a.closeRuntimesWithTimeout(ctx)
 	}
 
 	listener, err := a.listenPublic(ctx)
@@ -222,7 +220,7 @@ func (a *App) waitForServers(
 		case err := <-publicErrors:
 			cancel()
 			a.waitForAdmin(adminErrors)
-			runtimeErr := a.closeRuntimeWithTimeout(ctx)
+			runtimeErr := a.closeRuntimesWithTimeout(ctx)
 
 			if errors.Is(err, http.ErrServerClosed) {
 				return runtimeErr
@@ -273,7 +271,7 @@ func (a *App) shutdown(
 
 	a.waitForAdmin(adminErrors)
 
-	shutdownErr = errors.Join(shutdownErr, a.closeRuntime(shutdownCtx))
+	shutdownErr = errors.Join(shutdownErr, a.closeRuntimes(shutdownCtx))
 	if shutdownErr != nil {
 		return fmt.Errorf("shutting down application: %w", shutdownErr)
 	}
@@ -283,19 +281,15 @@ func (a *App) shutdown(
 	return nil
 }
 
-func (a *App) closeRuntimeWithTimeout(ctx context.Context) error {
+func (a *App) closeRuntimesWithTimeout(ctx context.Context) error {
 	shutdownCtx, stop := context.WithTimeout(context.WithoutCancel(ctx), a.shutdownPeriod)
 	defer stop()
 
-	return a.closeRuntime(shutdownCtx)
+	return a.closeRuntimes(shutdownCtx)
 }
 
-func (a *App) closeRuntime(ctx context.Context) error {
-	if a.postgresRuntime == nil {
-		return nil
-	}
-
-	return a.postgresRuntime.Close(ctx)
+func (a *App) closeRuntimes(ctx context.Context) error {
+	return closeRuntimeLifecycles(ctx, a.runtimes)
 }
 
 func (a *App) waitForAdmin(adminErrors <-chan error) {

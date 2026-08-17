@@ -3,10 +3,10 @@ package app
 import (
 	"bytes"
 	"context"
-	"errors"
 	"io"
 	"log/slog"
 	"net/http"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -14,110 +14,100 @@ import (
 	"github.com/adamraziv/dataporch/internal/config"
 	"github.com/adamraziv/dataporch/internal/connection"
 	"github.com/adamraziv/dataporch/internal/connection/postgres"
+	"github.com/adamraziv/dataporch/internal/execution"
 )
 
-func TestReplacementRegistrarInvalidatesAfterRegistration(t *testing.T) {
+func TestNewPostgresModule(t *testing.T) {
 	t.Parallel()
 
-	for _, kind := range []connection.Kind{postgres.Kind, "future"} {
-		t.Run(string(kind), func(t *testing.T) {
-			t.Parallel()
+	manager := newRelationalTestManager(t)
 
-			events := make([]string, 0, 2)
-			registrar := &replacementRegistrarTestRegistrar{events: &events}
-			invalidator := &replacementRegistrarTestInvalidator{events: &events}
+	module, err := newPostgresModule(manager, validQueryPolicy())
+	if err != nil {
+		t.Fatalf("newPostgresModule() error = %v", err)
+	}
 
-			wrapper, err := newReplacementRegistrar(registrar, invalidator)
-			if err != nil {
-				t.Fatalf("newReplacementRegistrar() error = %v", err)
-			}
+	if module.adapter.Kind() != postgres.Kind {
+		t.Fatalf("adapter kind = %q, want %q", module.adapter.Kind(), postgres.Kind)
+	}
 
-			definition := connection.Definition{ID: "finance", Kind: kind}
-			if err := wrapper.Register(definition); err != nil {
-				t.Fatalf("Register() error = %v", err)
-			}
+	if module.discoverer.Kind() != postgres.Kind || module.queryExecutor.Kind() != postgres.Kind {
+		t.Fatal("PostgreSQL execution components disagree with adapter kind")
+	}
 
-			if len(events) != 2 || events[0] != "register" || events[1] != "invalidate:finance" {
-				t.Fatalf("events = %v, want registration before invalidation", events)
-			}
+	if _, ok := module.runtime.(*postgres.Opener); !ok {
+		t.Fatalf("runtime type = %T, want *postgres.Opener", module.runtime)
+	}
 
-			if invalidator.id != definition.ID {
-				t.Fatalf("invalidated ID = %q, want %q", invalidator.id, definition.ID)
-			}
-		})
+	if err := module.runtime.Close(t.Context()); err != nil {
+		t.Fatalf("runtime.Close() error = %v", err)
 	}
 }
 
-func TestReplacementRegistrarDoesNotInvalidateAfterRegistrationFailure(t *testing.T) {
+func TestNewPostgresModuleRejectsInvalidInputs(t *testing.T) {
 	t.Parallel()
 
-	registrationErr := errors.New("registration failed")
-	events := make([]string, 0, 1)
-	registrar := &replacementRegistrarTestRegistrar{events: &events, err: registrationErr}
-	invalidator := &replacementRegistrarTestInvalidator{events: &events}
-
-	wrapper, err := newReplacementRegistrar(registrar, invalidator)
-	if err != nil {
-		t.Fatalf("newReplacementRegistrar() error = %v", err)
+	manager := newRelationalTestManager(t)
+	tests := []struct {
+		name    string
+		manager *connection.Manager
+		policy  queryPolicy
+	}{
+		{name: "nil manager", manager: nil, policy: validQueryPolicy()},
+		{name: "missing timeout", manager: manager, policy: queryPolicy{
+			responseByteLimit: 1024,
+			truncationEnabled: true,
+			rowLimit:          100,
+		}},
+		{name: "missing response byte limit", manager: manager, policy: queryPolicy{
+			timeout:           time.Second,
+			truncationEnabled: true,
+			rowLimit:          100,
+		}},
+		{name: "missing truncation row limit", manager: manager, policy: queryPolicy{
+			timeout:           time.Second,
+			responseByteLimit: 1024,
+			truncationEnabled: true,
+		}},
 	}
 
-	if err := wrapper.Register(connection.Definition{ID: "finance", Kind: postgres.Kind}); !errors.Is(err, registrationErr) {
-		t.Fatalf("Register() error = %v, want %v", err, registrationErr)
-	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 
-	if len(events) != 1 || events[0] != "register" {
-		t.Fatalf("events = %v, want registration only", events)
-	}
+			module, err := newPostgresModule(test.manager, test.policy)
+			if err == nil {
+				t.Fatal("newPostgresModule() error = nil, want error")
+			}
 
-	if invalidator.id != "" {
-		t.Fatalf("invalidated ID = %q, want empty", invalidator.id)
+			if !reflect.DeepEqual(module, relationalModule{}) {
+				t.Fatalf("newPostgresModule() module = %#v, want zero module", module)
+			}
+		})
 	}
 }
 
 func TestNewConstructsPostgresRuntimeWithoutOpening(t *testing.T) {
 	t.Parallel()
 
-	runtime := &appPostgresRuntimeTestStub{}
-
-	var preparer postgres.DefinitionPreparer
-
-	constructions := 0
-
-	application, err := newWithDependencies(testConfigFor(t), slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)), appDependencies{
-		adapters: []connection.Adapter{postgres.New()},
-		newPostgresRuntime: func(gotPreparer postgres.DefinitionPreparer) (postgresRuntime, error) {
-			constructions++
-			preparer = gotPreparer
-
-			return runtime, nil
+	application, err := newWithDependencies(
+		testConfigFor(t),
+		slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)),
+		appDependencies{
+			relationalModuleFactories: []relationalModuleFactory{newPostgresModule},
+			newExecutionService:       execution.New,
 		},
-	})
+	)
 	if err != nil {
 		t.Fatalf("newWithDependencies() error = %v", err)
 	}
 
-	if application.postgresRuntime != runtime {
-		t.Fatal("application did not retain the constructed Postgres runtime")
+	if len(application.runtimes) != 1 {
+		t.Fatalf("application runtimes = %d, want 1", len(application.runtimes))
 	}
 
-	if constructions != 1 {
-		t.Fatalf("runtime constructions = %d, want 1", constructions)
-	}
-
-	if preparer == nil {
-		t.Fatal("runtime preparer = nil")
-	}
-
-	if got := runtime.invalidatedIDs(); len(got) != 0 {
-		t.Fatalf("invalidations during construction = %v, want none", got)
-	}
-
-	if runtime.queryOpenCalls() != 0 {
-		t.Fatalf("query opens during construction = %d, want 0", runtime.queryOpenCalls())
-	}
-
-	if runtime.closeCalls() != 0 {
-		t.Fatalf("runtime closes during construction = %d, want 0", runtime.closeCalls())
+	if _, ok := application.runtimes[0].(*postgres.Opener); !ok {
+		t.Fatalf("application runtime type = %T, want *postgres.Opener", application.runtimes[0])
 	}
 }
 
@@ -257,7 +247,7 @@ func TestAppFailedImportPreservesPostgresRuntime(t *testing.T) {
 func newAppWithPostgresRuntimeTestStub(
 	t *testing.T,
 	cfg config.Config,
-	runtime postgresRuntime,
+	runtime runtimeLifecycle,
 ) *App {
 	t.Helper()
 
@@ -272,7 +262,7 @@ func newAppWithPostgresRuntimeTestStub(
 func newAppWithPostgresRuntimeTestStubAndLogger(
 	t *testing.T,
 	cfg config.Config,
-	runtime postgresRuntime,
+	runtime runtimeLifecycle,
 	logger *slog.Logger,
 ) *App {
 	t.Helper()
@@ -281,10 +271,17 @@ func newAppWithPostgresRuntimeTestStubAndLogger(
 		cfg,
 		logger,
 		appDependencies{
-			adapters: []connection.Adapter{postgres.New()},
-			newPostgresRuntime: func(postgres.DefinitionPreparer) (postgresRuntime, error) {
-				return runtime, nil
+			relationalModuleFactories: []relationalModuleFactory{
+				func(*connection.Manager, queryPolicy) (relationalModule, error) {
+					return relationalModule{
+						adapter:       postgres.New(),
+						discoverer:    &relationalDiscovererStub{kind: postgres.Kind},
+						queryExecutor: &relationalQueryExecutorStub{kind: postgres.Kind},
+						runtime:       runtime,
+					}, nil
+				},
 			},
+			newExecutionService: execution.New,
 		},
 	)
 	if err != nil {
@@ -308,49 +305,13 @@ func importStatusOverSocket(path, databaseID, kind, connectionString string) (in
 	return response.StatusCode, nil
 }
 
-type replacementRegistrarTestRegistrar struct {
-	events *[]string
-	err    error
-}
-
-func (r *replacementRegistrarTestRegistrar) Register(connection.Definition) error {
-	*r.events = append(*r.events, "register")
-	return r.err
-}
-
-type replacementRegistrarTestInvalidator struct {
-	events *[]string
-	id     connection.ID
-}
-
-func (i *replacementRegistrarTestInvalidator) Invalidate(id connection.ID) {
-	*i.events = append(*i.events, "invalidate:"+string(id))
-	i.id = id
-}
-
 type appPostgresRuntimeTestStub struct {
 	mu                  sync.Mutex
 	invalidated         []connection.ID
-	queryOpens          []connection.ID
 	closeErr            error
 	closes              int
 	invalidationStarted chan struct{}
 	invalidationRelease chan struct{}
-}
-
-func (r *appPostgresRuntimeTestStub) Open(context.Context, connection.ID) (*postgres.Client, error) {
-	return nil, nil
-}
-
-func (r *appPostgresRuntimeTestStub) OpenQuery(
-	ctx context.Context,
-	id connection.ID,
-) (*postgres.Client, error) {
-	r.mu.Lock()
-	r.queryOpens = append(r.queryOpens, id)
-	r.mu.Unlock()
-
-	return r.Open(ctx, id)
 }
 
 func (r *appPostgresRuntimeTestStub) Invalidate(id connection.ID) {
@@ -395,18 +356,4 @@ func (r *appPostgresRuntimeTestStub) invalidatedIDs() []connection.ID {
 	defer r.mu.Unlock()
 
 	return append([]connection.ID(nil), r.invalidated...)
-}
-
-func (r *appPostgresRuntimeTestStub) closeCalls() int {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	return r.closes
-}
-
-func (r *appPostgresRuntimeTestStub) queryOpenCalls() int {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	return len(r.queryOpens)
 }

@@ -178,4 +178,6 @@ func (s *definitionRepositoryStub) Upsert(_ context.Context, definition Definiti
 
 type registrarStub struct{}
 
-func (registrarStub) Register(Definition) error { return nil }
+func (registrarStub) Register(Definition) (RegistrationResult, error) {
+	return RegistrationResult{}, nil
+}

@@ -39,7 +39,7 @@ type DefinitionRepository interface {
 }
 
 type DefinitionRegistrar interface {
-	Register(Definition) error
+	Register(Definition) (RegistrationResult, error)
 }
 
 type AdapterResolver interface {
@@ -130,7 +130,7 @@ func (i *Importer) Import(ctx context.Context, request ImportRequest) (ImportRes
 		return ImportResult{}, fmt.Errorf("%w: saving definition", ErrImportUnavailable)
 	}
 
-	if err := i.registrar.Register(definition); err != nil {
+	if _, err := i.registrar.Register(definition); err != nil {
 		return ImportResult{}, fmt.Errorf("%w: registering definition", ErrImportUnavailable)
 	}
 

@@ -17,6 +17,7 @@ import (
 
 	"github.com/adamraziv/dataporch/internal/config"
 	"github.com/adamraziv/dataporch/internal/connection"
+	"github.com/adamraziv/dataporch/internal/execution"
 	"github.com/adamraziv/dataporch/internal/secret/local"
 )
 
@@ -213,7 +214,23 @@ func TestAppImportDoesNotCallAdapterAuthentication(t *testing.T) {
 		Secrets:  map[string][]byte{"password": []byte("private")},
 	}}
 
-	application, err := newWithAdapters(cfg, slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)), adapter)
+	application, err := newWithDependencies(
+		cfg,
+		slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)),
+		appDependencies{
+			relationalModuleFactories: []relationalModuleFactory{
+				func(*connection.Manager, queryPolicy) (relationalModule, error) {
+					return relationalModule{
+						adapter:       adapter,
+						discoverer:    &relationalDiscovererStub{kind: "postgres"},
+						queryExecutor: &relationalQueryExecutorStub{kind: "postgres"},
+						runtime:       &relationalRuntimeStub{name: "postgres"},
+					}, nil
+				},
+			},
+			newExecutionService: execution.New,
+		},
+	)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -248,6 +265,152 @@ func TestAppImportDoesNotCallAdapterAuthentication(t *testing.T) {
 	if adapter.authenticationCalls != 0 {
 		t.Fatalf("authentication calls = %d, want 0", adapter.authenticationCalls)
 	}
+}
+
+func TestNewWithDependenciesRoutesMultipleRelationalModules(t *testing.T) {
+	t.Parallel()
+
+	alpha := newRelationalTestModule("alpha", &relationalRuntimeStub{name: "alpha"})
+	beta := newRelationalTestModule("beta", &relationalRuntimeStub{name: "beta"})
+	application := newAppWithRelationalModules(t, testConfigFor(t), alpha, beta)
+
+	for _, kind := range []connection.Kind{"alpha", "beta"} {
+		id := connection.ID(kind + "-source")
+		if _, err := application.manager.Register(connection.Definition{ID: id, Kind: kind}); err != nil {
+			t.Fatalf("Register(%q) error = %v", kind, err)
+		}
+
+		page, err := application.service.ListRelationalSchemas(
+			t.Context(),
+			execution.ListRelationalSchemasRequest{SourceID: id},
+		)
+		if err != nil {
+			t.Fatalf("ListRelationalSchemas(%q) error = %v", kind, err)
+		}
+
+		if len(page.Schemas) != 1 || page.Schemas[0].Name != string(kind) {
+			t.Fatalf("schemas for %q = %#v", kind, page.Schemas)
+		}
+
+		result, err := application.service.QueryRelationalDatabase(
+			t.Context(),
+			execution.RelationalQueryRequest{Kind: kind, SourceID: id, Query: "SELECT 1"},
+		)
+		if err != nil {
+			t.Fatalf("QueryRelationalDatabase(%q) error = %v", kind, err)
+		}
+
+		if result.Kind != kind || result.SourceID != id {
+			t.Fatalf("query result for %q = %#v", kind, result)
+		}
+	}
+}
+
+func TestNewWithDependenciesRejectsUnsupportedRelationalKind(t *testing.T) {
+	t.Parallel()
+
+	application := newAppWithRelationalModules(
+		t,
+		testConfigFor(t),
+		newRelationalTestModule("alpha", &relationalRuntimeStub{name: "alpha"}),
+	)
+
+	const sourceID = connection.ID("unsupported-source")
+	if _, err := application.manager.Register(connection.Definition{
+		ID:   sourceID,
+		Kind: "unsupported",
+	}); err != nil {
+		t.Fatalf("Register() error = %v", err)
+	}
+
+	_, err := application.service.ListRelationalSchemas(
+		t.Context(),
+		execution.ListRelationalSchemasRequest{SourceID: sourceID},
+	)
+	if !errors.Is(err, execution.ErrUnsupportedSourceCapability) {
+		t.Fatalf("ListRelationalSchemas() error = %v, want unsupported capability", err)
+	}
+
+	_, err = application.service.QueryRelationalDatabase(
+		t.Context(),
+		execution.RelationalQueryRequest{
+			Kind:     "unsupported",
+			SourceID: sourceID,
+			Query:    "SELECT 1",
+		},
+	)
+	if !errors.Is(err, execution.ErrInvalidRequest) {
+		t.Fatalf("QueryRelationalDatabase() error = %v, want invalid request", err)
+	}
+}
+
+func TestNewWithDependenciesClosesRuntimesWhenExecutionFails(t *testing.T) {
+	t.Parallel()
+
+	executionErr := errors.New("execution construction failed")
+	closeErr := errors.New("runtime close failed")
+	runtime := &relationalRuntimeStub{name: "alpha", closeErr: closeErr}
+	module := newRelationalTestModule("alpha", runtime)
+
+	application, err := newWithDependencies(
+		testConfigFor(t),
+		slog.New(slog.DiscardHandler),
+		appDependencies{
+			relationalModuleFactories: []relationalModuleFactory{
+				func(*connection.Manager, queryPolicy) (relationalModule, error) {
+					return module, nil
+				},
+			},
+			newExecutionService: func(execution.Dependencies) (*execution.Service, error) {
+				return nil, executionErr
+			},
+		},
+	)
+	if application != nil {
+		t.Fatal("newWithDependencies() application is non-nil")
+	}
+
+	for _, expected := range []error{executionErr, closeErr} {
+		if !errors.Is(err, expected) {
+			t.Errorf("newWithDependencies() error = %v, want %v", err, expected)
+		}
+	}
+
+	if got := relationalRuntimeCloseCalls(runtime); got != 1 {
+		t.Fatalf("runtime close calls = %d, want 1", got)
+	}
+}
+
+func newAppWithRelationalModules(
+	t *testing.T,
+	cfg config.Config,
+	modules ...relationalModule,
+) *App {
+	t.Helper()
+
+	factories := make([]relationalModuleFactory, 0, len(modules))
+	for _, module := range modules {
+		current := module
+
+		factories = append(factories, func(
+			*connection.Manager,
+			queryPolicy,
+		) (relationalModule, error) {
+			return current, nil
+		})
+	}
+
+	logger := slog.New(slog.DiscardHandler)
+
+	application, err := newWithDependencies(cfg, logger, appDependencies{
+		relationalModuleFactories: factories,
+		newExecutionService:       execution.New,
+	})
+	if err != nil {
+		t.Fatalf("newWithDependencies() error = %v", err)
+	}
+
+	return application
 }
 
 func testConfig() config.Config {

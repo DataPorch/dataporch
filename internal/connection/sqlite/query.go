@@ -3,7 +3,6 @@ package sqlite
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
@@ -73,7 +72,7 @@ func (e *QueryExecutor) Query(
 		return result, execution.ErrCancelled
 	}
 	if err := requestContext.Err(); err != nil {
-		return result, queryContextError(requestContext, nil, err)
+		return result, projectSQLiteError(requestContext, nil, err, sqliteErrorPhasePrepare)
 	}
 	if request.Source.ID == "" || request.Source.Kind != Kind {
 		return result, execution.ErrInvalidRequest
@@ -87,7 +86,7 @@ func (e *QueryExecutor) Query(
 
 	client, err := e.runtime.open(queryContext, request.Source.ID, accessModeQuery)
 	if err != nil {
-		return result, queryContextError(requestContext, queryContext, err)
+		return result, projectSQLiteError(requestContext, queryContext, err, sqliteErrorPhaseOpen)
 	}
 	if client == nil || client.conn == nil {
 		if client != nil {
@@ -97,7 +96,7 @@ func (e *QueryExecutor) Query(
 	}
 	defer func() {
 		if err := client.close(); err != nil {
-			returnErr = errors.Join(returnErr, err)
+			returnErr = errors.Join(returnErr, projectSQLiteError(requestContext, queryContext, err, sqliteErrorPhaseClose))
 		}
 		if returnErr != nil {
 			result = execution.RelationalQueryResult{}
@@ -106,14 +105,14 @@ func (e *QueryExecutor) Query(
 
 	stmt, tail, err := client.conn.Prepare(request.Query)
 	if err != nil {
-		return result, queryContextError(requestContext, queryContext, err)
+		return result, projectSQLiteError(requestContext, queryContext, err, sqliteErrorPhasePrepare)
 	}
 	if isNilInterface(stmt) {
 		return result, execution.ErrInvalidQuery
 	}
 	defer func() {
 		if err := stmt.Close(); err != nil {
-			returnErr = errors.Join(returnErr, err)
+			returnErr = errors.Join(returnErr, projectSQLiteError(requestContext, queryContext, err, sqliteErrorPhaseClose))
 		}
 		if returnErr != nil {
 			result = execution.RelationalQueryResult{}
@@ -130,47 +129,7 @@ func (e *QueryExecutor) Query(
 	}
 	result, err = e.readResult(queryContext, stmt, result)
 	if err != nil {
-		return execution.RelationalQueryResult{}, queryContextError(requestContext, queryContext, err)
+		return execution.RelationalQueryResult{}, projectSQLiteError(requestContext, queryContext, err, sqliteErrorPhaseStep)
 	}
 	return result, nil
-}
-
-func queryContextError(requestContext, queryContext context.Context, err error) error {
-	if requestContext != nil {
-		switch requestContext.Err() {
-		case context.Canceled:
-			return fmt.Errorf("%w: %w", execution.ErrCancelled, context.Canceled)
-		case context.DeadlineExceeded:
-			return fmt.Errorf("%w: %w", execution.ErrQueryTimeout, context.DeadlineExceeded)
-		}
-	}
-	if queryContext != nil {
-		if errors.Is(queryContext.Err(), context.DeadlineExceeded) {
-			return fmt.Errorf("%w: %w", execution.ErrQueryTimeout, err)
-		}
-		if errors.Is(queryContext.Err(), context.Canceled) {
-			return fmt.Errorf("%w: %w", execution.ErrQueryCancelled, err)
-		}
-	}
-	known := []error{
-		execution.ErrInvalidRequest,
-		execution.ErrInvalidQuery,
-		execution.ErrReadOnlyViolation,
-		execution.ErrQueryCancelled,
-		execution.ErrResultTooLarge,
-		execution.ErrCancelled,
-		execution.ErrQueryTimeout,
-		execution.ErrDatabasePermissionDenied,
-		execution.ErrDatabaseConflict,
-		execution.ErrDatabaseUnavailable,
-		execution.ErrDatabaseResourceExhausted,
-		execution.ErrDatabaseError,
-		execution.ErrInternal,
-	}
-	for _, sentinel := range known {
-		if errors.Is(err, sentinel) {
-			return err
-		}
-	}
-	return err
 }

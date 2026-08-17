@@ -279,6 +279,33 @@ func TestQueryExecutorRejectsWritesWithoutChangingFile(t *testing.T) {
 	}
 }
 
+func TestQueryExecutorProjectsAuthorizerAndSyntaxErrors(t *testing.T) {
+	t.Parallel()
+
+	path := createQueryFixture(t)
+	runtime, err := NewRuntime(&fixturePreparer{path: path})
+	if err != nil {
+		t.Fatalf("NewRuntime() error = %v", err)
+	}
+	t.Cleanup(func() { _ = runtime.Close(context.Background()) })
+	executor := newTestQueryExecutor(t, runtime, QueryOptions{
+		Timeout:           time.Second,
+		ResponseByteLimit: 1024,
+	})
+
+	_, err = executor.Query(t.Context(), queryRequest("INSERT INTO query_items(value) VALUES ('blocked')"))
+	failure := execution.ClassifyRelationalQuery(context.Background(), err)
+	if failure.Category != execution.ErrorCategoryDatabasePermissionDenied || failure.DatabaseError == nil || failure.DatabaseError.Code != "SQLITE_AUTH" {
+		t.Fatalf("authorizer failure = %#v, want SQLITE_AUTH permission failure", failure)
+	}
+
+	_, err = executor.Query(t.Context(), queryRequest("SELECT FROM"))
+	failure = execution.ClassifyRelationalQuery(context.Background(), err)
+	if failure.Category != execution.ErrorCategoryInvalidQuery || failure.DatabaseError == nil || failure.DatabaseError.Code != "SQLITE_ERROR" {
+		t.Fatalf("syntax failure = %#v, want SQLITE_ERROR invalid-query failure", failure)
+	}
+}
+
 func TestQueryExecutorHonorsCallerCancellation(t *testing.T) {
 	t.Parallel()
 

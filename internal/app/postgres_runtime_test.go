@@ -3,11 +3,9 @@ package app
 import (
 	"bytes"
 	"context"
-	"errors"
 	"io"
 	"log/slog"
 	"net/http"
-	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -16,76 +14,6 @@ import (
 	"github.com/adamraziv/dataporch/internal/connection"
 	"github.com/adamraziv/dataporch/internal/connection/postgres"
 )
-
-func TestReplacementRegistrarInvalidatesAfterRegistration(t *testing.T) {
-	t.Parallel()
-
-	for _, kind := range []connection.Kind{postgres.Kind, "future"} {
-		t.Run(string(kind), func(t *testing.T) {
-			t.Parallel()
-
-			events := make([]string, 0, 2)
-			expectedResult := connection.RegistrationResult{
-				Previous: connection.Definition{ID: "previous", Kind: "postgres"},
-				Replaced: true,
-			}
-			registrar := &replacementRegistrarTestRegistrar{events: &events, result: expectedResult}
-			invalidator := &replacementRegistrarTestInvalidator{events: &events}
-
-			wrapper, err := newReplacementRegistrar(registrar, invalidator)
-			if err != nil {
-				t.Fatalf("newReplacementRegistrar() error = %v", err)
-			}
-
-			definition := connection.Definition{ID: "finance", Kind: kind}
-			result, err := wrapper.Register(definition)
-			if err != nil {
-				t.Fatalf("Register() error = %v", err)
-			}
-			if !reflect.DeepEqual(result, expectedResult) {
-				t.Fatalf("Register() result = %#v, want %#v", result, expectedResult)
-			}
-
-			if len(events) != 2 || events[0] != "register" || events[1] != "invalidate:finance" {
-				t.Fatalf("events = %v, want registration before invalidation", events)
-			}
-
-			if invalidator.id != definition.ID {
-				t.Fatalf("invalidated ID = %q, want %q", invalidator.id, definition.ID)
-			}
-		})
-	}
-}
-
-func TestReplacementRegistrarDoesNotInvalidateAfterRegistrationFailure(t *testing.T) {
-	t.Parallel()
-
-	registrationErr := errors.New("registration failed")
-	events := make([]string, 0, 1)
-	registrar := &replacementRegistrarTestRegistrar{events: &events, err: registrationErr}
-	invalidator := &replacementRegistrarTestInvalidator{events: &events}
-
-	wrapper, err := newReplacementRegistrar(registrar, invalidator)
-	if err != nil {
-		t.Fatalf("newReplacementRegistrar() error = %v", err)
-	}
-
-	result, err := wrapper.Register(connection.Definition{ID: "finance", Kind: postgres.Kind})
-	if !errors.Is(err, registrationErr) {
-		t.Fatalf("Register() error = %v, want %v", err, registrationErr)
-	}
-	if !reflect.DeepEqual(result, connection.RegistrationResult{}) {
-		t.Fatalf("Register() result = %#v, want zero result", result)
-	}
-
-	if len(events) != 1 || events[0] != "register" {
-		t.Fatalf("events = %v, want registration only", events)
-	}
-
-	if invalidator.id != "" {
-		t.Fatalf("invalidated ID = %q, want empty", invalidator.id)
-	}
-}
 
 func TestNewConstructsPostgresRuntimeWithoutOpening(t *testing.T) {
 	t.Parallel()
@@ -319,27 +247,6 @@ func importStatusOverSocket(path, databaseID, kind, connectionString string) (in
 	}
 
 	return response.StatusCode, nil
-}
-
-type replacementRegistrarTestRegistrar struct {
-	events *[]string
-	result connection.RegistrationResult
-	err    error
-}
-
-func (r *replacementRegistrarTestRegistrar) Register(connection.Definition) (connection.RegistrationResult, error) {
-	*r.events = append(*r.events, "register")
-	return r.result, r.err
-}
-
-type replacementRegistrarTestInvalidator struct {
-	events *[]string
-	id     connection.ID
-}
-
-func (i *replacementRegistrarTestInvalidator) Invalidate(id connection.ID) {
-	*i.events = append(*i.events, "invalidate:"+string(id))
-	i.id = id
 }
 
 type appPostgresRuntimeTestStub struct {

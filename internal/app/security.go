@@ -10,6 +10,7 @@ import (
 	"github.com/adamraziv/dataporch/internal/config"
 	"github.com/adamraziv/dataporch/internal/connection"
 	"github.com/adamraziv/dataporch/internal/connection/filestore"
+	"github.com/adamraziv/dataporch/internal/connection/postgres"
 	"github.com/adamraziv/dataporch/internal/mcptoken"
 	mcpTokenLocal "github.com/adamraziv/dataporch/internal/mcptoken/local"
 	"github.com/adamraziv/dataporch/internal/secret"
@@ -53,7 +54,10 @@ func newSecurityComponents(
 		return securityComponents{}, fmt.Errorf("creating postgres runtime: %w", err)
 	}
 
-	registrar, err := newReplacementRegistrar(manager, runtime)
+	registrar, err := newReplacementRegistrar(
+		manager,
+		map[connection.Kind]runtimeLifecycle{postgres.Kind: runtime},
+	)
 	if err != nil {
 		return securityComponents{}, err
 	}

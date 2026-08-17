@@ -7,12 +7,12 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"slices"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/adamraziv/dataporch/internal/connection"
-	"github.com/adamraziv/dataporch/internal/connection/postgres"
 )
 
 func TestAppRunClosesRuntimeWhenContextIsAlreadyCanceled(t *testing.T) {
@@ -200,9 +200,9 @@ func TestWaitForServersJoinsUnexpectedServeAndRuntimeErrors(t *testing.T) {
 	closeErr := errors.New("runtime close failed")
 	runtime := &appLifecycleRuntimeTestStub{closeErr: closeErr}
 	application := &App{
-		server:          &http.Server{},
-		postgresRuntime: runtime,
-		shutdownPeriod:  time.Second,
+		server:         &http.Server{},
+		runtimes:       []runtimeLifecycle{runtime},
+		shutdownPeriod: time.Second,
 	}
 
 	ctx := t.Context()
@@ -225,6 +225,62 @@ func TestWaitForServersJoinsUnexpectedServeAndRuntimeErrors(t *testing.T) {
 	}
 }
 
+func TestAppCloseRuntimesUsesFactoryOrderAndPreservesErrors(t *testing.T) {
+	t.Parallel()
+
+	firstErr := errors.New("first runtime failed")
+	secondErr := errors.New("second runtime failed")
+	events := make([]string, 0, 3)
+	application := &App{runtimes: []runtimeLifecycle{
+		&relationalRuntimeStub{name: "first", events: &events, closeErr: firstErr},
+		&relationalRuntimeStub{name: "second", events: &events, closeErr: secondErr},
+		&relationalRuntimeStub{name: "third", events: &events},
+	}}
+
+	err := application.closeRuntimes(t.Context())
+	if !slices.Equal(events, []string{"first", "second", "third"}) {
+		t.Fatalf("close events = %v, want [first second third]", events)
+	}
+
+	for _, expected := range []error{firstErr, secondErr} {
+		if !errors.Is(err, expected) {
+			t.Errorf("close error = %v, want %v", err, expected)
+		}
+	}
+}
+
+func TestAppCloseRuntimesWithNoRuntimesIsSafe(t *testing.T) {
+	t.Parallel()
+
+	application := &App{runtimes: []runtimeLifecycle{}}
+	if err := application.closeRuntimes(t.Context()); err != nil {
+		t.Fatalf("closeRuntimes() error = %v, want nil", err)
+	}
+}
+
+func TestAppRunCanCloseRuntimesRepeatedly(t *testing.T) {
+	t.Parallel()
+
+	runtime := &relationalRuntimeStub{name: "alpha"}
+	application := &App{
+		runtimes:       []runtimeLifecycle{runtime},
+		shutdownPeriod: time.Second,
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	for range 2 {
+		if err := application.Run(ctx); err != nil {
+			t.Fatalf("Run() error = %v, want nil", err)
+		}
+	}
+
+	if got := relationalRuntimeCloseCalls(runtime); got != 2 {
+		t.Fatalf("runtime close calls = %d, want 2", got)
+	}
+}
+
 type appLifecycleRuntimeTestStub struct {
 	mu                    sync.Mutex
 	closeErr              error
@@ -235,14 +291,6 @@ type appLifecycleRuntimeTestStub struct {
 	closeStarted          chan struct{}
 	closeStartedOnce      sync.Once
 	onClose               func()
-}
-
-func (r *appLifecycleRuntimeTestStub) Open(context.Context, connection.ID) (*postgres.Client, error) {
-	return nil, nil
-}
-
-func (r *appLifecycleRuntimeTestStub) OpenQuery(context.Context, connection.ID) (*postgres.Client, error) {
-	return nil, nil
 }
 
 func (r *appLifecycleRuntimeTestStub) Invalidate(connection.ID) {}

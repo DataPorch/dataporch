@@ -63,6 +63,7 @@ func TestReplacementRegistrarRoutesInvalidationByKind(t *testing.T) {
 
 			events := make([]string, 0, len(test.expected))
 			underlying := &definitionRegistrarStub{result: test.result, events: &events}
+
 			registrar, err := newReplacementRegistrar(
 				underlying,
 				runtimeIndex(&events, test.runtimeKinds...),
@@ -72,13 +73,16 @@ func TestReplacementRegistrarRoutesInvalidationByKind(t *testing.T) {
 			}
 
 			definition := connection.Definition{ID: "finance", Kind: test.nextKind}
+
 			result, err := registrar.Register(definition)
 			if err != nil {
 				t.Fatalf("Register() error = %v", err)
 			}
+
 			if !reflect.DeepEqual(result, test.result) {
 				t.Fatalf("Register() result = %#v, want %#v", result, test.result)
 			}
+
 			if !slices.Equal(events, test.expected) {
 				t.Fatalf("events = %v, want %v", events, test.expected)
 			}
@@ -91,6 +95,7 @@ func TestReplacementRegistrarRoutesFailureWithoutInvalidation(t *testing.T) {
 
 	registrationErr := errors.New("registration failed")
 	events := make([]string, 0, 1)
+
 	registrar, err := newReplacementRegistrar(
 		&definitionRegistrarStub{err: registrationErr, events: &events},
 		runtimeIndex(&events, "postgres", "mysql"),
@@ -103,9 +108,11 @@ func TestReplacementRegistrarRoutesFailureWithoutInvalidation(t *testing.T) {
 	if !errors.Is(err, registrationErr) {
 		t.Fatalf("Register() error = %v, want %v", err, registrationErr)
 	}
+
 	if !reflect.DeepEqual(result, connection.RegistrationResult{}) {
 		t.Fatalf("Register() result = %#v, want zero result", result)
 	}
+
 	if !slices.Equal(events, []string{"register"}) {
 		t.Fatalf("events = %v, want registration only", events)
 	}
@@ -131,9 +138,11 @@ func (r *definitionRegistrarStub) Register(
 	if r.events != nil {
 		*r.events = append(*r.events, "register")
 	}
+
 	if r.err != nil {
 		return connection.RegistrationResult{}, r.err
 	}
+
 	return r.result, nil
 }
 
@@ -148,5 +157,6 @@ func runtimeIndex(
 			events: events,
 		}
 	}
+
 	return runtimes
 }

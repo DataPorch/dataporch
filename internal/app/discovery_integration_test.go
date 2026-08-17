@@ -7,6 +7,7 @@ import (
 	cryptorand "crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -123,19 +124,10 @@ func newIntegrationHarness(t *testing.T) *integrationHarness {
 		cfg,
 		slog.New(slog.NewTextHandler(logs, nil)),
 		appDependencies{
-			adapters: []connection.Adapter{postgres.New()},
-			newPostgresRuntime: func(
-				preparer postgres.DefinitionPreparer,
-			) (postgresRuntime, error) {
-				opener, err := postgres.NewOpener(preparer)
-				if err != nil {
-					return nil, err
-				}
-
-				runtime = &countingPostgresRuntime{opener: opener}
-
-				return runtime, nil
+			relationalModuleFactories: []relationalModuleFactory{
+				newCountingPostgresModule(&runtime),
 			},
+			newExecutionService: execution.New,
 		},
 	)
 	if err != nil {
@@ -1377,6 +1369,43 @@ func callDiscoveryToolFailure(
 type countingPostgresRuntime struct {
 	opener *postgres.Opener
 	opens  atomic.Int64
+}
+
+func newCountingPostgresModule(
+	runtime **countingPostgresRuntime,
+) relationalModuleFactory {
+	return func(
+		manager *connection.Manager,
+		policy queryPolicy,
+	) (relationalModule, error) {
+		opener, err := postgres.NewOpener(manager)
+		if err != nil {
+			return relationalModule{}, err
+		}
+
+		counting := &countingPostgresRuntime{opener: opener}
+		discoverer, err := postgres.NewDiscoverer(counting)
+		if err != nil {
+			return relationalModule{}, errors.Join(err, counting.Close(context.Background()))
+		}
+		queryExecutor, err := postgres.NewQueryExecutor(counting, postgres.QueryOptions{
+			Timeout:           policy.timeout,
+			ResponseByteLimit: policy.responseByteLimit,
+			TruncationEnabled: policy.truncationEnabled,
+			RowLimit:          policy.rowLimit,
+		})
+		if err != nil {
+			return relationalModule{}, errors.Join(err, counting.Close(context.Background()))
+		}
+
+		*runtime = counting
+		return relationalModule{
+			adapter:       postgres.New(),
+			discoverer:    discoverer,
+			queryExecutor: queryExecutor,
+			runtime:       counting,
+		}, nil
+	}
 }
 
 func (r *countingPostgresRuntime) Open(ctx context.Context, id connection.ID) (*postgres.Client, error) {

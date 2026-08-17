@@ -71,6 +71,7 @@ func newRelationalComposition(
 	if manager == nil {
 		return relationalComposition{}, errRelationalManagerRequired
 	}
+
 	if options.cleanupPeriod <= 0 {
 		return relationalComposition{}, errRelationalCleanupPeriodInvalid
 	}
@@ -114,6 +115,7 @@ func newRelationalComposition(
 				cleanupRuntimes,
 			)
 		}
+
 		if _, exists := composition.runtimeByKind[kind]; exists {
 			return relationalComposition{}, joinRuntimeCleanup(
 				fmt.Errorf("%w: %q", errRelationalDuplicateKind, kind),
@@ -136,12 +138,15 @@ func validateRelationalModule(module relationalModule) (connection.Kind, error) 
 	if isNilDependency(module.adapter) {
 		return "", errRelationalAdapterRequired
 	}
+
 	if isNilDependency(module.discoverer) {
 		return "", errRelationalDiscovererRequired
 	}
+
 	if isNilDependency(module.queryExecutor) {
 		return "", errRelationalQueryExecutorRequired
 	}
+
 	if isNilDependency(module.runtime) {
 		return "", errRelationalRuntimeRequired
 	}
@@ -150,6 +155,7 @@ func validateRelationalModule(module relationalModule) (connection.Kind, error) 
 	if kind == "" {
 		return "", errRelationalKindRequired
 	}
+
 	if discovererKind := module.discoverer.Kind(); discovererKind != kind {
 		return "", fmt.Errorf(
 			"%w: adapter=%q discoverer=%q",
@@ -158,6 +164,7 @@ func validateRelationalModule(module relationalModule) (connection.Kind, error) 
 			discovererKind,
 		)
 	}
+
 	if queryKind := module.queryExecutor.Kind(); queryKind != kind {
 		return "", fmt.Errorf(
 			"%w: adapter=%q query_executor=%q",
@@ -176,17 +183,18 @@ func isNilDependency(value any) bool {
 	}
 
 	reflected := reflect.ValueOf(value)
-	switch reflected.Kind() {
-	case reflect.Chan,
-		reflect.Func,
-		reflect.Interface,
-		reflect.Map,
-		reflect.Pointer,
-		reflect.Slice:
-		return reflected.IsNil()
-	default:
+
+	kind := reflected.Kind()
+	if kind != reflect.Chan &&
+		kind != reflect.Func &&
+		kind != reflect.Interface &&
+		kind != reflect.Map &&
+		kind != reflect.Pointer &&
+		kind != reflect.Slice {
 		return false
 	}
+
+	return reflected.IsNil()
 }
 
 func joinRuntimeCleanup(

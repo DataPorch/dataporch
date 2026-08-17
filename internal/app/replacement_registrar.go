@@ -2,6 +2,7 @@ package app
 
 import (
 	"errors"
+	"maps"
 
 	"github.com/adamraziv/dataporch/internal/connection"
 )
@@ -24,9 +25,7 @@ func newReplacementRegistrar(
 	}
 
 	owned := make(map[connection.Kind]runtimeLifecycle, len(runtimes))
-	for kind, runtime := range runtimes {
-		owned[kind] = runtime
-	}
+	maps.Copy(owned, runtimes)
 
 	return &replacementRegistrar{registrar: registrar, runtimes: owned}, nil
 }
@@ -42,6 +41,7 @@ func (r *replacementRegistrar) Register(
 	if result.Replaced {
 		r.invalidate(result.Previous.Kind, definition.ID)
 	}
+
 	if !result.Replaced || result.Previous.Kind != definition.Kind {
 		r.invalidate(definition.Kind, definition.ID)
 	}

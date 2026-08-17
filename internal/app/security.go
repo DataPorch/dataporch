@@ -10,7 +10,6 @@ import (
 	"github.com/adamraziv/dataporch/internal/config"
 	"github.com/adamraziv/dataporch/internal/connection"
 	"github.com/adamraziv/dataporch/internal/connection/filestore"
-	"github.com/adamraziv/dataporch/internal/connection/postgres"
 	"github.com/adamraziv/dataporch/internal/mcptoken"
 	mcpTokenLocal "github.com/adamraziv/dataporch/internal/mcptoken/local"
 	"github.com/adamraziv/dataporch/internal/secret"
@@ -21,10 +20,10 @@ import (
 var errSecurityUnavailable = errors.New("security component unavailable")
 
 type securityComponents struct {
-	manager         *connection.Manager
-	mcpTokens       *mcptoken.Service
-	adminServer     *localadmin.Server
-	postgresRuntime postgresRuntime
+	manager     *connection.Manager
+	mcpTokens   *mcptoken.Service
+	adminServer *localadmin.Server
+	relational  relationalComposition
 }
 
 func newSecurityComponents(
@@ -32,11 +31,6 @@ func newSecurityComponents(
 	logger *slog.Logger,
 	dependencies appDependencies,
 ) (securityComponents, error) {
-	connector, err := connection.NewConnector(dependencies.adapters...)
-	if err != nil {
-		return securityComponents{}, err
-	}
-
 	resolver, writer := openSecretStore(cfg, logger)
 	repository, definitions := openDefinitionStore(cfg, logger)
 
@@ -45,21 +39,39 @@ func newSecurityComponents(
 		return securityComponents{}, err
 	}
 
-	if dependencies.newPostgresRuntime == nil {
-		return securityComponents{}, errPostgresRuntimeFactoryRequired
+	relational, err := newRelationalComposition(manager, relationalCompositionOptions{
+		factories: dependencies.relationalModuleFactories,
+		policy: queryPolicy{
+			timeout:           cfg.QueryTimeout,
+			responseByteLimit: cfg.QueryResponseByteLimit,
+			truncationEnabled: cfg.QueryTruncationEnabled,
+			rowLimit:          cfg.QueryRowLimit,
+		},
+		cleanupPeriod: cfg.ShutdownPeriod,
+	})
+	if err != nil {
+		return securityComponents{}, err
 	}
 
-	runtime, err := dependencies.newPostgresRuntime(manager)
+	cleanup := func(cause error) (securityComponents, error) {
+		return securityComponents{}, joinRuntimeCleanup(
+			cause,
+			cfg.ShutdownPeriod,
+			relational.runtimes,
+		)
+	}
+
+	connector, err := connection.NewConnector(relational.adapters...)
 	if err != nil {
-		return securityComponents{}, fmt.Errorf("creating postgres runtime: %w", err)
+		return cleanup(err)
 	}
 
 	registrar, err := newReplacementRegistrar(
 		manager,
-		map[connection.Kind]runtimeLifecycle{postgres.Kind: runtime},
+		relational.runtimeByKind,
 	)
 	if err != nil {
-		return securityComponents{}, err
+		return cleanup(err)
 	}
 
 	importer, err := connection.NewImporter(connection.ImporterDependencies{
@@ -78,34 +90,34 @@ func newSecurityComponents(
 		},
 	})
 	if err != nil {
-		return securityComponents{}, err
+		return cleanup(err)
 	}
 
 	tokenStore, err := mcpTokenLocal.New(cfg.MCPTokenStorePath)
 	if err != nil {
-		return securityComponents{}, fmt.Errorf("creating mcp token store: %w", err)
+		return cleanup(fmt.Errorf("creating mcp token store: %w", err))
 	}
 
 	mcpTokens, err := mcptoken.New(tokenStore, time.Now)
 	if err != nil {
-		return securityComponents{}, fmt.Errorf("creating mcp token service: %w", err)
+		return cleanup(fmt.Errorf("creating mcp token service: %w", err))
 	}
 
 	handler, err := localadmin.NewHandler(importer, mcpTokens, logger)
 	if err != nil {
-		return securityComponents{}, err
+		return cleanup(err)
 	}
 
 	server, err := localadmin.NewServer(cfg.AdminSocketPath, handler, logger)
 	if err != nil {
-		return securityComponents{}, err
+		return cleanup(err)
 	}
 
 	return securityComponents{
-		manager:         manager,
-		mcpTokens:       mcpTokens,
-		adminServer:     server,
-		postgresRuntime: runtime,
+		manager:     manager,
+		mcpTokens:   mcpTokens,
+		adminServer: server,
+		relational:  relational,
 	}, nil
 }
 

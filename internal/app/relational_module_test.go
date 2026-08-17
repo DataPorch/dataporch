@@ -38,9 +38,11 @@ func TestNewRelationalCompositionProjectsModulesInFactoryOrder(t *testing.T) {
 	}; !slices.Equal(got, []connection.Kind{"alpha", "beta"}) {
 		t.Fatalf("adapter kinds = %v, want [alpha beta]", got)
 	}
+
 	if composition.discoverers[0].Kind() != "alpha" || composition.queryExecutors[1].Kind() != "beta" {
 		t.Fatal("discoverer/query projections lost factory order")
 	}
+
 	if composition.runtimeByKind["alpha"] != alpha.runtime || composition.runtimeByKind["beta"] != beta.runtime {
 		t.Fatal("runtime ownership index does not match modules")
 	}
@@ -134,6 +136,7 @@ func TestCloseRuntimeLifecyclesPreservesOrderAndErrors(t *testing.T) {
 	if !slices.Equal(events, []string{"first", "second", "third"}) {
 		t.Fatalf("close events = %v, want [first second third]", events)
 	}
+
 	for _, expected := range []error{firstErr, secondErr} {
 		if !errors.Is(err, expected) {
 			t.Errorf("close error = %v, want %v", err, expected)
@@ -164,9 +167,11 @@ func TestNewRelationalCompositionCleansCreatedRuntimesAfterFactoryFailure(t *tes
 	if !errors.Is(err, factoryErr) {
 		t.Fatalf("newRelationalComposition() error = %v, want factory error", err)
 	}
+
 	if !errors.Is(err, closeErr) {
 		t.Fatalf("newRelationalComposition() error = %v, want close error", err)
 	}
+
 	if got := relationalRuntimeCloseCalls(firstRuntime); got != 1 {
 		t.Fatalf("first runtime close calls = %d, want 1", got)
 	}
@@ -187,6 +192,7 @@ func TestNewRelationalCompositionCleansCurrentRuntimeAfterValidationFailure(t *t
 			func(*connection.Manager, queryPolicy) (relationalModule, error) {
 				module := newRelationalTestModule("beta", currentRuntime)
 				module.queryExecutor = &relationalQueryExecutorStub{kind: "gamma"}
+
 				return module, nil
 			},
 		},
@@ -196,9 +202,11 @@ func TestNewRelationalCompositionCleansCurrentRuntimeAfterValidationFailure(t *t
 	if !errors.Is(err, errRelationalQueryExecutorKindMismatch) {
 		t.Fatalf("newRelationalComposition() error = %v, want query executor mismatch", err)
 	}
+
 	if got := relationalRuntimeCloseCalls(firstRuntime); got != 1 {
 		t.Fatalf("first runtime close calls = %d, want 1", got)
 	}
+
 	if got := relationalRuntimeCloseCalls(currentRuntime); got != 1 {
 		t.Fatalf("current runtime close calls = %d, want 1", got)
 	}
@@ -294,6 +302,7 @@ func (r *relationalRuntimeStub) Close(context.Context) error {
 	if r.events != nil {
 		*r.events = append(*r.events, r.name)
 	}
+
 	return r.closeErr
 }
 
@@ -317,6 +326,7 @@ func newRelationalTestManager(t *testing.T) *connection.Manager {
 	if err != nil {
 		t.Fatalf("connection.NewManager() error = %v", err)
 	}
+
 	return manager
 }
 

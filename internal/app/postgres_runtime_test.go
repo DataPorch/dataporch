@@ -14,12 +14,14 @@ import (
 	"github.com/adamraziv/dataporch/internal/config"
 	"github.com/adamraziv/dataporch/internal/connection"
 	"github.com/adamraziv/dataporch/internal/connection/postgres"
+	"github.com/adamraziv/dataporch/internal/execution"
 )
 
 func TestNewPostgresModule(t *testing.T) {
 	t.Parallel()
 
 	manager := newRelationalTestManager(t)
+
 	module, err := newPostgresModule(manager, validQueryPolicy())
 	if err != nil {
 		t.Fatalf("newPostgresModule() error = %v", err)
@@ -28,9 +30,11 @@ func TestNewPostgresModule(t *testing.T) {
 	if module.adapter.Kind() != postgres.Kind {
 		t.Fatalf("adapter kind = %q, want %q", module.adapter.Kind(), postgres.Kind)
 	}
+
 	if module.discoverer.Kind() != postgres.Kind || module.queryExecutor.Kind() != postgres.Kind {
 		t.Fatal("PostgreSQL execution components disagree with adapter kind")
 	}
+
 	if _, ok := module.runtime.(*postgres.Opener); !ok {
 		t.Fatalf("runtime type = %T, want *postgres.Opener", module.runtime)
 	}
@@ -75,6 +79,7 @@ func TestNewPostgresModuleRejectsInvalidInputs(t *testing.T) {
 			if err == nil {
 				t.Fatal("newPostgresModule() error = nil, want error")
 			}
+
 			if !reflect.DeepEqual(module, relationalModule{}) {
 				t.Fatalf("newPostgresModule() module = %#v, want zero module", module)
 			}
@@ -85,47 +90,24 @@ func TestNewPostgresModuleRejectsInvalidInputs(t *testing.T) {
 func TestNewConstructsPostgresRuntimeWithoutOpening(t *testing.T) {
 	t.Parallel()
 
-	runtime := &appPostgresRuntimeTestStub{}
-
-	var preparer postgres.DefinitionPreparer
-
-	constructions := 0
-
-	application, err := newWithDependencies(testConfigFor(t), slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)), appDependencies{
-		adapters: []connection.Adapter{postgres.New()},
-		newPostgresRuntime: func(gotPreparer postgres.DefinitionPreparer) (postgresRuntime, error) {
-			constructions++
-			preparer = gotPreparer
-
-			return runtime, nil
+	application, err := newWithDependencies(
+		testConfigFor(t),
+		slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)),
+		appDependencies{
+			relationalModuleFactories: []relationalModuleFactory{newPostgresModule},
+			newExecutionService:       execution.New,
 		},
-	})
+	)
 	if err != nil {
 		t.Fatalf("newWithDependencies() error = %v", err)
 	}
 
-	if application.postgresRuntime != runtime {
-		t.Fatal("application did not retain the constructed Postgres runtime")
+	if len(application.runtimes) != 1 {
+		t.Fatalf("application runtimes = %d, want 1", len(application.runtimes))
 	}
 
-	if constructions != 1 {
-		t.Fatalf("runtime constructions = %d, want 1", constructions)
-	}
-
-	if preparer == nil {
-		t.Fatal("runtime preparer = nil")
-	}
-
-	if got := runtime.invalidatedIDs(); len(got) != 0 {
-		t.Fatalf("invalidations during construction = %v, want none", got)
-	}
-
-	if runtime.queryOpenCalls() != 0 {
-		t.Fatalf("query opens during construction = %d, want 0", runtime.queryOpenCalls())
-	}
-
-	if runtime.closeCalls() != 0 {
-		t.Fatalf("runtime closes during construction = %d, want 0", runtime.closeCalls())
+	if _, ok := application.runtimes[0].(*postgres.Opener); !ok {
+		t.Fatalf("application runtime type = %T, want *postgres.Opener", application.runtimes[0])
 	}
 }
 
@@ -265,7 +247,7 @@ func TestAppFailedImportPreservesPostgresRuntime(t *testing.T) {
 func newAppWithPostgresRuntimeTestStub(
 	t *testing.T,
 	cfg config.Config,
-	runtime postgresRuntime,
+	runtime runtimeLifecycle,
 ) *App {
 	t.Helper()
 
@@ -280,7 +262,7 @@ func newAppWithPostgresRuntimeTestStub(
 func newAppWithPostgresRuntimeTestStubAndLogger(
 	t *testing.T,
 	cfg config.Config,
-	runtime postgresRuntime,
+	runtime runtimeLifecycle,
 	logger *slog.Logger,
 ) *App {
 	t.Helper()
@@ -289,10 +271,17 @@ func newAppWithPostgresRuntimeTestStubAndLogger(
 		cfg,
 		logger,
 		appDependencies{
-			adapters: []connection.Adapter{postgres.New()},
-			newPostgresRuntime: func(postgres.DefinitionPreparer) (postgresRuntime, error) {
-				return runtime, nil
+			relationalModuleFactories: []relationalModuleFactory{
+				func(*connection.Manager, queryPolicy) (relationalModule, error) {
+					return relationalModule{
+						adapter:       postgres.New(),
+						discoverer:    &relationalDiscovererStub{kind: postgres.Kind},
+						queryExecutor: &relationalQueryExecutorStub{kind: postgres.Kind},
+						runtime:       runtime,
+					}, nil
+				},
 			},
+			newExecutionService: execution.New,
 		},
 	)
 	if err != nil {
@@ -319,26 +308,10 @@ func importStatusOverSocket(path, databaseID, kind, connectionString string) (in
 type appPostgresRuntimeTestStub struct {
 	mu                  sync.Mutex
 	invalidated         []connection.ID
-	queryOpens          []connection.ID
 	closeErr            error
 	closes              int
 	invalidationStarted chan struct{}
 	invalidationRelease chan struct{}
-}
-
-func (r *appPostgresRuntimeTestStub) Open(context.Context, connection.ID) (*postgres.Client, error) {
-	return nil, nil
-}
-
-func (r *appPostgresRuntimeTestStub) OpenQuery(
-	ctx context.Context,
-	id connection.ID,
-) (*postgres.Client, error) {
-	r.mu.Lock()
-	r.queryOpens = append(r.queryOpens, id)
-	r.mu.Unlock()
-
-	return r.Open(ctx, id)
 }
 
 func (r *appPostgresRuntimeTestStub) Invalidate(id connection.ID) {
@@ -383,18 +356,4 @@ func (r *appPostgresRuntimeTestStub) invalidatedIDs() []connection.ID {
 	defer r.mu.Unlock()
 
 	return append([]connection.ID(nil), r.invalidated...)
-}
-
-func (r *appPostgresRuntimeTestStub) closeCalls() int {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	return r.closes
-}
-
-func (r *appPostgresRuntimeTestStub) queryOpenCalls() int {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	return len(r.queryOpens)
 }

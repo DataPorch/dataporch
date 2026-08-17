@@ -111,6 +111,12 @@ func (d *Discoverer) ListColumns(
 		page.HasMore = true
 		page.Columns = page.Columns[:request.Limit]
 	}
+	if request.AfterOrdinal == 0 {
+		page.Constraints, err = listSQLiteConstraints(client.conn, request.Table)
+		if err != nil {
+			return page, err
+		}
+	}
 
 	return page, nil
 }

@@ -265,7 +265,7 @@ func createColumnFixture(t *testing.T) string {
 	statements := []string{
 		`PRAGMA foreign_keys=ON`,
 		`CREATE TABLE "column_subject" (
-			id INTEGER NOT NULL PRIMARY KEY,
+			id INTEGER NOT NULL,
 			text_col VARCHAR(12) DEFAULT '',
 			blob_col BLOB,
 			real_col REAL,

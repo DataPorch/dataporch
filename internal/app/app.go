@@ -53,8 +53,11 @@ type App struct {
 
 func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	return newWithDependencies(cfg, logger, appDependencies{
-		relationalModuleFactories: []relationalModuleFactory{newPostgresModule},
-		newExecutionService:       execution.New,
+		relationalModuleFactories: []relationalModuleFactory{
+			newPostgresModule,
+			newSQLiteModule,
+		},
+		newExecutionService: execution.New,
 	})
 }
 

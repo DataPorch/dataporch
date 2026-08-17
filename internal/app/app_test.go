@@ -17,6 +17,8 @@ import (
 
 	"github.com/adamraziv/dataporch/internal/config"
 	"github.com/adamraziv/dataporch/internal/connection"
+	"github.com/adamraziv/dataporch/internal/connection/postgres"
+	"github.com/adamraziv/dataporch/internal/connection/sqlite"
 	"github.com/adamraziv/dataporch/internal/execution"
 	"github.com/adamraziv/dataporch/internal/secret/local"
 )
@@ -57,6 +59,29 @@ func TestNewStartsWithoutInitializedSecretStore(t *testing.T) {
 
 	if application.manager == nil {
 		t.Fatal("manager = nil")
+	}
+}
+
+func TestNewComposesPostgresThenSQLiteRuntimes(t *testing.T) {
+	t.Parallel()
+
+	application, err := New(testConfigFor(t), slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	if len(application.runtimes) != 2 {
+		t.Fatalf("application runtimes = %d, want 2", len(application.runtimes))
+	}
+	if _, ok := application.runtimes[0].(*postgres.Opener); !ok {
+		t.Fatalf("first runtime type = %T, want *postgres.Opener", application.runtimes[0])
+	}
+	if _, ok := application.runtimes[1].(*sqlite.Runtime); !ok {
+		t.Fatalf("second runtime type = %T, want *sqlite.Runtime", application.runtimes[1])
+	}
+
+	if err := application.closeRuntimes(t.Context()); err != nil {
+		t.Fatalf("closeRuntimes() error = %v", err)
 	}
 }
 

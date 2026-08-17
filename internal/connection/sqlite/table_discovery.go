@@ -1,0 +1,87 @@
+package sqlite
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+
+	"github.com/adamraziv/dataporch/internal/execution"
+)
+
+const listTablesSQL = `
+SELECT name, type
+FROM pragma_table_list
+WHERE schema = 'main'
+  AND name NOT LIKE 'sqlite\_%' ESCAPE '\'
+  AND type IN ('table', 'view', 'virtual')
+  AND (?1 = '' OR instr(lower(name), lower(?1)) > 0)
+  AND (?2 = '' OR name COLLATE BINARY > ?2 COLLATE BINARY)
+ORDER BY name COLLATE BINARY
+LIMIT ?3`
+
+func (d *Discoverer) ListTables(
+	ctx context.Context,
+	request execution.TableDiscoveryRequest,
+) (page execution.TableDiscoveryPage, retErr error) {
+	client, err := d.open(ctx, request.SourceID)
+	if err != nil {
+		return execution.TableDiscoveryPage{}, err
+	}
+	defer func() { retErr = errors.Join(retErr, client.close()) }()
+
+	page.Tables = make([]execution.Table, 0, request.Limit+1)
+	if request.Schema != "main" {
+		return page, execution.ErrSchemaNotFound
+	}
+
+	stmt, tail, err := client.conn.Prepare(listTablesSQL)
+	if err != nil {
+		return page, fmt.Errorf("sqlite: preparing relation catalog: %w", err)
+	}
+	if stmt == nil || strings.TrimSpace(tail) != "" {
+		if stmt != nil {
+			_ = stmt.Close()
+		}
+		return page, fmt.Errorf("%w: invalid relation catalog statement", execution.ErrInternal)
+	}
+	defer func() { retErr = errors.Join(retErr, stmt.Close()) }()
+
+	if err := stmt.BindText(1, request.Search); err != nil {
+		return page, fmt.Errorf("sqlite: binding relation search: %w", err)
+	}
+	if err := stmt.BindText(2, request.AfterName); err != nil {
+		return page, fmt.Errorf("sqlite: binding relation cursor: %w", err)
+	}
+	if err := stmt.BindInt64(3, int64(request.Limit+1)); err != nil {
+		return page, fmt.Errorf("sqlite: binding relation limit: %w", err)
+	}
+
+	for stmt.Step() {
+		table := execution.Table{
+			Name: stmt.ColumnText(0),
+		}
+		relationType := stmt.ColumnText(1)
+		switch relationType {
+		case "table":
+			table.Kind = execution.RelationKindTable
+		case "view":
+			table.Kind = execution.RelationKindView
+		case "virtual":
+			table.Kind = execution.RelationKindVirtualTable
+		default:
+			return page, fmt.Errorf("%w: %s", execution.ErrInternal, relationType)
+		}
+		page.Tables = append(page.Tables, table)
+	}
+	if err := stmt.Err(); err != nil {
+		return page, fmt.Errorf("sqlite: reading relation catalog: %w", err)
+	}
+
+	if len(page.Tables) > request.Limit {
+		page.HasMore = true
+		page.Tables = page.Tables[:request.Limit]
+	}
+
+	return page, nil
+}

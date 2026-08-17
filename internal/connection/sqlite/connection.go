@@ -17,7 +17,7 @@ var errSQLiteFileUnavailable = errors.New("sqlite: database file unavailable")
 func openPhysicalConnection(
 	ctx context.Context,
 	path string,
-	_ accessMode,
+	mode accessMode,
 ) (ret rawConnection, retErr error) {
 	if ctx == nil {
 		return nil, fmt.Errorf("%w: context is required", errSQLiteFileUnavailable)
@@ -47,7 +47,9 @@ func openPhysicalConnection(
 		return nil, fmt.Errorf("%w: %w", errSQLiteFileUnavailable, err)
 	}
 
-	if err := validateSQLiteConnection(physical); err != nil {
+	_, err = configureConnectionAndClose(physical, mode)
+	if err != nil {
+		physical = nil
 		return nil, err
 	}
 	if err := ctx.Err(); err != nil {
@@ -55,6 +57,14 @@ func openPhysicalConnection(
 	}
 
 	return physical, nil
+}
+
+func configureConnectionAndClose(conn rawConnection, mode accessMode) (rawConnection, error) {
+	if err := configureConnection(conn, mode); err != nil {
+		return nil, errors.Join(err, conn.Close())
+	}
+
+	return conn, nil
 }
 
 func validateSQLiteConnection(conn rawConnection) error {

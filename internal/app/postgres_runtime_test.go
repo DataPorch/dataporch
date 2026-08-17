@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -24,7 +25,11 @@ func TestReplacementRegistrarInvalidatesAfterRegistration(t *testing.T) {
 			t.Parallel()
 
 			events := make([]string, 0, 2)
-			registrar := &replacementRegistrarTestRegistrar{events: &events}
+			expectedResult := connection.RegistrationResult{
+				Previous: connection.Definition{ID: "previous", Kind: "postgres"},
+				Replaced: true,
+			}
+			registrar := &replacementRegistrarTestRegistrar{events: &events, result: expectedResult}
 			invalidator := &replacementRegistrarTestInvalidator{events: &events}
 
 			wrapper, err := newReplacementRegistrar(registrar, invalidator)
@@ -33,8 +38,12 @@ func TestReplacementRegistrarInvalidatesAfterRegistration(t *testing.T) {
 			}
 
 			definition := connection.Definition{ID: "finance", Kind: kind}
-			if err := wrapper.Register(definition); err != nil {
+			result, err := wrapper.Register(definition)
+			if err != nil {
 				t.Fatalf("Register() error = %v", err)
+			}
+			if !reflect.DeepEqual(result, expectedResult) {
+				t.Fatalf("Register() result = %#v, want %#v", result, expectedResult)
 			}
 
 			if len(events) != 2 || events[0] != "register" || events[1] != "invalidate:finance" {
@@ -61,8 +70,12 @@ func TestReplacementRegistrarDoesNotInvalidateAfterRegistrationFailure(t *testin
 		t.Fatalf("newReplacementRegistrar() error = %v", err)
 	}
 
-	if err := wrapper.Register(connection.Definition{ID: "finance", Kind: postgres.Kind}); !errors.Is(err, registrationErr) {
+	result, err := wrapper.Register(connection.Definition{ID: "finance", Kind: postgres.Kind})
+	if !errors.Is(err, registrationErr) {
 		t.Fatalf("Register() error = %v, want %v", err, registrationErr)
+	}
+	if !reflect.DeepEqual(result, connection.RegistrationResult{}) {
+		t.Fatalf("Register() result = %#v, want zero result", result)
 	}
 
 	if len(events) != 1 || events[0] != "register" {
@@ -310,12 +323,13 @@ func importStatusOverSocket(path, databaseID, kind, connectionString string) (in
 
 type replacementRegistrarTestRegistrar struct {
 	events *[]string
+	result connection.RegistrationResult
 	err    error
 }
 
-func (r *replacementRegistrarTestRegistrar) Register(connection.Definition) error {
+func (r *replacementRegistrarTestRegistrar) Register(connection.Definition) (connection.RegistrationResult, error) {
 	*r.events = append(*r.events, "register")
-	return r.err
+	return r.result, r.err
 }
 
 type replacementRegistrarTestInvalidator struct {

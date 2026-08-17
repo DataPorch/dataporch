@@ -54,14 +54,17 @@ func newReplacementRegistrar(
 	return &replacementRegistrar{registrar: registrar, invalidator: invalidator}, nil
 }
 
-func (r *replacementRegistrar) Register(definition connection.Definition) error {
-	if err := r.registrar.Register(definition); err != nil {
-		return err
+func (r *replacementRegistrar) Register(
+	definition connection.Definition,
+) (connection.RegistrationResult, error) {
+	result, err := r.registrar.Register(definition)
+	if err != nil {
+		return connection.RegistrationResult{}, err
 	}
 
 	r.invalidator.Invalidate(definition.ID)
 
-	return nil
+	return result, nil
 }
 
 func newPostgresRuntime(preparer postgres.DefinitionPreparer) (postgresRuntime, error) {

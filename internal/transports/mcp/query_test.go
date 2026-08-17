@@ -91,6 +91,18 @@ func TestQueryToolHasExactInputSchemaAndAnnotations(t *testing.T) {
 	if additional, exists := schema["additionalProperties"]; !exists || additional != false {
 		t.Fatalf("additionalProperties = %#v, want false", additional)
 	}
+
+	wantDescriptions := map[string]string{
+		"kind":      "configured relational database kind",
+		"source_id": "globally unique configured source identifier",
+		"query":     "one complete row-producing statement",
+	}
+	for name, want := range wantDescriptions {
+		property, ok := properties[name].(map[string]any)
+		if !ok || property["description"] != want {
+			t.Fatalf("property %q = %#v, want description %q", name, properties[name], want)
+		}
+	}
 }
 
 func TestQueryToolReturnsExactStructuredAndTextResult(t *testing.T) {
@@ -188,6 +200,7 @@ func TestQueryToolReturnsEveryDatabaseErrorField(t *testing.T) {
 	databaseError := &execution.DatabaseError{
 		Kind:                connection.Kind("postgres"),
 		Code:                "42501",
+		ExtendedCode:        "SQLITE_BUSY_SNAPSHOT",
 		Severity:            "ERROR",
 		SeverityUnlocalized: "ERROR",
 		Message:             "permission denied",
@@ -432,12 +445,15 @@ func TestQueryToolLogsOneContextualSuccess(t *testing.T) {
 	if logRecord["msg"] != "relational query completed" ||
 		logRecord["level"] != "INFO" ||
 		logRecord["operation"] != relationalQueryOperation ||
-		logRecord["query"] != "select safe_value" ||
+		logRecord["query_size_bytes"] != float64(len("select safe_value")) ||
 		logRecord["kind"] != "postgres" ||
 		logRecord["source_id"] != "finance" ||
 		logRecord["row_count"] != float64(1) ||
 		logRecord["truncated"] != false {
 		t.Fatalf("success log = %#v", logRecord)
+	}
+	if _, exists := logRecord["query"]; exists || strings.Contains(logs.String(), "select safe_value") {
+		t.Fatalf("success log leaked raw SQL: %s", logs.String())
 	}
 }
 
@@ -468,6 +484,7 @@ func TestQueryToolLogsOneContextualFailure(t *testing.T) {
 	logRecord := decodeOneLogRecord(t, logs.Bytes())
 	if logRecord["msg"] != "relational query failed" ||
 		logRecord["level"] != "WARN" ||
+		logRecord["query_size_bytes"] != float64(len("select retryable")) ||
 		logRecord["category"] != string(execution.ErrorCategoryDatabaseConflict) ||
 		logRecord["retryable"] != true {
 		t.Fatalf("failure log = %#v", logRecord)
@@ -477,6 +494,9 @@ func TestQueryToolLogsOneContextualFailure(t *testing.T) {
 	if !ok || databaseFields["kind"] != "postgres" || databaseFields["code"] != "40001" ||
 		databaseFields["line"] != float64(19) {
 		t.Fatalf("database error log group = %#v", logRecord["database_error"])
+	}
+	if _, exists := logRecord["query"]; exists || strings.Contains(logs.String(), "select retryable") {
+		t.Fatalf("failure log leaked raw SQL: %s", logs.String())
 	}
 }
 
@@ -499,13 +519,14 @@ func TestQueryToolDoesNotLogCellsOrCredentials(t *testing.T) {
 	server, session := newQueryTestSession(t, dependencies)
 	defer server.Close()
 
-	result := callRelationalQuery(t, session, "select protected")
+	query := "select protected /* raw-query-canary */"
+	result := callRelationalQuery(t, session, query)
 	if result.IsError {
 		t.Fatalf("query result is an error: %#v", result)
 	}
 
 	encodedLogs := logs.String()
-	if strings.Contains(encodedLogs, cell) || strings.Contains(encodedLogs, "postgres://user:password@") {
+	if strings.Contains(encodedLogs, cell) || strings.Contains(encodedLogs, query) || strings.Contains(encodedLogs, "postgres://user:password@") {
 		t.Fatalf("logs contain result cells or credentials: %s", encodedLogs)
 	}
 }

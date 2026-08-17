@@ -21,9 +21,9 @@ const (
 )
 
 type relationalQueryInput struct {
-	Kind     connection.Kind `json:"kind" jsonschema:"database kind; currently postgres"`
+	Kind     connection.Kind `json:"kind" jsonschema:"configured relational database kind"`
 	SourceID connection.ID   `json:"source_id" jsonschema:"globally unique configured source identifier"`
-	Query    string          `json:"query" jsonschema:"one complete PostgreSQL statement"`
+	Query    string          `json:"query" jsonschema:"one complete row-producing statement"`
 }
 
 func relationalQueryAnnotations() *mcpsdk.ToolAnnotations {
@@ -190,7 +190,7 @@ func finishRelationalQueryError(
 func queryLogFields(request execution.RelationalQueryRequest, start time.Time) []any {
 	return []any{
 		slog.String("operation", relationalQueryOperation),
-		slog.String("query", request.Query),
+		slog.Int("query_size_bytes", len(request.Query)),
 		slog.String("kind", string(request.Kind)),
 		slog.String("source_id", string(request.SourceID)),
 		slog.Int64("duration_ms", time.Since(start).Milliseconds()),
@@ -246,6 +246,7 @@ func boundDatabaseError(
 
 	bounded.Kind = connection.Kind(boundString(string(databaseError.Kind)))
 	bounded.Code = boundString(databaseError.Code)
+	bounded.ExtendedCode = boundString(databaseError.ExtendedCode)
 	bounded.Severity = boundString(databaseError.Severity)
 	bounded.SeverityUnlocalized = boundString(databaseError.SeverityUnlocalized)
 	bounded.Message = boundString(databaseError.Message)
@@ -357,6 +358,7 @@ func databaseErrorLogGroup(
 
 	appendString("kind", string(databaseError.Kind))
 	appendString("code", databaseError.Code)
+	appendString("extended_code", databaseError.ExtendedCode)
 	appendString("severity", databaseError.Severity)
 	appendString("severity_unlocalized", databaseError.SeverityUnlocalized)
 	appendString("message", databaseError.Message)

@@ -470,7 +470,8 @@ func validateRelationKind(kind RelationKind) error {
 		RelationKindPartitionedTable,
 		RelationKindView,
 		RelationKindMaterializedView,
-		RelationKindForeignTable:
+		RelationKindForeignTable,
+		RelationKindVirtualTable:
 		return nil
 	default:
 		return fmt.Errorf("%w: %s", ErrUnsupportedRelationKind, kind)

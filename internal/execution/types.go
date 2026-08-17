@@ -19,6 +19,7 @@ const (
 	RelationKindView             RelationKind = "view"
 	RelationKindMaterializedView RelationKind = "materialized_view"
 	RelationKindForeignTable     RelationKind = "foreign_table"
+	RelationKindVirtualTable     RelationKind = "virtual_table"
 )
 
 type TypeCategory string
@@ -33,6 +34,17 @@ const (
 	TypeCategoryMultirange TypeCategory = "multirange"
 	TypeCategoryPseudo     TypeCategory = "pseudo"
 	TypeCategoryOther      TypeCategory = "other"
+	TypeCategoryDynamic    TypeCategory = "dynamic"
+)
+
+type TypeAffinity string
+
+const (
+	TypeAffinityInteger TypeAffinity = "integer"
+	TypeAffinityText    TypeAffinity = "text"
+	TypeAffinityBlob    TypeAffinity = "blob"
+	TypeAffinityReal    TypeAffinity = "real"
+	TypeAffinityNumeric TypeAffinity = "numeric"
 )
 
 type DataSource struct {
@@ -68,6 +80,7 @@ type DataType struct {
 	IsArray           bool           `json:"is_array"`
 	ElementType       *TypeReference `json:"element_type"`
 	DomainBaseType    *TypeReference `json:"domain"`
+	Affinity          TypeAffinity   `json:"affinity,omitempty"`
 }
 
 type Identity struct {
@@ -76,7 +89,7 @@ type Identity struct {
 
 type Generated struct {
 	Kind       string `json:"kind"`
-	Expression string `json:"expression"`
+	Expression string `json:"expression,omitempty"`
 }
 
 type Column struct {
@@ -98,7 +111,7 @@ type ConstraintReference struct {
 }
 
 type Constraint struct {
-	Name              string               `json:"name"`
+	Name              string               `json:"name,omitempty"`
 	Kind              string               `json:"kind"`
 	Columns           []string             `json:"columns"`
 	Deferrable        bool                 `json:"deferrable"`

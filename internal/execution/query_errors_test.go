@@ -190,6 +190,43 @@ func TestClassifyRelationalQueryPreservesAllDatabaseFields(t *testing.T) {
 	}
 }
 
+func TestClassifyRelationalQuerySQLiteFailure(t *testing.T) {
+	t.Parallel()
+
+	databaseError := &DatabaseError{
+		Kind:         connection.Kind("sqlite"),
+		Code:         "SQLITE_BUSY",
+		ExtendedCode: "SQLITE_BUSY_SNAPSHOT",
+		Message:      "database is busy",
+	}
+
+	failure := ClassifyRelationalQuery(
+		t.Context(),
+		NewDatabaseFailure(ErrorCategoryDatabaseConflict, true, databaseError),
+	)
+	if failure.Category != ErrorCategoryDatabaseConflict || !failure.Retryable {
+		t.Fatalf("SQLite classification = %#v, want retryable database conflict", failure)
+	}
+	if failure.DatabaseError != databaseError {
+		t.Fatalf("SQLite database projection = %#v, want %#v", failure.DatabaseError, databaseError)
+	}
+
+	encoded, err := json.Marshal(failure)
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+	for _, want := range []string{`"kind":"sqlite"`, `"code":"SQLITE_BUSY"`, `"extended_code":"SQLITE_BUSY_SNAPSHOT"`} {
+		if !containsJSONText(encoded, want) {
+			t.Fatalf("SQLite failure JSON %q missing %q", encoded, want)
+		}
+	}
+
+	unwrapped := ClassifyRelationalQuery(t.Context(), databaseError)
+	if unwrapped.Category != ErrorCategoryDatabaseError || unwrapped.Retryable {
+		t.Fatalf("unwrapped SQLite classification = %#v, want non-retryable database error", unwrapped)
+	}
+}
+
 func TestClassifyDiscoveryRemainsUnchanged(t *testing.T) {
 	t.Parallel()
 

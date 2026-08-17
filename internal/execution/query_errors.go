@@ -11,6 +11,7 @@ import (
 type DatabaseError struct {
 	Kind                connection.Kind `json:"kind"`
 	Code                string          `json:"code,omitempty"`
+	ExtendedCode        string          `json:"extended_code,omitempty"`
 	Severity            string          `json:"severity,omitempty"`
 	SeverityUnlocalized string          `json:"severity_unlocalized,omitempty"`
 	Message             string          `json:"message,omitempty"`
@@ -37,6 +38,40 @@ func (e *DatabaseError) Error() string {
 	}
 
 	return e.Message
+}
+
+type DatabaseFailure struct {
+	category      ErrorCategory
+	retryable     bool
+	databaseError *DatabaseError
+}
+
+func NewDatabaseFailure(
+	category ErrorCategory,
+	retryable bool,
+	databaseError *DatabaseError,
+) *DatabaseFailure {
+	return &DatabaseFailure{
+		category:      category,
+		retryable:     retryable,
+		databaseError: databaseError,
+	}
+}
+
+func (f *DatabaseFailure) Error() string {
+	if f == nil || f.databaseError == nil {
+		return "database failure"
+	}
+
+	return f.databaseError.Error()
+}
+
+func (f *DatabaseFailure) Unwrap() error {
+	if f == nil {
+		return nil
+	}
+
+	return f.databaseError
 }
 
 var (
@@ -79,6 +114,11 @@ func ClassifyRelationalQuery(ctx context.Context, err error) Failure {
 
 	if errors.Is(err, ErrResultTooLarge) {
 		return relationalQueryFailure(ErrorCategoryResultTooLarge, nil)
+	}
+
+	var projectedFailure *DatabaseFailure
+	if errors.As(err, &projectedFailure) && projectedFailure != nil {
+		return databaseFailure(projectedFailure.category, projectedFailure.retryable, projectedFailure.databaseError)
 	}
 
 	var databaseError *DatabaseError
@@ -124,6 +164,10 @@ func ClassifyRelationalQuery(ctx context.Context, err error) Failure {
 
 //nolint:gocyclo // SQLSTATE mapping is intentionally explicit and ordered by specificity.
 func classifyDatabaseError(databaseError *DatabaseError) Failure {
+	if databaseError == nil || databaseError.Kind != connection.Kind("postgres") {
+		return databaseFailure(ErrorCategoryDatabaseError, false, databaseError)
+	}
+
 	code := databaseError.Code
 
 	switch {

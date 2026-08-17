@@ -32,6 +32,8 @@ func (*Discoverer) Kind() connection.Kind {
 	return Kind
 }
 
+var _ execution.RelationalDiscoverer = (*Discoverer)(nil)
+
 func isNilInterface(value any) bool {
 	if value == nil {
 		return true

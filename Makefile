@@ -6,7 +6,7 @@ GOVULNCHECK ?= govulncheck
 
 .DEFAULT_GOAL := help
 
-.PHONY: audit build check clean fmt fmt-check help lint lint-fix lint-integration run test test-integration test-race tidy tidy-check vet
+.PHONY: audit build build-cgo-disabled check clean fmt fmt-check help lint lint-fix lint-integration run test test-cgo-disabled test-integration test-race tidy tidy-check vet
 
 build:
 	@mkdir -p $(BUILD_DIR)
@@ -18,11 +18,17 @@ run:
 test:
 	$(GO) test -shuffle=on ./...
 
+test-cgo-disabled:
+	CGO_ENABLED=0 $(GO) test -shuffle=on ./...
+
 test-race:
 	$(GO) test -race -shuffle=on ./...
 
 test-integration:
-	$(GO) test -race -count=1 -tags=integration ./internal/connection/postgres ./internal/app
+	$(GO) test -race -count=1 -tags=integration ./internal/connection/postgres ./internal/connection/sqlite ./internal/app
+
+build-cgo-disabled:
+	CGO_ENABLED=0 $(GO) build -trimpath ./cmd/dataporch
 
 vet:
 	$(GO) vet ./...
@@ -71,6 +77,7 @@ help:
 		'Targets:' \
 		'  audit        Scan dependencies for known vulnerabilities.' \
 		'  build        Build the DataPorch binary.' \
+		'  build-cgo-disabled  Build with CGO disabled.' \
 		'  check        Run the local quality gate.' \
 		'  clean        Remove generated local artifacts.' \
 		'  fmt          Format Go source files.' \
@@ -79,8 +86,9 @@ help:
 		'  lint-fix     Apply safe lint fixes.' \
 		'  lint-integration  Lint ordinary and integration-tagged Go files.' \
 		'  run          Run DataPorch locally.' \
+		'  test-cgo-disabled  Run tests with CGO disabled.' \
 		'  test         Run unit tests.' \
-		'  test-integration  Run PostgreSQL integration tests (requires DATAPORCH_TEST_POSTGRES_DSN).' \
+		'  test-integration  Run relational integration tests (PostgreSQL requires DATAPORCH_TEST_POSTGRES_DSN).' \
 		'  test-race    Run unit tests with the race detector.' \
 		'  tidy         Reconcile module files.' \
 		'  tidy-check   Verify module files are tidy.' \

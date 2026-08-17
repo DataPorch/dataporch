@@ -8,7 +8,7 @@ This repository contains the first functional data-discovery path. It includes:
 
 - Validated configuration
 - A controlled process lifecycle
-- Live connection definitions with lazy PostgreSQL opening
+- Live connection definitions with lazy relational-database opening
 - Progressive relational metadata discovery
 - HTTP and MCP transports that use the same execution service
 
@@ -92,19 +92,20 @@ not OAuth authorization. Keep the default loopback boundary; exposing cleartext
 Bearer tokens remotely is unsupported.
 
 The MCP endpoint exposes exactly five typed tools. Call them in this order when
-an agent needs to inspect a source and run a bounded query:
+an agent needs to inspect a relational source and run a bounded query:
 
 1. `data_source.list` — list configured source IDs and capability families. This
    is a local snapshot and does not check connectivity.
-2. `relational_database.list_schemas` — list PostgreSQL schemas accessible to
-   the configured database role.
-3. `relational_database.list_tables` — list readable tables, partitioned
-   tables, views, materialized views, and foreign tables for an exact schema.
-4. `relational_database.list_columns` — list columns, PostgreSQL type details,
-   defaults, identity/generated metadata, and relevant constraints for an
-   exact schema and relation.
-5. `relational_database.query` — execute one complete row-producing PostgreSQL
-   statement against a configured source in a bounded `READ ONLY` transaction.
+2. `relational_database.list_schemas` — list schemas exposed by the configured
+   relational adapter.
+3. `relational_database.list_tables` — list readable tables and adapter-supported
+   relation kinds for an exact schema.
+4. `relational_database.list_columns` — list columns, adapter type details,
+   defaults, generated metadata, and representable constraints for an exact
+   schema and relation.
+5. `relational_database.query` — execute one complete row-producing statement
+   against a configured relational source within the adapter's read-only
+   policy.
 
 The query tool requires exactly these fields:
 
@@ -125,9 +126,9 @@ Schema and relation names are case-sensitive identifiers; pass the exact value
 returned by the parent listing. Each operation supports a literal,
 case-insensitive `search`, bounded `limit`, and an opaque stateless `cursor`.
 Descriptions and comments are omitted unless `include_descriptions` is true.
-PostgreSQL privilege predicates filter schemas, relations, columns, and
-referenced constraints, so accessible system schemas may appear alongside
-user schemas while unreadable objects do not.
+Each adapter applies its own visibility and safety policy. PostgreSQL privilege
+predicates filter schemas, relations, columns, and referenced constraints, while
+SQLite exposes its `main` catalog and readable objects only.
 
 The former MCP `list_resources` tool and HTTP `GET /v1/resources` route were
 removed in favor of these typed capabilities.
@@ -201,6 +202,49 @@ internal lazy Postgres runtime opener: the first open authenticates within ten
 seconds, later opens reuse one pgx pool per source ID, and pgx may retire idle
 physical connections while DataPorch retains the reusable pool object.
 
+### SQLite adapter
+
+SQLite imports use an exact, offline-only URI with an absolute path:
+
+```text
+sqlite:///absolute/path/database.db
+```
+
+Import validates only the URI syntax. It does not open the file, create a
+database, check connectivity, or run a query, and the import response reports
+`connectionTested: false`. The normalized path is stored through the encrypted
+local secret store; connection errors and operational logs redact the path.
+
+On first use, the adapter requires an existing, non-empty regular file. It
+rejects missing, empty, directory, final-symlink, malformed, corrupt, and
+inaccessible files without creating a database or sidecar. Every operation
+opens a fresh physical connection with read-only, URI, and no-follow flags,
+defensive settings, trusted-schema disabled, query-only mode, and no idle
+connection pool. Memory, temporary, attached, encrypted, extension-loading,
+DDL, and SQL-text parsing workflows are unsupported.
+
+SQLite exposes only the `main` schema. Ordinary tables, views, and virtual
+tables map to the corresponding relation kinds. Declared column text is
+preserved while the dynamic type metadata reports SQLite affinity (`integer`,
+`text`, `blob`, `real`, or `numeric`); generated columns identify virtual or
+stored generation. Primary keys, representable unique indexes, and foreign
+keys are exposed as structural constraints. Constraint names, partial or
+expression indexes, unsupported deferrability details, and other SQLite
+metadata that has no safe representation are omitted.
+
+The query contract is one opaque, parameter-free, row-producing statement.
+Cells are returned as strings or JSON `null`; BLOB cells use uppercase SQLite
+literals such as `X'00FF'`. Committed updates are visible on the next
+operation, and atomic file replacement is observed without retaining a session
+or physical connection. WAL reads do not use immutable mode and do not modify
+the database or WAL payload; SQLite may update `-shm` lock/read-mark
+bookkeeping while a live writer is present. Filesystem permission failures are
+reported as safe unavailable errors.
+
+SQLite query logs contain operation, adapter kind, source identity, size,
+duration, row count, and outcome metadata. They never include raw SQL, paths,
+DSNs, secrets, result cells, or stack traces.
+
 Discovery catalog queries have a separate twenty-second bound. Query calls have
 the timeout and encoded-response ceilings above. Disabling row truncation does
 not disable either mandatory ceiling. Callers should add an `ORDER BY` when
@@ -240,12 +284,10 @@ Query failures may include every PostgreSQL server field in the approved
 }
 ```
 
-Every query attempt logs the full SQL at INFO or WARN with operation, kind,
-source ID, duration, and result or failure metadata. SQL and PostgreSQL error
-logs are sensitive; deployments own access, retention, transport, and
-downstream redaction. Result cells are not logged as separate fields, but SQL
-literals and PostgreSQL errors can contain data. Credentials, DSNs, resolved
-settings, and secret references are never query result or log fields.
+Every query attempt logs operation, kind, source ID, duration, query size, and
+result or failure metadata at INFO or WARN. Raw SQL, result cells, credentials,
+DSNs, resolved settings, secret references, and filesystem paths are not log
+fields.
 
 `AllowAll` initially permits any MCP caller to query any configured PostgreSQL
 source. MCP network reachability and the PostgreSQL identity stored for each
@@ -283,6 +325,8 @@ make test
 make test-race
 make test-integration \
   DATAPORCH_TEST_POSTGRES_DSN='postgres://user:password@127.0.0.1:5432/database?sslmode=disable'
+make test-cgo-disabled
+make build-cgo-disabled
 make vet
 make lint
 make audit
@@ -299,6 +343,7 @@ internal/app/                  Dependency setup and process lifecycle
 internal/config/               Environment configuration
 internal/connection/           Built-in database adapter resolution
 internal/connection/postgres/  PostgreSQL URI import and runtime opener
+internal/connection/sqlite/    SQLite URI import, discovery, and read-only runtime
 internal/execution/            Validated application operations
 internal/access/               Access policy implementations
 internal/transports/httpapi/   HTTP adapter

@@ -1384,10 +1384,12 @@ func newCountingPostgresModule(
 		}
 
 		counting := &countingPostgresRuntime{opener: opener}
+
 		discoverer, err := postgres.NewDiscoverer(counting)
 		if err != nil {
 			return relationalModule{}, errors.Join(err, counting.Close(context.Background()))
 		}
+
 		queryExecutor, err := postgres.NewQueryExecutor(counting, postgres.QueryOptions{
 			Timeout:           policy.timeout,
 			ResponseByteLimit: policy.responseByteLimit,
@@ -1399,6 +1401,7 @@ func newCountingPostgresModule(
 		}
 
 		*runtime = counting
+
 		return relationalModule{
 			adapter:       postgres.New(),
 			discoverer:    discoverer,

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/adamraziv/dataporch/internal/connection"
@@ -13,17 +14,17 @@ import (
 )
 
 var (
-	errRelationalManagerRequired           = errors.New("relational manager is required")
-	errRelationalCleanupPeriodInvalid      = errors.New("relational cleanup period must be positive")
-	errRelationalFactoryRequired           = errors.New("relational module factory is required")
-	errRelationalAdapterRequired           = errors.New("relational adapter is required")
-	errRelationalDiscovererRequired        = errors.New("relational discoverer is required")
-	errRelationalQueryExecutorRequired     = errors.New("relational query executor is required")
-	errRelationalRuntimeRequired           = errors.New("relational runtime is required")
-	errRelationalKindRequired              = errors.New("relational adapter kind is required")
-	errRelationalDiscovererKindMismatch    = errors.New("relational discoverer kind mismatch")
-	errRelationalQueryExecutorKindMismatch = errors.New("relational query executor kind mismatch")
-	errRelationalDuplicateKind             = errors.New("duplicate relational module kind")
+	errRelationalManagerRequired           = errors.New("app: relational manager is required")
+	errRelationalCleanupPeriodInvalid      = errors.New("app: relational cleanup period must be positive")
+	errRelationalFactoryRequired           = errors.New("app: relational module factory is required")
+	errRelationalAdapterRequired           = errors.New("app: relational adapter is required")
+	errRelationalDiscovererRequired        = errors.New("app: relational discoverer is required")
+	errRelationalQueryExecutorRequired     = errors.New("app: relational query executor is required")
+	errRelationalRuntimeRequired           = errors.New("app: relational runtime is required")
+	errRelationalKindRequired              = errors.New("app: relational adapter kind is required")
+	errRelationalDiscovererKindMismatch    = errors.New("app: relational discoverer kind mismatch")
+	errRelationalQueryExecutorKindMismatch = errors.New("app: relational query executor kind mismatch")
+	errRelationalDuplicateKind             = errors.New("app: duplicate relational module kind")
 )
 
 type runtimeLifecycle interface {
@@ -184,17 +185,16 @@ func isNilDependency(value any) bool {
 
 	reflected := reflect.ValueOf(value)
 
-	kind := reflected.Kind()
-	if kind != reflect.Chan &&
-		kind != reflect.Func &&
-		kind != reflect.Interface &&
-		kind != reflect.Map &&
-		kind != reflect.Pointer &&
-		kind != reflect.Slice {
-		return false
+	nilableKinds := [...]reflect.Kind{
+		reflect.Chan,
+		reflect.Func,
+		reflect.Interface,
+		reflect.Map,
+		reflect.Pointer,
+		reflect.Slice,
 	}
 
-	return reflected.IsNil()
+	return slices.Contains(nilableKinds[:], reflected.Kind()) && reflected.IsNil()
 }
 
 func joinRuntimeCleanup(
@@ -209,16 +209,19 @@ func joinRuntimeCleanup(
 }
 
 func closeRuntimeLifecycles(ctx context.Context, runtimes []runtimeLifecycle) error {
-	errs := make([]error, 0, len(runtimes))
-	for _, runtime := range runtimes {
+	errs := make([]error, len(runtimes))
+
+	var group sync.WaitGroup
+
+	for index, runtime := range runtimes {
 		if isNilDependency(runtime) {
 			continue
 		}
 
-		if err := runtime.Close(ctx); err != nil {
-			errs = append(errs, err)
-		}
+		group.Go(func() { errs[index] = runtime.Close(ctx) })
 	}
+
+	group.Wait()
 
 	return errors.Join(errs...)
 }

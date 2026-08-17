@@ -120,27 +120,69 @@ func TestNewRelationalCompositionRejectsInvalidInputs(t *testing.T) {
 	}
 }
 
-func TestCloseRuntimeLifecyclesPreservesOrderAndErrors(t *testing.T) {
+func TestCloseRuntimeLifecyclesClosesEveryRuntimeAndPreservesErrorOrder(t *testing.T) {
 	t.Parallel()
 
 	firstErr := errors.New("first close failed")
 	secondErr := errors.New("second close failed")
-	events := make([]string, 0, 3)
+	first := &relationalRuntimeStub{name: "first", closeErr: firstErr}
+	second := &relationalRuntimeStub{name: "second", closeErr: secondErr}
+	third := &relationalRuntimeStub{name: "third"}
 
 	err := closeRuntimeLifecycles(t.Context(), []runtimeLifecycle{
-		&relationalRuntimeStub{name: "first", events: &events, closeErr: firstErr},
-		&relationalRuntimeStub{name: "second", events: &events, closeErr: secondErr},
-		&relationalRuntimeStub{name: "third", events: &events},
+		first,
+		second,
+		third,
 	})
 
-	if !slices.Equal(events, []string{"first", "second", "third"}) {
-		t.Fatalf("close events = %v, want [first second third]", events)
+	if got, want := err.Error(), "first close failed\nsecond close failed"; got != want {
+		t.Fatalf("close error = %q, want %q", got, want)
+	}
+
+	for _, runtime := range []*relationalRuntimeStub{first, second, third} {
+		if got := relationalRuntimeCloseCalls(runtime); got != 1 {
+			t.Fatalf("%s runtime close calls = %d, want 1", runtime.name, got)
+		}
 	}
 
 	for _, expected := range []error{firstErr, secondErr} {
 		if !errors.Is(err, expected) {
 			t.Errorf("close error = %v, want %v", err, expected)
 		}
+	}
+}
+
+func TestCloseRuntimeLifecyclesStartsEveryRuntimeWithLiveContext(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	second := &contextObservingRuntimeStub{started: make(chan struct{})}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- closeRuntimeLifecycles(ctx, []runtimeLifecycle{
+			&blockingRuntimeStub{},
+			second,
+		})
+	}()
+
+	select {
+	case <-second.started:
+		if second.closeContextErr != nil {
+			t.Fatalf("second runtime close context error = %v, want nil", second.closeContextErr)
+		}
+	case <-time.After(time.Second):
+		cancel()
+		<-done
+		t.Fatal("second runtime close did not start before the shared context was canceled")
+	}
+
+	cancel()
+
+	if err := <-done; err != nil {
+		t.Fatalf("closeRuntimeLifecycles() error = %v, want nil", err)
 	}
 }
 
@@ -282,6 +324,29 @@ type relationalRuntimeStub struct {
 	closeErr      error
 	closeCalls    int
 	invalidations []connection.ID
+}
+
+type blockingRuntimeStub struct{}
+
+func (*blockingRuntimeStub) Invalidate(connection.ID) {}
+
+func (*blockingRuntimeStub) Close(ctx context.Context) error {
+	<-ctx.Done()
+	return nil
+}
+
+type contextObservingRuntimeStub struct {
+	started         chan struct{}
+	closeContextErr error
+}
+
+func (*contextObservingRuntimeStub) Invalidate(connection.ID) {}
+
+func (r *contextObservingRuntimeStub) Close(ctx context.Context) error {
+	r.closeContextErr = ctx.Err()
+	close(r.started)
+
+	return nil
 }
 
 func (r *relationalRuntimeStub) Invalidate(id connection.ID) {

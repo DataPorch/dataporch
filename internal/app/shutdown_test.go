@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -225,21 +224,29 @@ func TestWaitForServersJoinsUnexpectedServeAndRuntimeErrors(t *testing.T) {
 	}
 }
 
-func TestAppCloseRuntimesUsesFactoryOrderAndPreservesErrors(t *testing.T) {
+func TestAppCloseRuntimesClosesEveryRuntimeAndPreservesErrorOrder(t *testing.T) {
 	t.Parallel()
 
 	firstErr := errors.New("first runtime failed")
 	secondErr := errors.New("second runtime failed")
-	events := make([]string, 0, 3)
+	first := &relationalRuntimeStub{name: "first", closeErr: firstErr}
+	second := &relationalRuntimeStub{name: "second", closeErr: secondErr}
+	third := &relationalRuntimeStub{name: "third"}
 	application := &App{runtimes: []runtimeLifecycle{
-		&relationalRuntimeStub{name: "first", events: &events, closeErr: firstErr},
-		&relationalRuntimeStub{name: "second", events: &events, closeErr: secondErr},
-		&relationalRuntimeStub{name: "third", events: &events},
+		first,
+		second,
+		third,
 	}}
 
 	err := application.closeRuntimes(t.Context())
-	if !slices.Equal(events, []string{"first", "second", "third"}) {
-		t.Fatalf("close events = %v, want [first second third]", events)
+	if got, want := err.Error(), "first runtime failed\nsecond runtime failed"; got != want {
+		t.Fatalf("close error = %q, want %q", got, want)
+	}
+
+	for _, runtime := range []*relationalRuntimeStub{first, second, third} {
+		if got := relationalRuntimeCloseCalls(runtime); got != 1 {
+			t.Fatalf("%s runtime close calls = %d, want 1", runtime.name, got)
+		}
 	}
 
 	for _, expected := range []error{firstErr, secondErr} {

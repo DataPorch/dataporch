@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/adamraziv/dataporch/internal/connection"
 	"github.com/adamraziv/dataporch/internal/execution"
 )
 
@@ -72,37 +73,53 @@ func constraintByKind(t *testing.T, constraints []execution.Constraint, kind str
 	return execution.Constraint{}
 }
 
-func TestDiscoveryMySQLIntegration(t *testing.T) {
-	t.Parallel()
+func newMySQLIntegrationDiscoverer(
+	t *testing.T,
+	fixture *mysqlIntegrationFixture,
+	sourceID connection.ID,
+	database string,
+) *Discoverer {
+	t.Helper()
 
-	fixture := newMySQLIntegrationFixture(t)
-	createMySQLDiscoveryFixture(t, fixture)
+	opener := newMySQLIntegrationOpener(
+		t,
+		sourceID,
+		fixture.readerURI(t, database, fixture.password),
+	)
 
-	primaryOpener := newMySQLIntegrationOpener(t, "mysql_primary", fixture.readerURI(t, fixture.primaryDB, fixture.password))
-
-	primary, err := NewDiscoverer(primaryOpener)
+	discoverer, err := NewDiscoverer(opener)
 	if err != nil {
-		t.Fatalf("NewDiscoverer(primary) error = %v", err)
+		t.Fatalf("NewDiscoverer(%s) error = %v", sourceID, err)
 	}
 
-	secondaryOpener := newMySQLIntegrationOpener(t, "mysql_secondary", fixture.readerURI(t, fixture.secondaryDB, fixture.password))
+	return discoverer
+}
 
-	secondary, err := NewDiscoverer(secondaryOpener)
-	if err != nil {
-		t.Fatalf("NewDiscoverer(secondary) error = %v", err)
+func assertMySQLSingleSchema(
+	t *testing.T,
+	discoverer *Discoverer,
+	sourceID connection.ID,
+	want string,
+) {
+	t.Helper()
+
+	page, err := discoverer.ListSchemas(t.Context(), execution.SchemaDiscoveryRequest{
+		SourceID: sourceID,
+		Limit:    10,
+	})
+	if err != nil || len(page.Schemas) != 1 || page.Schemas[0].Name != want {
+		t.Fatalf("schemas=%#v error=%v, want only %q", page, err, want)
 	}
+}
 
-	primarySchemas, err := primary.ListSchemas(t.Context(), execution.SchemaDiscoveryRequest{SourceID: "mysql_primary", Limit: 10})
-	if err != nil || len(primarySchemas.Schemas) != 1 || primarySchemas.Schemas[0].Name != fixture.primaryDB {
-		t.Fatalf("primary schemas=%#v error=%v", primarySchemas, err)
-	}
+func assertMySQLTableDiscovery(
+	t *testing.T,
+	primary *Discoverer,
+	fixture *mysqlIntegrationFixture,
+) execution.TableDiscoveryPage {
+	t.Helper()
 
-	secondarySchemas, err := secondary.ListSchemas(t.Context(), execution.SchemaDiscoveryRequest{SourceID: "mysql_secondary", Limit: 10})
-	if err != nil || len(secondarySchemas.Schemas) != 1 || secondarySchemas.Schemas[0].Name != fixture.secondaryDB {
-		t.Fatalf("secondary schemas=%#v error=%v", secondarySchemas, err)
-	}
-
-	tables, err := primary.ListTables(t.Context(), execution.TableDiscoveryRequest{
+	page, err := primary.ListTables(t.Context(), execution.TableDiscoveryRequest{
 		SourceID: "mysql_primary", Schema: fixture.primaryDB, IncludeDescriptions: true, Limit: 100,
 	})
 	if err != nil {
@@ -112,7 +129,7 @@ func TestDiscoveryMySQLIntegration(t *testing.T) {
 	foundAccounts := false
 	foundView := false
 
-	for _, table := range tables.Tables {
+	for _, table := range page.Tables {
 		if table.Name == "accounts" && table.Kind == execution.RelationKindTable {
 			foundAccounts = true
 		}
@@ -127,10 +144,20 @@ func TestDiscoveryMySQLIntegration(t *testing.T) {
 	}
 
 	if !foundAccounts || !foundView {
-		t.Fatalf("tables=%#v, missing table/view", tables.Tables)
+		t.Fatalf("tables=%#v, missing table/view", page.Tables)
 	}
 
-	columns, err := primary.ListColumns(t.Context(), execution.ColumnDiscoveryRequest{
+	return page
+}
+
+func assertMySQLAccountColumns(
+	t *testing.T,
+	primary *Discoverer,
+	fixture *mysqlIntegrationFixture,
+) {
+	t.Helper()
+
+	page, err := primary.ListColumns(t.Context(), execution.ColumnDiscoveryRequest{
 		SourceID: "mysql_primary", Schema: fixture.primaryDB, Table: "accounts",
 		IncludeDescriptions: true, Limit: 100,
 	})
@@ -138,19 +165,27 @@ func TestDiscoveryMySQLIntegration(t *testing.T) {
 		t.Fatalf("ListColumns(accounts) error = %v", err)
 	}
 
-	for _, column := range columns.Columns {
+	for _, column := range page.Columns {
 		if column.Type.Affinity != "" {
 			t.Fatalf("column %q affinity=%q, want empty", column.Name, column.Type.Affinity)
 		}
 	}
 
-	primaryKey := constraintByKind(t, columns.Constraints, "primary_key")
-	unique := constraintByKind(t, columns.Constraints, "unique")
+	primaryKey := constraintByKind(t, page.Constraints, "primary_key")
+	unique := constraintByKind(t, page.Constraints, "unique")
 
-	check := constraintByKind(t, columns.Constraints, "check")
+	check := constraintByKind(t, page.Constraints, "check")
 	if !primaryKey.Validated || !unique.Validated || check.CheckExpression == nil || !check.Validated {
-		t.Fatalf("constraints=%#v", columns.Constraints)
+		t.Fatalf("constraints=%#v", page.Constraints)
 	}
+}
+
+func assertMySQLForeignKeyDiscovery(
+	t *testing.T,
+	primary *Discoverer,
+	fixture *mysqlIntegrationFixture,
+) {
+	t.Helper()
 
 	sameDB, err := primary.ListColumns(t.Context(), execution.ColumnDiscoveryRequest{
 		SourceID: "mysql_primary", Schema: fixture.primaryDB, Table: "account_children", Limit: 100,
@@ -173,6 +208,15 @@ func TestDiscoveryMySQLIntegration(t *testing.T) {
 	if fk := constraintByKind(t, crossDB.Constraints, "foreign_key"); fk.Referenced != nil || len(fk.Columns) == 0 {
 		t.Fatalf("cross-db fk=%#v", fk)
 	}
+}
+
+func assertMySQLDiscoveryPaginationAndSearch(
+	t *testing.T,
+	primary *Discoverer,
+	fixture *mysqlIntegrationFixture,
+	tables execution.TableDiscoveryPage,
+) {
+	t.Helper()
 
 	later, err := primary.ListColumns(t.Context(), execution.ColumnDiscoveryRequest{
 		SourceID: "mysql_primary", Schema: fixture.primaryDB, Table: "accounts", Limit: 100, AfterOrdinal: 1,
@@ -205,4 +249,22 @@ func TestDiscoveryMySQLIntegration(t *testing.T) {
 			t.Fatalf("table ordering is not binary deterministic: %#v", tables.Tables)
 		}
 	}
+}
+
+func TestDiscoveryMySQLIntegration(t *testing.T) {
+	t.Parallel()
+
+	fixture := newMySQLIntegrationFixture(t)
+	createMySQLDiscoveryFixture(t, fixture)
+
+	primary := newMySQLIntegrationDiscoverer(t, fixture, "mysql_primary", fixture.primaryDB)
+	secondary := newMySQLIntegrationDiscoverer(t, fixture, "mysql_secondary", fixture.secondaryDB)
+
+	assertMySQLSingleSchema(t, primary, "mysql_primary", fixture.primaryDB)
+	assertMySQLSingleSchema(t, secondary, "mysql_secondary", fixture.secondaryDB)
+
+	tables := assertMySQLTableDiscovery(t, primary, fixture)
+	assertMySQLAccountColumns(t, primary, fixture)
+	assertMySQLForeignKeyDiscovery(t, primary, fixture)
+	assertMySQLDiscoveryPaginationAndSearch(t, primary, fixture, tables)
 }

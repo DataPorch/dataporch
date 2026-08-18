@@ -31,22 +31,8 @@ func queryRequest(id connection.ID, query string) execution.RelationalQueryExecu
 	}
 }
 
-func TestQueryMySQLIntegration(t *testing.T) {
-	t.Parallel()
-
-	fixture := newMySQLIntegrationFixture(t)
-	createMySQLDiscoveryFixture(t, fixture)
-	primary := testQuotedIdentifier(t, fixture.primaryDB)
-	testExecSQL(t, fixture.admin, fmt.Sprintf(
-		"INSERT INTO %s.accounts (external_id,balance,state,binary_fixed,binary_var,binary_blob) VALUES ('a',1,'active',X'00FF',X'00FF',X'00FF'),('b',2,'active',X'0102',X'0102',X'0102')",
-		primary,
-	))
-
-	opener := newMySQLIntegrationOpener(t, "mysql_primary", fixture.readerURI(t, fixture.primaryDB, fixture.password))
-	executor := newMySQLIntegrationQueryExecutor(t, opener, QueryOptions{
-		Timeout: 2 * time.Second, ResponseByteLimit: 64 * 1024,
-		TruncationEnabled: true, RowLimit: 100,
-	})
+func assertMySQLReadQueries(t *testing.T, executor *QueryExecutor) {
+	t.Helper()
 
 	for _, query := range []string{
 		"SELECT id, external_id FROM accounts ORDER BY id",
@@ -57,6 +43,10 @@ func TestQueryMySQLIntegration(t *testing.T) {
 			t.Fatalf("read query=%q result=%#v error=%v", query, result, err)
 		}
 	}
+}
+
+func assertMySQLRejectedQueries(t *testing.T, executor *QueryExecutor) {
+	t.Helper()
 
 	for _, query := range []string{
 		"INSERT INTO accounts (external_id, balance, state) VALUES ('blocked', 1, 'active')",
@@ -69,11 +59,19 @@ func TestQueryMySQLIntegration(t *testing.T) {
 			t.Fatalf("query %q unexpectedly succeeded", query)
 		}
 	}
+}
+
+func assertMySQLPermissionFailure(t *testing.T, executor *QueryExecutor) {
+	t.Helper()
 
 	_, err := executor.Query(t.Context(), queryRequest("mysql_primary", "SELECT User FROM mysql.user"))
 	if failure := execution.ClassifyRelationalQuery(t.Context(), err); failure.Category != execution.ErrorCategoryDatabasePermissionDenied {
 		t.Fatalf("permission failure=%#v", failure)
 	}
+}
+
+func assertMySQLBinaryValues(t *testing.T, executor *QueryExecutor) {
+	t.Helper()
 
 	binary, err := executor.Query(t.Context(), queryRequest("mysql_primary",
 		"SELECT binary_fixed,binary_var,binary_blob FROM accounts WHERE external_id='a'"))
@@ -90,6 +88,10 @@ func TestQueryMySQLIntegration(t *testing.T) {
 			t.Fatalf("binary value=%v, want X'00FF'", value)
 		}
 	}
+}
+
+func assertMySQLSessionIsolation(t *testing.T, executor *QueryExecutor) {
+	t.Helper()
 
 	if _, err := executor.Query(t.Context(), queryRequest("mysql_primary", "SELECT @dataporch_session_marker := 'dirty'")); err != nil {
 		t.Fatalf("setting session marker error=%v", err)
@@ -103,6 +105,10 @@ func TestQueryMySQLIntegration(t *testing.T) {
 	if _, err := executor.Query(t.Context(), queryRequest("mysql_primary", "SELECT 1")); err != nil {
 		t.Fatalf("post-isolation SELECT error=%v", err)
 	}
+}
+
+func assertMySQLQueryLimits(t *testing.T, opener *Opener) {
+	t.Helper()
 
 	truncated := newMySQLIntegrationQueryExecutor(t, opener, QueryOptions{
 		Timeout: 2 * time.Second, ResponseByteLimit: 64 * 1024,
@@ -122,11 +128,15 @@ func TestQueryMySQLIntegration(t *testing.T) {
 	if !errors.Is(err, execution.ErrResultTooLarge) {
 		t.Fatalf("byte-limit error=%v, want %v", err, execution.ErrResultTooLarge)
 	}
+}
+
+func assertMySQLQueryCancellation(t *testing.T, executor *QueryExecutor) {
+	t.Helper()
 
 	cancelled, cancel := context.WithCancel(t.Context())
 	cancel()
 
-	_, err = executor.Query(cancelled, queryRequest("mysql_primary", "SELECT 1"))
+	_, err := executor.Query(cancelled, queryRequest("mysql_primary", "SELECT 1"))
 	if !errors.Is(err, execution.ErrCancelled) {
 		t.Fatalf("cancelled query error=%v", err)
 	}
@@ -138,4 +148,30 @@ func TestQueryMySQLIntegration(t *testing.T) {
 	if !errors.Is(err, execution.ErrQueryTimeout) && !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("deadline query error=%v", err)
 	}
+}
+
+func TestQueryMySQLIntegration(t *testing.T) {
+	t.Parallel()
+
+	fixture := newMySQLIntegrationFixture(t)
+	createMySQLDiscoveryFixture(t, fixture)
+	primary := testQuotedIdentifier(t, fixture.primaryDB)
+	testExecSQL(t, fixture.admin, fmt.Sprintf(
+		"INSERT INTO %s.accounts (external_id,balance,state,binary_fixed,binary_var,binary_blob) VALUES ('a',1,'active',X'00FF',X'00FF',X'00FF'),('b',2,'active',X'0102',X'0102',X'0102')",
+		primary,
+	))
+
+	opener := newMySQLIntegrationOpener(t, "mysql_primary", fixture.readerURI(t, fixture.primaryDB, fixture.password))
+	executor := newMySQLIntegrationQueryExecutor(t, opener, QueryOptions{
+		Timeout: 2 * time.Second, ResponseByteLimit: 64 * 1024,
+		TruncationEnabled: true, RowLimit: 100,
+	})
+
+	assertMySQLReadQueries(t, executor)
+	assertMySQLRejectedQueries(t, executor)
+	assertMySQLPermissionFailure(t, executor)
+	assertMySQLBinaryValues(t, executor)
+	assertMySQLSessionIsolation(t, executor)
+	assertMySQLQueryLimits(t, opener)
+	assertMySQLQueryCancellation(t, executor)
 }

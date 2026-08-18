@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -340,7 +339,7 @@ func newMySQLAppIntegrationSession(
 		t.Fatalf("token Create() error = %v", err)
 	}
 
-	application, err := New(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	application, err := New(cfg, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}

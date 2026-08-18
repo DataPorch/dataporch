@@ -34,6 +34,13 @@ FROM pragma_foreign_key_list(?1)
 ORDER BY id, seq`
 )
 
+const (
+	foreignKeyMatchSimple   = "simple"
+	foreignKeyMatchPartial  = "partial"
+	foreignKeyMatchFull     = "full"
+	foreignKeyActionCascade = "cascade"
+)
+
 func listSQLiteConstraints(conn rawConnection, table string) ([]execution.Constraint, error) {
 	constraints := make([]execution.Constraint, 0)
 
@@ -226,7 +233,7 @@ func listSQLiteForeignConstraints(conn rawConnection, table string) (constraints
 				Kind:    "foreign_key",
 				Columns: make([]string, 0),
 				Referenced: &execution.ConstraintReference{
-					Schema:  "main",
+					Schema:  sqliteMainSchema,
 					Table:   stmt.ColumnText(2),
 					Columns: make([]string, 0),
 				},
@@ -290,12 +297,12 @@ func listSQLiteForeignConstraints(conn rawConnection, table string) (constraints
 
 func foreignKeyMatch(value string) (string, error) {
 	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "none", "simple":
-		return "simple", nil
-	case "partial":
-		return "partial", nil
-	case "full":
-		return "full", nil
+	case "none", foreignKeyMatchSimple:
+		return foreignKeyMatchSimple, nil
+	case foreignKeyMatchPartial:
+		return foreignKeyMatchPartial, nil
+	case foreignKeyMatchFull:
+		return foreignKeyMatchFull, nil
 	default:
 		return "", fmt.Errorf("%w: unknown sqlite foreign-key match %q", execution.ErrInternal, value)
 	}
@@ -307,8 +314,8 @@ func foreignKeyAction(value string) (string, error) {
 		return "no_action", nil
 	case "restrict":
 		return "restrict", nil
-	case "cascade":
-		return "cascade", nil
+	case foreignKeyActionCascade:
+		return foreignKeyActionCascade, nil
 	case "set_null":
 		return "set_null", nil
 	case "set_default":
@@ -318,7 +325,7 @@ func foreignKeyAction(value string) (string, error) {
 	}
 }
 
-func prepareSQLiteCatalog(conn rawConnection, sql string, label string) (statement, error) {
+func prepareSQLiteCatalog(conn rawConnection, sql, label string) (statement, error) {
 	stmt, tail, err := conn.Prepare(sql)
 	if err != nil {
 		return nil, fmt.Errorf("sqlite: preparing %s: %w", label, err)

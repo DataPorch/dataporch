@@ -63,7 +63,11 @@ func TestSQLiteImportToMCPIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("importOverSocket() error = %v", err)
 	}
-	defer response.Body.Close()
+	defer func() {
+		if closeErr := response.Body.Close(); closeErr != nil {
+			t.Errorf("response body close error = %v", closeErr)
+		}
+	}()
 
 	var importResult struct {
 		DatabaseID         string `json:"databaseId"`

@@ -12,10 +12,9 @@ import (
 	"github.com/adamraziv/dataporch/internal/connection"
 )
 
-const (
-	Kind       connection.Kind = "sqlite"
-	secretPath                 = "path"
-)
+const Kind connection.Kind = "sqlite"
+
+const secretPath = "path"
 
 var ErrInvalidConnectionString = errors.New("sqlite: invalid connection string")
 

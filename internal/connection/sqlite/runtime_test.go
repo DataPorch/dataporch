@@ -408,6 +408,7 @@ func (*runtimeRawConnection) Exec(string) error                              { r
 func (*runtimeRawConnection) Prepare(string) (statement, string, error) {
 	return &runtimeStatement{}, "", nil
 }
+
 func (*runtimeRawConnection) SetAuthorizer(func(sqlite3.AuthorizerActionCode, string, string, string, string) sqlite3.AuthorizerReturnCode) error {
 	return nil
 }

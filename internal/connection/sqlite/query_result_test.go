@@ -22,6 +22,8 @@ func TestBlobLiteral(t *testing.T) {
 		{name: "bytes", raw: []byte{0x00, 0x01, 0xab, 0xff}, want: "X'0001ABFF'"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
 			if got := blobLiteral(test.raw); got != test.want {
 				t.Fatalf("blobLiteral(%#v) = %q, want %q", test.raw, got, test.want)
 			}

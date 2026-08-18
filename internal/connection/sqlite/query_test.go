@@ -37,6 +37,8 @@ func TestNewQueryExecutorValidatesDependenciesAndOptions(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
 			_, err := NewQueryExecutor(test.opener, test.options)
 			if !errors.Is(err, test.want) {
 				t.Fatalf("NewQueryExecutor() error = %v, want %v", err, test.want)
@@ -60,9 +62,14 @@ func TestQueryExecutorPassesOriginalQueryUnchangedAndAcceptsShapes(t *testing.T)
 	}
 	for _, query := range queries {
 		t.Run(query, func(t *testing.T) {
+			t.Parallel()
+
 			stmt := newQueryStatement([]queryRow{{cells: []queryCell{{kind: sqlite3.INTEGER, integer: 1}}}})
 			opener := &queryOpenerStub{conn: &queryRawConnection{stmt: stmt}}
-			openerRaw := opener.conn.(*queryRawConnection)
+			openerRaw, ok := opener.conn.(*queryRawConnection)
+			if !ok {
+				t.Fatal("query opener connection has unexpected type")
+			}
 			openerRaw.queryLog = &opener.queries
 			executor := newTestQueryExecutor(t, opener, QueryOptions{
 				Timeout:           time.Second,
@@ -104,6 +111,8 @@ func TestQueryExecutorRejectsInvalidStatementShapes(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
 			stmt := test.stmt
 			if stmt != nil {
 				stmt.bindCount = test.bind
@@ -404,6 +413,7 @@ func (c *queryRawConnection) Prepare(sql string) (statement, string, error) {
 
 	return c.stmt, c.tail, nil
 }
+
 func (*queryRawConnection) SetAuthorizer(func(sqlite3.AuthorizerActionCode, string, string, string, string) sqlite3.AuthorizerReturnCode) error {
 	return nil
 }
@@ -487,6 +497,7 @@ func (s *queryStatement) Step() bool {
 
 	return true
 }
+
 func createQueryFixture(t *testing.T) string {
 	t.Helper()
 

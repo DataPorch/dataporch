@@ -14,6 +14,11 @@ import (
 type sqliteErrorPhase uint8
 
 const (
+	sqliteErrorSymbol   = "SQLITE_ERROR"
+	sqliteUnknownSymbol = "SQLITE_UNKNOWN"
+)
+
+const (
 	sqliteErrorPhaseOpen sqliteErrorPhase = iota + 1
 	sqliteErrorPhasePrepare
 	sqliteErrorPhaseStep
@@ -21,7 +26,7 @@ const (
 )
 
 var primaryCodeSymbols = map[sqlite3.ErrorCode]string{
-	sqlite3.ERROR:      "SQLITE_ERROR",
+	sqlite3.ERROR:      sqliteErrorSymbol,
 	sqlite3.INTERNAL:   "SQLITE_INTERNAL",
 	sqlite3.PERM:       "SQLITE_PERM",
 	sqlite3.ABORT:      "SQLITE_ABORT",
@@ -138,7 +143,7 @@ func primaryCodeSymbol(code sqlite3.ErrorCode) string {
 		return symbol
 	}
 
-	return "SQLITE_UNKNOWN"
+	return sqliteUnknownSymbol
 }
 
 func extendedCodeSymbol(code sqlite3.ExtendedErrorCode) string {
@@ -150,7 +155,7 @@ func extendedCodeSymbol(code sqlite3.ExtendedErrorCode) string {
 		return symbol
 	}
 
-	return "SQLITE_UNKNOWN"
+	return sqliteUnknownSymbol
 }
 
 type extractedSQLiteError struct {
@@ -242,7 +247,7 @@ func projectSQLiteError(
 			false,
 			&execution.DatabaseError{
 				Kind:    Kind,
-				Code:    "SQLITE_UNKNOWN",
+				Code:    sqliteUnknownSymbol,
 				Message: "SQLite database operation failed.",
 			},
 		)
@@ -262,7 +267,7 @@ func projectSQLiteError(
 		Code:    primarySymbol,
 		Message: message,
 	}
-	if extendedSymbol != primarySymbol && extendedSymbol != "SQLITE_UNKNOWN" {
+	if extendedSymbol != primarySymbol && extendedSymbol != sqliteUnknownSymbol {
 		databaseError.ExtendedCode = extendedSymbol
 	}
 

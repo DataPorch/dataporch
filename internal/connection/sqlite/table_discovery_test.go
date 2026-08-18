@@ -43,6 +43,8 @@ func TestDiscovererListSchemas(t *testing.T) {
 		{name: "after main", afterName: "main", want: []execution.Schema{}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
 			page, err := discoverer.ListSchemas(t.Context(), execution.SchemaDiscoveryRequest{
 				SourceID:  "fixture",
 				Search:    test.search,

@@ -30,7 +30,7 @@ func (d *Discoverer) ListSchemas(
 
 	page.Schemas = make([]execution.Schema, 0, 1)
 
-	name := "main"
+	name := sqliteMainSchema
 	if (request.Search == "" || strings.Contains(strings.ToLower(name), strings.ToLower(request.Search))) &&
 		(request.AfterName == "" || name > request.AfterName) && request.Limit > 0 {
 		page.Schemas = append(page.Schemas, execution.Schema{Name: name})

@@ -17,11 +17,12 @@ func authorize(
 ) sqlite3.AuthorizerReturnCode {
 	_, _, _, _ = name3rd, name4th, schema, inner
 
+	//nolint:exhaustive // default denial intentionally blocks unknown SQLite actions.
 	switch action {
 	case sqlite3.AUTH_SELECT, sqlite3.AUTH_RECURSIVE:
 		return sqlite3.AUTH_OK
 	case sqlite3.AUTH_READ:
-		if schema == "main" {
+		if schema == sqliteMainSchema {
 			return sqlite3.AUTH_OK
 		}
 	case sqlite3.AUTH_FUNCTION:

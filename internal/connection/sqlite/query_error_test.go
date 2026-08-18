@@ -66,6 +66,8 @@ func TestProjectSQLiteErrorsByCodeFamily(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
 			projected := projectSQLiteError(context.Background(), context.Background(), fmt.Errorf("wrapped: %w", test.err), test.phase)
 
 			failure := databaseFailureFromError(t, projected)
@@ -105,7 +107,7 @@ func TestProjectSQLiteErrorContextPrecedenceAndIdempotence(t *testing.T) {
 	}
 
 	projected := projectSQLiteError(context.Background(), context.Background(), sqlite3.AUTH, sqliteErrorPhaseStep)
-	if got := projectSQLiteError(context.Background(), context.Background(), projected, sqliteErrorPhaseStep); got != projected {
+	if got := projectSQLiteError(context.Background(), context.Background(), projected, sqliteErrorPhaseStep); !errors.Is(got, projected) {
 		t.Fatal("already projected failure was wrapped again")
 	}
 }

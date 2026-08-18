@@ -82,6 +82,8 @@ func TestDiscovererProjectsCatalogFailures(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
 			raw := &discoveryErrorRawConnection{
 				prepareErr: test.prepareErr,
 				stepErr:    test.stepErr,

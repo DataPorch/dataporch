@@ -40,6 +40,7 @@ func (e *DatabaseError) Error() string {
 	return e.Message
 }
 
+//nolint:errname // DatabaseFailure is the established shared error-model name.
 type DatabaseFailure struct {
 	category      ErrorCategory
 	retryable     bool

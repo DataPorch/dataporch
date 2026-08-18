@@ -43,6 +43,7 @@ func typeAffinity(declared string) execution.TypeAffinity {
 		return execution.TypeAffinityBlob
 	case strings.Contains(upper, "REAL"),
 		strings.Contains(upper, "FLOA"),
+		//nolint:misspell // DOUB is SQLite's documented type-affinity prefix.
 		strings.Contains(upper, "DOUB"):
 		return execution.TypeAffinityReal
 	default:
@@ -73,7 +74,7 @@ func (d *Discoverer) ListColumns(
 	page.Columns = make([]execution.Column, 0, request.Limit+1)
 
 	page.Constraints = make([]execution.Constraint, 0)
-	if request.Schema != "main" {
+	if request.Schema != sqliteMainSchema {
 		return page, projectSQLiteDiscoveryError(ctx, queryCtx, execution.ErrSchemaNotFound, sqliteErrorPhaseStep)
 	}
 
@@ -186,7 +187,7 @@ func resolveRelationKind(conn rawConnection, table string) (kind execution.Relat
 		return execution.RelationKindTable, nil
 	case "view":
 		return execution.RelationKindView, nil
-	case "virtual":
+	case sqliteRelationKindVirtual:
 		return execution.RelationKindVirtualTable, nil
 	case "shadow":
 		return "", execution.ErrRelationNotFound
@@ -197,7 +198,7 @@ func resolveRelationKind(conn rawConnection, table string) (kind execution.Relat
 
 func scanSQLiteColumn(stmt statement) (execution.Column, error) {
 	cid := stmt.ColumnInt64(0)
-	if cid < 0 || cid >= math.MaxInt64 {
+	if cid < 0 || cid == math.MaxInt64 {
 		return execution.Column{}, fmt.Errorf("%w: invalid column ordinal", execution.ErrInternal)
 	}
 
@@ -226,7 +227,7 @@ func scanSQLiteColumn(stmt statement) (execution.Column, error) {
 	switch hidden := stmt.ColumnInt64(6); hidden {
 	case 0:
 	case 2:
-		column.Generated = &execution.Generated{Kind: "virtual"}
+		column.Generated = &execution.Generated{Kind: sqliteRelationKindVirtual}
 	case 3:
 		column.Generated = &execution.Generated{Kind: "stored"}
 	default:

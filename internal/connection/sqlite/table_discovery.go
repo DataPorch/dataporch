@@ -41,7 +41,7 @@ func (d *Discoverer) ListTables(
 	}()
 
 	page.Tables = make([]execution.Table, 0, request.Limit+1)
-	if request.Schema != "main" {
+	if request.Schema != sqliteMainSchema {
 		return page, projectSQLiteDiscoveryError(ctx, queryCtx, execution.ErrSchemaNotFound, sqliteErrorPhaseStep)
 	}
 
@@ -91,7 +91,7 @@ func (d *Discoverer) ListTables(
 			table.Kind = execution.RelationKindTable
 		case "view":
 			table.Kind = execution.RelationKindView
-		case "virtual":
+		case sqliteRelationKindVirtual:
 			table.Kind = execution.RelationKindVirtualTable
 		default:
 			return page, projectSQLiteDiscoveryError(ctx, queryCtx, fmt.Errorf("%w: %s", execution.ErrInternal, relationType), sqliteErrorPhaseStep)

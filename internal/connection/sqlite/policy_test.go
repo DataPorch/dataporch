@@ -160,6 +160,7 @@ func (c *policyConnection) Close() error {
 	c.closeCount++
 	return nil
 }
+
 func (c *policyConnection) Config(sqlite3.DBConfig, ...bool) (bool, error) {
 	c.configCalls++
 	if c.configCalls == c.configErrorAt {
@@ -168,13 +169,16 @@ func (c *policyConnection) Config(sqlite3.DBConfig, ...bool) (bool, error) {
 
 	return c.configCalls == 1, nil
 }
+
 func (c *policyConnection) Exec(sql string) error {
 	c.execSQL = sql
 	return c.execErr
 }
+
 func (c *policyConnection) Prepare(string) (statement, string, error) {
 	return &runtimeStatement{}, "", c.prepareErr
 }
+
 func (c *policyConnection) SetAuthorizer(callback func(sqlite3.AuthorizerActionCode, string, string, string, string) sqlite3.AuthorizerReturnCode) error {
 	c.authorizer = callback
 	return c.authorizerErr

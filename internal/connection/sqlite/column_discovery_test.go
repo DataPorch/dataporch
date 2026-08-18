@@ -36,6 +36,8 @@ func TestTypeAffinity(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.declared, func(t *testing.T) {
+			t.Parallel()
+
 			if got := typeAffinity(test.declared); got != test.want {
 				t.Fatalf("typeAffinity(%q) = %q, want %q", test.declared, got, test.want)
 			}
@@ -173,6 +175,8 @@ func TestDiscovererListColumnsMapsViewVirtualAndHostileNames(t *testing.T) {
 		{name: "hostile", table: `100%;_column"quoted`, kind: execution.RelationKindTable, want: []string{"value"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
 			page, err := discoverer.ListColumns(t.Context(), execution.ColumnDiscoveryRequest{
 				SourceID: "columns",
 				Schema:   "main",
@@ -217,6 +221,8 @@ func TestDiscovererListColumnsRejectsUnknownOrExcludedRelations(t *testing.T) {
 		{name: "index", table: "column_subject_text_idx", want: execution.ErrRelationNotFound},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
 			_, err := discoverer.ListColumns(t.Context(), execution.ColumnDiscoveryRequest{
 				SourceID: "columns",
 				Schema:   "main",

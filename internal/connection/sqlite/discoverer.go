@@ -11,7 +11,11 @@ import (
 	"github.com/adamraziv/dataporch/internal/execution"
 )
 
-const metadataQueryTimeout = 20 * time.Second
+const (
+	metadataQueryTimeout      = 20 * time.Second
+	sqliteMainSchema          = "main"
+	sqliteRelationKindVirtual = "virtual"
+)
 
 var (
 	errDiscoveryRuntimeRequired     = errors.New("sqlite: discovery runtime is required")

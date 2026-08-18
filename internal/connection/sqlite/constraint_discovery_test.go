@@ -130,6 +130,8 @@ func TestForeignKeyMetadataNormalization(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
 			if got, err := foreignKeyMatch(test.code); err != nil || got != test.want {
 				t.Fatalf("foreignKeyMatch(%q) = %q, %v; want %q", test.code, got, err, test.want)
 			}

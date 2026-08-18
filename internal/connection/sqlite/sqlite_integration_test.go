@@ -65,6 +65,7 @@ func TestIntegrationSQLiteFirstUseFileVerification(t *testing.T) {
 		t.Fatalf("Chmod(permission) error = %v", err)
 	}
 
+	//nolint:paralleltest // subtests mutate shared permissions and filesystem snapshots
 	for _, test := range []struct {
 		name          string
 		path          string
@@ -103,7 +104,8 @@ func TestIntegrationSQLiteFirstUseFileVerification(t *testing.T) {
 				t.Skip("permission bits are bypassed by the test process")
 			}
 
-			if test.want {
+			switch {
+			case test.want:
 				if err != nil {
 					t.Fatalf("Runtime.open(valid) error = %v", err)
 				}
@@ -115,13 +117,13 @@ func TestIntegrationSQLiteFirstUseFileVerification(t *testing.T) {
 				if err := client.close(); err != nil {
 					t.Fatalf("client.close() error = %v", err)
 				}
-			} else if err == nil {
+			case err == nil:
 				if client != nil {
 					_ = client.close()
 				}
 
 				t.Fatal("Runtime.open() error = nil, want sanitized failure")
-			} else {
+			default:
 				sanitized := projectSQLiteError(t.Context(), t.Context(), err, sqliteErrorPhaseOpen)
 				if filepath.Base(test.path) != "" && stringsContainsPath(sanitized.Error(), test.path) {
 					t.Fatalf("Runtime.open() leaked path: %v", sanitized)
@@ -169,7 +171,11 @@ func TestIntegrationSQLiteLiveUpdateAndAtomicReplacement(t *testing.T) {
 
 			t.Fatalf("Prepare(read) = stmt %#v tail %q err %v", stmt, tail, prepareErr)
 		}
-		defer stmt.Close()
+		defer func() {
+			if closeErr := stmt.Close(); closeErr != nil {
+				t.Errorf("statement close error = %v", closeErr)
+			}
+		}()
 
 		if !stmt.Step() {
 			_ = client.close()

@@ -22,9 +22,14 @@ func (d *Discoverer) ListSchemas(
 
 	client, err := d.open(queryCtx, request.SourceID)
 	if err != nil {
-		return execution.SchemaDiscoveryPage{}, err
+		return execution.SchemaDiscoveryPage{}, projectSQLiteDiscoveryError(ctx, queryCtx, err, sqliteErrorPhaseOpen)
 	}
-	defer func() { retErr = errors.Join(retErr, client.close()) }()
+	defer func() {
+		retErr = errors.Join(
+			retErr,
+			projectSQLiteDiscoveryError(ctx, queryCtx, client.close(), sqliteErrorPhaseClose),
+		)
+	}()
 
 	page.Schemas = make([]execution.Schema, 0, 1)
 	name := "main"

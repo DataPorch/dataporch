@@ -281,10 +281,11 @@ func prepareSQLiteCatalog(conn rawConnection, sql string, label string) (stateme
 		return nil, fmt.Errorf("sqlite: preparing %s: %w", label, err)
 	}
 	if stmt == nil || strings.TrimSpace(tail) != "" {
+		invalidErr := fmt.Errorf("%w: invalid %s statement", execution.ErrInternal, label)
 		if stmt != nil {
-			_ = stmt.Close()
+			invalidErr = errors.Join(invalidErr, stmt.Close())
 		}
-		return nil, fmt.Errorf("%w: invalid %s statement", execution.ErrInternal, label)
+		return nil, invalidErr
 	}
 	return stmt, nil
 }

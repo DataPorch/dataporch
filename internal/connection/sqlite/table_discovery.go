@@ -33,35 +33,49 @@ func (d *Discoverer) ListTables(
 
 	client, err := d.open(queryCtx, request.SourceID)
 	if err != nil {
-		return execution.TableDiscoveryPage{}, err
+		return execution.TableDiscoveryPage{}, projectSQLiteDiscoveryError(ctx, queryCtx, err, sqliteErrorPhaseOpen)
 	}
-	defer func() { retErr = errors.Join(retErr, client.close()) }()
+	defer func() {
+		retErr = errors.Join(
+			retErr,
+			projectSQLiteDiscoveryError(ctx, queryCtx, client.close(), sqliteErrorPhaseClose),
+		)
+	}()
 
 	page.Tables = make([]execution.Table, 0, request.Limit+1)
 	if request.Schema != "main" {
-		return page, execution.ErrSchemaNotFound
+		return page, projectSQLiteDiscoveryError(ctx, queryCtx, execution.ErrSchemaNotFound, sqliteErrorPhaseStep)
 	}
 
 	stmt, tail, err := client.conn.Prepare(listTablesSQL)
 	if err != nil {
-		return page, fmt.Errorf("sqlite: preparing relation catalog: %w", err)
+		return page, projectSQLiteDiscoveryError(ctx, queryCtx, err, sqliteErrorPhasePrepare)
 	}
 	if stmt == nil || strings.TrimSpace(tail) != "" {
+		invalidErr := fmt.Errorf("%w: invalid relation catalog statement", execution.ErrInternal)
 		if stmt != nil {
-			_ = stmt.Close()
+			invalidErr = errors.Join(
+				invalidErr,
+				projectSQLiteDiscoveryError(ctx, queryCtx, stmt.Close(), sqliteErrorPhaseClose),
+			)
 		}
-		return page, fmt.Errorf("%w: invalid relation catalog statement", execution.ErrInternal)
+		return page, invalidErr
 	}
-	defer func() { retErr = errors.Join(retErr, stmt.Close()) }()
+	defer func() {
+		retErr = errors.Join(
+			retErr,
+			projectSQLiteDiscoveryError(ctx, queryCtx, stmt.Close(), sqliteErrorPhaseClose),
+		)
+	}()
 
 	if err := stmt.BindText(1, request.Search); err != nil {
-		return page, fmt.Errorf("sqlite: binding relation search: %w", err)
+		return page, projectSQLiteDiscoveryError(ctx, queryCtx, err, sqliteErrorPhaseStep)
 	}
 	if err := stmt.BindText(2, request.AfterName); err != nil {
-		return page, fmt.Errorf("sqlite: binding relation cursor: %w", err)
+		return page, projectSQLiteDiscoveryError(ctx, queryCtx, err, sqliteErrorPhaseStep)
 	}
 	if err := stmt.BindInt64(3, int64(request.Limit+1)); err != nil {
-		return page, fmt.Errorf("sqlite: binding relation limit: %w", err)
+		return page, projectSQLiteDiscoveryError(ctx, queryCtx, err, sqliteErrorPhaseStep)
 	}
 
 	for stmt.Step() {
@@ -77,12 +91,12 @@ func (d *Discoverer) ListTables(
 		case "virtual":
 			table.Kind = execution.RelationKindVirtualTable
 		default:
-			return page, fmt.Errorf("%w: %s", execution.ErrInternal, relationType)
+			return page, projectSQLiteDiscoveryError(ctx, queryCtx, fmt.Errorf("%w: %s", execution.ErrInternal, relationType), sqliteErrorPhaseStep)
 		}
 		page.Tables = append(page.Tables, table)
 	}
 	if err := stmt.Err(); err != nil {
-		return page, fmt.Errorf("sqlite: reading relation catalog: %w", err)
+		return page, projectSQLiteDiscoveryError(ctx, queryCtx, err, sqliteErrorPhaseStep)
 	}
 
 	if len(page.Tables) > request.Limit {

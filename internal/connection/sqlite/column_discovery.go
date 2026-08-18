@@ -63,55 +63,69 @@ func (d *Discoverer) ListColumns(
 
 	client, err := d.open(queryCtx, request.SourceID)
 	if err != nil {
-		return execution.ColumnDiscoveryPage{}, err
+		return execution.ColumnDiscoveryPage{}, projectSQLiteDiscoveryError(ctx, queryCtx, err, sqliteErrorPhaseOpen)
 	}
-	defer func() { retErr = errors.Join(retErr, client.close()) }()
+	defer func() {
+		retErr = errors.Join(
+			retErr,
+			projectSQLiteDiscoveryError(ctx, queryCtx, client.close(), sqliteErrorPhaseClose),
+		)
+	}()
 
 	page.Columns = make([]execution.Column, 0, request.Limit+1)
 	page.Constraints = make([]execution.Constraint, 0)
 	if request.Schema != "main" {
-		return page, execution.ErrSchemaNotFound
+		return page, projectSQLiteDiscoveryError(ctx, queryCtx, execution.ErrSchemaNotFound, sqliteErrorPhaseStep)
 	}
 
 	page.RelationKind, err = resolveRelationKind(client.conn, request.Table)
 	if err != nil {
-		return page, err
+		return page, projectSQLiteDiscoveryError(ctx, queryCtx, err, sqliteErrorPhaseStep)
 	}
 
 	stmt, tail, err := client.conn.Prepare(listColumnsSQL)
 	if err != nil {
-		return page, fmt.Errorf("sqlite: preparing column catalog: %w", err)
+		return page, projectSQLiteDiscoveryError(ctx, queryCtx, err, sqliteErrorPhasePrepare)
 	}
 	if stmt == nil || strings.TrimSpace(tail) != "" {
+		invalidErr := fmt.Errorf("%w: invalid column catalog statement", execution.ErrInternal)
 		if stmt != nil {
-			_ = stmt.Close()
+			invalidErr = errors.Join(
+				invalidErr,
+				projectSQLiteDiscoveryError(ctx, queryCtx, stmt.Close(), sqliteErrorPhaseClose),
+			)
 		}
-		return page, fmt.Errorf("%w: invalid column catalog statement", execution.ErrInternal)
+		return page, invalidErr
 	}
-	defer func() { retErr = errors.Join(retErr, stmt.Close()) }()
+	defer func() {
+		retErr = errors.Join(
+			retErr,
+			projectSQLiteDiscoveryError(ctx, queryCtx, stmt.Close(), sqliteErrorPhaseClose),
+		)
+	}()
 
 	if err := stmt.BindText(1, request.Table); err != nil {
-		return page, fmt.Errorf("sqlite: binding column relation: %w", err)
+		return page, projectSQLiteDiscoveryError(ctx, queryCtx, err, sqliteErrorPhaseStep)
 	}
 	if err := stmt.BindText(2, request.Search); err != nil {
-		return page, fmt.Errorf("sqlite: binding column search: %w", err)
+		return page, projectSQLiteDiscoveryError(ctx, queryCtx, err, sqliteErrorPhaseStep)
 	}
 	if err := stmt.BindInt64(3, int64(request.AfterOrdinal)); err != nil {
-		return page, fmt.Errorf("sqlite: binding column cursor: %w", err)
+		return page, projectSQLiteDiscoveryError(ctx, queryCtx, err, sqliteErrorPhaseStep)
 	}
 	if err := stmt.BindInt64(4, int64(request.Limit+1)); err != nil {
-		return page, fmt.Errorf("sqlite: binding column limit: %w", err)
+		return page, projectSQLiteDiscoveryError(ctx, queryCtx, err, sqliteErrorPhaseStep)
 	}
 
 	for stmt.Step() {
 		column, err := scanSQLiteColumn(stmt)
 		if err != nil {
-			return page, err
+			return page, projectSQLiteDiscoveryError(ctx, queryCtx, err, sqliteErrorPhaseStep)
 		}
 		page.Columns = append(page.Columns, column)
 	}
 	if err := stmt.Err(); err != nil {
-		return page, fmt.Errorf("sqlite: reading column catalog: %w", err)
+		return page, projectSQLiteDiscoveryError(ctx, queryCtx, err, sqliteErrorPhaseStep)
 	}
 
 	if len(page.Columns) > request.Limit {
@@ -121,7 +135,7 @@ func (d *Discoverer) ListColumns(
 	if request.AfterOrdinal == 0 {
 		page.Constraints, err = listSQLiteConstraints(client.conn, request.Table)
 		if err != nil {
-			return page, err
+			return page, projectSQLiteDiscoveryError(ctx, queryCtx, err, sqliteErrorPhaseStep)
 		}
 	}
 
@@ -134,10 +148,11 @@ func resolveRelationKind(conn rawConnection, table string) (kind execution.Relat
 		return "", fmt.Errorf("sqlite: preparing relation lookup: %w", err)
 	}
 	if stmt == nil || strings.TrimSpace(tail) != "" {
+		invalidErr := fmt.Errorf("%w: invalid relation lookup statement", execution.ErrInternal)
 		if stmt != nil {
-			_ = stmt.Close()
+			invalidErr = errors.Join(invalidErr, stmt.Close())
 		}
-		return "", fmt.Errorf("%w: invalid relation lookup statement", execution.ErrInternal)
+		return "", invalidErr
 	}
 	defer func() { retErr = errors.Join(retErr, stmt.Close()) }()
 

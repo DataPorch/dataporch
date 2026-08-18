@@ -202,6 +202,14 @@ func projectSQLiteError(
 		}
 	}
 	if queryContext != nil {
+		if cause := context.Cause(queryContext); cause != nil {
+			switch {
+			case errors.Is(cause, execution.ErrQueryTimeout):
+				return fmt.Errorf("%w: %w", execution.ErrQueryTimeout, err)
+			case errors.Is(cause, context.Canceled):
+				return fmt.Errorf("%w: %w", execution.ErrQueryCancelled, err)
+			}
+		}
 		switch queryContext.Err() {
 		case context.DeadlineExceeded:
 			return fmt.Errorf("%w: %w", execution.ErrQueryTimeout, err)
@@ -209,7 +217,7 @@ func projectSQLiteError(
 			return fmt.Errorf("%w: %w", execution.ErrQueryCancelled, err)
 		}
 	}
-	if isProjectedSQLiteError(err) || isKnownQueryError(err) {
+	if (isProjectedSQLiteError(err) || isKnownQueryError(err)) && !hasSQLiteError(err) {
 		return err
 	}
 	if errors.Is(err, errSQLiteFileUnavailable) || errors.Is(err, errRuntimeUnavailable) || errors.Is(err, errRuntimeClosed) {
@@ -263,6 +271,44 @@ func projectSQLiteError(
 	default:
 		return execution.NewDatabaseFailure(execution.ErrorCategoryDatabaseError, false, databaseError)
 	}
+}
+
+func projectSQLiteDiscoveryError(
+	requestContext context.Context,
+	queryContext context.Context,
+	err error,
+	phase sqliteErrorPhase,
+) error {
+	if err == nil {
+		return nil
+	}
+	if isSQLiteDiscoverySentinel(err) && !hasSQLiteError(err) {
+		return err
+	}
+	if phase == sqliteErrorPhasePrepare {
+		phase = sqliteErrorPhaseStep
+	}
+
+	return projectSQLiteError(requestContext, queryContext, err, phase)
+}
+
+func isSQLiteDiscoverySentinel(err error) bool {
+	for _, sentinel := range []error{
+		execution.ErrSchemaNotFound,
+		execution.ErrRelationNotFound,
+		execution.ErrUnsupportedRelationKind,
+		execution.ErrInternal,
+	} {
+		if errors.Is(err, sentinel) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasSQLiteError(err error) bool {
+	_, ok := extractSQLiteError(err)
+	return ok
 }
 
 func isProjectedSQLiteError(err error) bool {

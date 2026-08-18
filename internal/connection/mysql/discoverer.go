@@ -113,3 +113,5 @@ func isNilInterface(value any) bool {
 		return false
 	}
 }
+
+var _ execution.RelationalDiscoverer = (*Discoverer)(nil)

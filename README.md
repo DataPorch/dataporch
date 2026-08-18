@@ -202,6 +202,33 @@ internal lazy Postgres runtime opener: the first open authenticates within ten
 seconds, later opens reuse one pgx pool per source ID, and pgx may retire idle
 physical connections while DataPorch retains the reusable pool object.
 
+### MySQL adapter
+
+The MySQL adapter supports MySQL 8.4 LTS. Imports use this URI form:
+
+```text
+mysql://username:password@host[:port]/database[?sslmode=<mode>]
+```
+
+Supported `sslmode` values are `disable`, `prefer`, `require`, and
+`verify-full`. An omitted port uses runtime port `3306`; an omitted `sslmode`
+uses `prefer`. Import is offline and reports `connectionTested: false`. Each
+source addresses exactly one database, so multiple MySQL databases require
+multiple source definitions. Discovery exposes only the imported database.
+
+The adapter returns typed table, view, column, and representable constraint
+metadata. MySQL native type metadata is preserved and does not use SQLite
+affinity. Constraints are returned with the first paginated column page.
+
+Queries are one opaque, parameter-free, row-producing statement. Read-only
+transactions enforce MySQL's database-level read-only behavior, and
+multi-statements are disabled. Binary cells use deterministic uppercase
+literals such as `X'00FF'`. The existing DataPorch time, row, and encoded-byte
+limits apply; object restrictions belong in MySQL grants.
+
+Query sessions are isolated and physically discarded after each query, so
+session-local state is not reused by a later query.
+
 ### SQLite adapter
 
 SQLite imports use an exact, offline-only URI with an absolute path:
@@ -326,6 +353,8 @@ make test-race
 make test-integration-sqlite
 DATAPORCH_TEST_POSTGRES_DSN='postgres://user:password@127.0.0.1:5432/database?sslmode=disable' \
   make test-integration-postgres
+DATAPORCH_TEST_MYSQL_DSN='mysql://user:password@127.0.0.1:3306/database?sslmode=disable' \
+  make test-integration-mysql
 DATAPORCH_TEST_POSTGRES_DSN='postgres://user:password@127.0.0.1:5432/database?sslmode=disable' \
   make test-integration
 make test-cgo-disabled
@@ -352,6 +381,7 @@ cmd/dataporch/                 Program entry point
 internal/app/                  Dependency setup and process lifecycle
 internal/config/               Environment configuration
 internal/connection/           Built-in database adapter resolution
+internal/connection/mysql/     MySQL URI import, discovery, and read-only runtime
 internal/connection/postgres/  PostgreSQL URI import and runtime opener
 internal/connection/sqlite/    SQLite URI import, discovery, and read-only runtime
 internal/execution/            Validated application operations

@@ -73,6 +73,9 @@ func (e *QueryExecutor) Query(
 		return result, execution.ErrCancelled
 	}
 	if err := requestContext.Err(); err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			return result, fmt.Errorf("%w: %w", execution.ErrQueryTimeout, err)
+		}
 		return result, fmt.Errorf("%w: %w", execution.ErrCancelled, err)
 	}
 	if request.Source.ID == "" || request.Source.Kind != Kind || strings.TrimSpace(request.Query) == "" {
@@ -167,6 +170,9 @@ func (*QueryExecutor) executionError(
 ) error {
 	if requestContext != nil {
 		if requestErr := requestContext.Err(); requestErr != nil {
+			if errors.Is(requestErr, context.DeadlineExceeded) {
+				return fmt.Errorf("%w: %w", execution.ErrQueryTimeout, requestErr)
+			}
 			return fmt.Errorf("%w: %w", execution.ErrCancelled, requestErr)
 		}
 	}

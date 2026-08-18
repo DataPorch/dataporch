@@ -104,6 +104,31 @@ func TestQueryExecutorRejectsInvalidRequestsBeforeOpen(t *testing.T) {
 	}
 }
 
+func TestQueryExecutorDeadlineUsesTimeoutSentinel(t *testing.T) {
+	t.Parallel()
+
+	opener := &fakeQueryOpener{}
+	executor, err := NewQueryExecutor(opener, QueryOptions{
+		Timeout:           time.Second,
+		ResponseByteLimit: 4096,
+	})
+	if err != nil {
+		t.Fatalf("NewQueryExecutor() error = %v", err)
+	}
+	deadline, cancel := context.WithDeadline(t.Context(), time.Now().Add(-time.Second))
+	defer cancel()
+
+	_, err = executor.Query(deadline, execution.RelationalQueryExecutionRequest{
+		Source: connection.Definition{ID: "finance", Kind: Kind}, Query: "SELECT 1",
+	})
+	if !errors.Is(err, execution.ErrQueryTimeout) || !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Query() error = %v, want query timeout and deadline", err)
+	}
+	if opener.calls != 0 {
+		t.Fatalf("OpenQuery() calls = %d, want zero", opener.calls)
+	}
+}
+
 type queryCallRecorder struct{ calls []string }
 
 func (r *queryCallRecorder) add(call string) { r.calls = append(r.calls, call) }

@@ -323,8 +323,11 @@ Use these commands:
 make build
 make test
 make test-race
-make test-integration \
-  DATAPORCH_TEST_POSTGRES_DSN='postgres://user:password@127.0.0.1:5432/database?sslmode=disable'
+make test-integration-sqlite
+DATAPORCH_TEST_POSTGRES_DSN='postgres://user:password@127.0.0.1:5432/database?sslmode=disable' \
+  make test-integration-postgres
+DATAPORCH_TEST_POSTGRES_DSN='postgres://user:password@127.0.0.1:5432/database?sslmode=disable' \
+  make test-integration
 make test-cgo-disabled
 make build-cgo-disabled
 make vet
@@ -332,6 +335,13 @@ make lint
 make audit
 make check
 ```
+
+CI keeps adapter-neutral Go checks separate from database integration jobs. Each
+external database adapter owns a focused integration target and CI job; supported
+database versions belong inside that adapter's job rather than in the core Go
+matrix. App-level adapter integration tests must keep the adapter name in the
+parent test name and end in `Integration` so the focused Make targets can select
+them without adding adapter-specific build tags.
 
 The `make check` command checks formatting and module files. It also runs tests, lint checks, and a production build.
 

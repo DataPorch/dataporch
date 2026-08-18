@@ -73,31 +73,7 @@ func (d *Discoverer) queryContext(ctx context.Context) (context.Context, context
 }
 
 func classifyDiscoveryQueryError(parentCtx, queryCtx context.Context, err error) error {
-	if parentCtx != nil {
-		if ctxErr := parentCtx.Err(); ctxErr != nil {
-			return fmt.Errorf("%w: %w", execution.ErrCancelled, ctxErr)
-		}
-	}
-
-	if queryCtx != nil {
-		if cause := context.Cause(queryCtx); cause != nil {
-			switch {
-			case errors.Is(cause, execution.ErrQueryTimeout):
-				return fmt.Errorf("%w: %w", execution.ErrQueryTimeout, err)
-			case errors.Is(cause, context.Canceled):
-				return fmt.Errorf("%w: %w", execution.ErrCancelled, cause)
-			}
-		}
-	}
-
-	switch {
-	case errors.Is(err, context.Canceled):
-		return fmt.Errorf("%w: %w", execution.ErrCancelled, err)
-	case errors.Is(err, context.DeadlineExceeded):
-		return fmt.Errorf("%w: %w", execution.ErrQueryTimeout, err)
-	default:
-		return fmt.Errorf("%w: %w", execution.ErrInternal, err)
-	}
+	return projectMySQLQueryError(parentCtx, queryCtx, err)
 }
 
 func isNilInterface(value any) bool {

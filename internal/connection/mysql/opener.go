@@ -99,11 +99,19 @@ func newOpener(dependencies openerDependencies) (*Opener, error) {
 }
 
 func (o *Opener) Open(ctx context.Context, id connection.ID) (*Client, error) {
-	return o.openRaw(ctx, id)
+	client, err := o.openRaw(ctx, id)
+	if err != nil {
+		return nil, projectMySQLQueryError(ctx, nil, err)
+	}
+	return client, nil
 }
 
 func (o *Opener) OpenQuery(ctx context.Context, id connection.ID) (*Client, error) {
-	return o.openRaw(ctx, id)
+	client, err := o.openRaw(ctx, id)
+	if err != nil {
+		return nil, projectMySQLQueryError(ctx, nil, err)
+	}
+	return client, nil
 }
 
 func (o *Opener) openRaw(ctx context.Context, id connection.ID) (*Client, error) {

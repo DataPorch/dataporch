@@ -55,6 +55,7 @@ func TestSQLiteMetadataJSON(t *testing.T) {
 	if err := json.Unmarshal(encoded, &decoded); err != nil {
 		t.Fatalf("Unmarshal() error = %v", err)
 	}
+
 	if _, exists := decoded.Constraint["name"]; exists {
 		t.Fatalf("constraint JSON unexpectedly contains name: %q", encoded)
 	}

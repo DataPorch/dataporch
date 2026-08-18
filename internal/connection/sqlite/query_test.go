@@ -23,6 +23,7 @@ func TestNewQueryExecutorValidatesDependenciesAndOptions(t *testing.T) {
 		TruncationEnabled: true,
 		RowLimit:          1,
 	}
+
 	tests := []struct {
 		name    string
 		opener  queryOpener
@@ -72,9 +73,11 @@ func TestQueryExecutorPassesOriginalQueryUnchangedAndAcceptsShapes(t *testing.T)
 			if err != nil {
 				t.Fatalf("Query() error = %v", err)
 			}
+
 			if !reflect.DeepEqual(opener.queries, []string{query}) {
 				t.Fatalf("Prepare queries = %#v, want exact original query", opener.queries)
 			}
+
 			if result.RowCount != 1 || len(result.Columns) != 1 {
 				t.Fatalf("result = %#v, want one-column one-row result", result)
 			}
@@ -104,16 +107,19 @@ func TestQueryExecutorRejectsInvalidStatementShapes(t *testing.T) {
 			stmt := test.stmt
 			if stmt != nil {
 				stmt.bindCount = test.bind
+
 				stmt.columnCount = test.cols
 				if test.cols == 0 && test.bind == 0 {
 					stmt.columnCount = 0
 				}
 			}
+
 			opener := &queryOpenerStub{conn: &queryRawConnection{stmt: stmt, tail: test.tail}}
 			executor := newTestQueryExecutor(t, opener, QueryOptions{
 				Timeout:           time.Second,
 				ResponseByteLimit: 1024,
 			})
+
 			_, err := executor.Query(t.Context(), queryRequest(test.query))
 			if !errors.Is(err, execution.ErrInvalidQuery) {
 				t.Fatalf("Query() error = %v, want ErrInvalidQuery", err)
@@ -146,6 +152,7 @@ func TestQueryExecutorPreservesStorageClassesAndNulls(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Query() error = %v", err)
 	}
+
 	want := [][]*string{{
 		stringPtr("-9223372036854775808"),
 		stringPtr("1.25"),
@@ -165,8 +172,10 @@ func TestQueryExecutorPreservesStorageClassesAndNulls(t *testing.T) {
 				}
 			}
 		}
+
 		t.Fatalf("rows = %#v, want %#v", result.Rows, want)
 	}
+
 	if result.Columns[0].Name != "value" || result.Columns[1].Name != "value" || result.Columns[4].DatabaseType != "BLOB" {
 		t.Fatalf("columns = %#v, want duplicate names and declaration types", result.Columns)
 	}
@@ -192,6 +201,7 @@ func TestQueryExecutorTruncatesWithOneRowLookahead(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Query() error = %v", err)
 	}
+
 	if len(result.Rows) != 2 || result.RowCount != 2 || !result.Truncated {
 		t.Fatalf("result = %#v, want two retained rows and truncation", result)
 	}
@@ -201,11 +211,14 @@ func TestQueryExecutorReadsRealSQLiteRows(t *testing.T) {
 	t.Parallel()
 
 	path := createQueryFixture(t)
+
 	runtime, err := NewRuntime(&fixturePreparer{path: path})
 	if err != nil {
 		t.Fatalf("NewRuntime() error = %v", err)
 	}
+
 	t.Cleanup(func() { _ = runtime.Close(context.Background()) })
+
 	executor, err := NewQueryExecutor(runtime, QueryOptions{
 		Timeout:           time.Second,
 		ResponseByteLimit: 4096,
@@ -218,9 +231,11 @@ func TestQueryExecutorReadsRealSQLiteRows(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Query(real) error = %v", err)
 	}
+
 	if got := result.Columns; !reflect.DeepEqual(got, []execution.RelationalQueryColumn{{Name: "id", DatabaseType: "INTEGER"}, {Name: "value", DatabaseType: "TEXT"}}) {
 		t.Fatalf("columns = %#v, want declared SQLite types", got)
 	}
+
 	if len(result.Rows) != 2 || result.Rows[0][0] == nil || *result.Rows[0][0] != "1" || result.Rows[0][1] == nil || *result.Rows[0][1] != "one" {
 		t.Fatalf("rows = %#v, want integer/text values", result.Rows)
 	}
@@ -230,11 +245,14 @@ func TestQueryExecutorRejectsWritesWithoutChangingFile(t *testing.T) {
 	t.Parallel()
 
 	path := createQueryFixture(t)
+
 	runtime, err := NewRuntime(&fixturePreparer{path: path})
 	if err != nil {
 		t.Fatalf("NewRuntime() error = %v", err)
 	}
+
 	t.Cleanup(func() { _ = runtime.Close(context.Background()) })
+
 	executor, err := NewQueryExecutor(runtime, QueryOptions{
 		Timeout:           time.Second,
 		ResponseByteLimit: 1024,
@@ -242,6 +260,7 @@ func TestQueryExecutorRejectsWritesWithoutChangingFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewQueryExecutor() error = %v", err)
 	}
+
 	before, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("ReadFile(before) error = %v", err)
@@ -270,10 +289,12 @@ func TestQueryExecutorRejectsWritesWithoutChangingFile(t *testing.T) {
 			t.Errorf("Query(%q) error = nil, want rejection", query)
 		}
 	}
+
 	after, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("ReadFile(after) error = %v", err)
 	}
+
 	if !bytes.Equal(before, after) {
 		t.Fatal("rejected queries changed the SQLite file")
 	}
@@ -283,10 +304,12 @@ func TestQueryExecutorProjectsAuthorizerAndSyntaxErrors(t *testing.T) {
 	t.Parallel()
 
 	path := createQueryFixture(t)
+
 	runtime, err := NewRuntime(&fixturePreparer{path: path})
 	if err != nil {
 		t.Fatalf("NewRuntime() error = %v", err)
 	}
+
 	t.Cleanup(func() { _ = runtime.Close(context.Background()) })
 	executor := newTestQueryExecutor(t, runtime, QueryOptions{
 		Timeout:           time.Second,
@@ -294,12 +317,14 @@ func TestQueryExecutorProjectsAuthorizerAndSyntaxErrors(t *testing.T) {
 	})
 
 	_, err = executor.Query(t.Context(), queryRequest("INSERT INTO query_items(value) VALUES ('blocked')"))
+
 	failure := execution.ClassifyRelationalQuery(context.Background(), err)
 	if failure.Category != execution.ErrorCategoryDatabasePermissionDenied || failure.DatabaseError == nil || failure.DatabaseError.Code != "SQLITE_AUTH" {
 		t.Fatalf("authorizer failure = %#v, want SQLITE_AUTH permission failure", failure)
 	}
 
 	_, err = executor.Query(t.Context(), queryRequest("SELECT FROM"))
+
 	failure = execution.ClassifyRelationalQuery(context.Background(), err)
 	if failure.Category != execution.ErrorCategoryInvalidQuery || failure.DatabaseError == nil || failure.DatabaseError.Code != "SQLITE_ERROR" {
 		t.Fatalf("syntax failure = %#v, want SQLITE_ERROR invalid-query failure", failure)
@@ -315,6 +340,7 @@ func TestQueryExecutorHonorsCallerCancellation(t *testing.T) {
 	})
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
+
 	_, err := executor.Query(ctx, queryRequest("SELECT 1"))
 	if !errors.Is(err, execution.ErrCancelled) {
 		t.Fatalf("Query(cancelled) error = %v, want ErrCancelled", err)
@@ -328,6 +354,7 @@ func newTestQueryExecutor(t *testing.T, opener queryOpener, options QueryOptions
 	if err != nil {
 		t.Fatalf("NewQueryExecutor() error = %v", err)
 	}
+
 	return executor
 }
 
@@ -353,6 +380,7 @@ func (o *queryOpenerStub) open(_ context.Context, _ connection.ID, mode accessMo
 	if o.conn == nil {
 		return nil, errors.New("query opener stub")
 	}
+
 	return &client{conn: o.conn, release: func() {}}, nil
 }
 
@@ -369,9 +397,11 @@ func (c *queryRawConnection) Prepare(sql string) (statement, string, error) {
 	if c.queryLog != nil {
 		*c.queryLog = append(*c.queryLog, sql)
 	}
+
 	if c.stmt != nil {
 		c.stmt.sql = sql
 	}
+
 	return c.stmt, c.tail, nil
 }
 func (*queryRawConnection) SetAuthorizer(func(sqlite3.AuthorizerActionCode, string, string, string, string) sqlite3.AuthorizerReturnCode) error {
@@ -408,6 +438,7 @@ func newQueryStatement(rows []queryRow) *queryStatement {
 	if len(rows) > 0 {
 		columns = len(rows[0].cells)
 	}
+
 	return &queryStatement{
 		columnCount:     columns,
 		columnNames:     make([]string, columns),
@@ -426,6 +457,7 @@ func (s *queryStatement) ColumnDeclType(index int) string {
 	if index < len(s.columnDeclTypes) {
 		return s.columnDeclTypes[index]
 	}
+
 	return ""
 }
 func (s *queryStatement) ColumnFloat(index int) float64 { return s.rows[s.current].cells[index].float }
@@ -434,6 +466,7 @@ func (s *queryStatement) ColumnName(index int) string {
 	if index < len(s.columnNames) && s.columnNames[index] != "" {
 		return s.columnNames[index]
 	}
+
 	return "column"
 }
 func (s *queryStatement) ColumnRawBlob(index int) []byte { return s.rows[s.current].cells[index].blob }
@@ -449,18 +482,23 @@ func (s *queryStatement) Step() bool {
 	if s.current+1 >= len(s.rows) {
 		return false
 	}
+
 	s.current++
+
 	return true
 }
 func createQueryFixture(t *testing.T) string {
 	t.Helper()
 
 	path := t.TempDir() + "/query.db"
+
 	conn, err := sqlite3.OpenFlags(path, sqlite3.OPEN_READWRITE|sqlite3.OPEN_CREATE|sqlite3.OPEN_URI)
 	if err != nil {
 		t.Fatalf("OpenFlags(query) error = %v", err)
 	}
+
 	t.Cleanup(func() { _ = conn.Close() })
+
 	for _, statement := range []string{
 		`CREATE TABLE query_items (id INTEGER PRIMARY KEY, value TEXT)`,
 		`INSERT INTO query_items(value) VALUES ('one'), ('two')`,
@@ -469,5 +507,6 @@ func createQueryFixture(t *testing.T) string {
 			t.Fatalf("fixture Exec(%q) error = %v", statement, err)
 		}
 	}
+
 	return path
 }

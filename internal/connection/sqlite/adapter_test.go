@@ -75,6 +75,7 @@ func TestParseConnectionStringDoesNotTouchFilesystem(t *testing.T) {
 	if _, err := os.Stat(nonexistent); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("parser touched %q: stat error = %v", nonexistent, err)
 	}
+
 	if string(parsed.Secrets[secretPath]) != nonexistent {
 		t.Fatalf("path secret = %q, want %q", parsed.Secrets[secretPath], nonexistent)
 	}
@@ -111,9 +112,11 @@ func TestParseConnectionStringRejectsInvalidURI(t *testing.T) {
 			if !errors.Is(err, ErrInvalidConnectionString) {
 				t.Fatalf("error = %v, want ErrInvalidConnectionString", err)
 			}
+
 			if parsed.Settings != nil || parsed.Secrets != nil {
 				t.Fatalf("failed parse returned %#v", parsed)
 			}
+
 			for _, value := range []string{test.uri, canary, "sqlite-path-canary"} {
 				if value != "" && strings.Contains(err.Error(), value) {
 					t.Fatalf("parser error leaked %q: %v", value, err)
@@ -127,10 +130,12 @@ func TestParseConnectionStringReturnsIndependentResults(t *testing.T) {
 	t.Parallel()
 
 	uri := []byte("sqlite:///tmp/dataporch.db")
+
 	first, err := New().ParseConnectionString(uri)
 	if err != nil {
 		t.Fatalf("first ParseConnectionString() error = %v", err)
 	}
+
 	second, err := New().ParseConnectionString(uri)
 	if err != nil {
 		t.Fatalf("second ParseConnectionString() error = %v", err)
@@ -140,6 +145,7 @@ func TestParseConnectionStringReturnsIndependentResults(t *testing.T) {
 	if string(second.Secrets[secretPath]) != "/tmp/dataporch.db" {
 		t.Fatalf("secret bytes are shared: %q", second.Secrets[secretPath])
 	}
+
 	if !maps.Equal(first.Settings, second.Settings) {
 		t.Fatalf("settings differ unexpectedly: %#v / %#v", first.Settings, second.Settings)
 	}

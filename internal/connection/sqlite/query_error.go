@@ -137,6 +137,7 @@ func primaryCodeSymbol(code sqlite3.ErrorCode) string {
 	if symbol, ok := primaryCodeSymbols[code]; ok {
 		return symbol
 	}
+
 	return "SQLITE_UNKNOWN"
 }
 
@@ -144,9 +145,11 @@ func extendedCodeSymbol(code sqlite3.ExtendedErrorCode) string {
 	if symbol, ok := extendedCodeSymbols[code]; ok {
 		return symbol
 	}
+
 	if symbol := primaryCodeSymbol(code.Code()); code == sqlite3.ExtendedErrorCode(code.Code()) {
 		return symbol
 	}
+
 	return "SQLITE_UNKNOWN"
 }
 
@@ -165,6 +168,7 @@ func extractSQLiteError(err error) (extractedSQLiteError, bool) {
 			message:  sqliteErr.Error(),
 		}, true
 	}
+
 	var extended sqlite3.ExtendedErrorCode
 	if errors.As(err, &extended) {
 		return extractedSQLiteError{
@@ -173,6 +177,7 @@ func extractSQLiteError(err error) (extractedSQLiteError, bool) {
 			message:  extended.Error(),
 		}, true
 	}
+
 	var code sqlite3.ErrorCode
 	if errors.As(err, &code) {
 		return extractedSQLiteError{
@@ -181,6 +186,7 @@ func extractSQLiteError(err error) (extractedSQLiteError, bool) {
 			message:  code.Error(),
 		}, true
 	}
+
 	return extractedSQLiteError{}, false
 }
 
@@ -193,6 +199,7 @@ func projectSQLiteError(
 	if err == nil {
 		return nil
 	}
+
 	if requestContext != nil {
 		switch requestContext.Err() {
 		case context.Canceled:
@@ -201,6 +208,7 @@ func projectSQLiteError(
 			return fmt.Errorf("%w: %w", execution.ErrQueryTimeout, context.DeadlineExceeded)
 		}
 	}
+
 	if queryContext != nil {
 		if cause := context.Cause(queryContext); cause != nil {
 			switch {
@@ -210,6 +218,7 @@ func projectSQLiteError(
 				return fmt.Errorf("%w: %w", execution.ErrQueryCancelled, err)
 			}
 		}
+
 		switch queryContext.Err() {
 		case context.DeadlineExceeded:
 			return fmt.Errorf("%w: %w", execution.ErrQueryTimeout, err)
@@ -217,9 +226,11 @@ func projectSQLiteError(
 			return fmt.Errorf("%w: %w", execution.ErrQueryCancelled, err)
 		}
 	}
+
 	if (isProjectedSQLiteError(err) || isKnownQueryError(err)) && !hasSQLiteError(err) {
 		return err
 	}
+
 	if errors.Is(err, errSQLiteFileUnavailable) || errors.Is(err, errRuntimeUnavailable) || errors.Is(err, errRuntimeClosed) {
 		return execution.ErrDatabaseUnavailable
 	}
@@ -240,10 +251,12 @@ func projectSQLiteError(
 	code := extracted.code
 	extendedSymbol := extendedCodeSymbol(extracted.extended)
 	primarySymbol := primaryCodeSymbol(code)
+
 	message := sqliteDiagnostic(extracted.message)
 	if phase == sqliteErrorPhaseOpen {
 		message = "SQLite database setup failed."
 	}
+
 	databaseError := &execution.DatabaseError{
 		Kind:    Kind,
 		Code:    primarySymbol,
@@ -282,9 +295,11 @@ func projectSQLiteDiscoveryError(
 	if err == nil {
 		return nil
 	}
+
 	if isSQLiteDiscoverySentinel(err) && !hasSQLiteError(err) {
 		return err
 	}
+
 	if phase == sqliteErrorPhasePrepare {
 		phase = sqliteErrorPhaseStep
 	}
@@ -303,6 +318,7 @@ func isSQLiteDiscoverySentinel(err error) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -336,28 +352,34 @@ func isKnownQueryError(err error) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
 func sqliteDiagnostic(message string) string {
 	message = strings.ToValidUTF8(message, "\uFFFD")
 	message = strings.ReplaceAll(message, "\x00", "")
+
 	fields := strings.Fields(message)
 	for index, field := range fields {
 		if strings.Contains(field, "/") || strings.HasPrefix(field, "file:") {
 			fields[index] = "[redacted]"
 		}
 	}
+
 	message = strings.Join(fields, " ")
 	if message == "" {
 		return "SQLite database error."
 	}
+
 	if len(message) <= 512 {
 		return message
 	}
+
 	message = message[:512]
 	for !utf8.ValidString(message) {
 		message = message[:len(message)-1]
 	}
+
 	return message
 }

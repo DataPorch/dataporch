@@ -78,6 +78,7 @@ func configureConnection(conn rawConnection, mode accessMode) error {
 	if err != nil {
 		return fmt.Errorf("enabling sqlite defensive mode: %w", err)
 	}
+
 	if !defensive {
 		return fmt.Errorf("enabling sqlite defensive mode: %w", errSQLiteFileUnavailable)
 	}
@@ -86,6 +87,7 @@ func configureConnection(conn rawConnection, mode accessMode) error {
 	if err != nil {
 		return fmt.Errorf("disabling sqlite trusted schema: %w", err)
 	}
+
 	if trusted {
 		return fmt.Errorf("disabling sqlite trusted schema: %w", errSQLiteFileUnavailable)
 	}
@@ -93,6 +95,7 @@ func configureConnection(conn rawConnection, mode accessMode) error {
 	if err := conn.Exec("PRAGMA query_only=ON"); err != nil {
 		return fmt.Errorf("enabling sqlite query-only mode: %w", err)
 	}
+
 	if err := validateSQLiteConnection(conn); err != nil {
 		return err
 	}

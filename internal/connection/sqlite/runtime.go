@@ -89,6 +89,7 @@ func newRuntime(preparer DefinitionPreparer, opener physicalOpener) (*Runtime, e
 	if preparer == nil {
 		return nil, fmt.Errorf("%w: definition preparer is required", errRuntimeUnavailable)
 	}
+
 	if opener == nil {
 		return nil, fmt.Errorf("%w: physical opener is required", errRuntimeUnavailable)
 	}
@@ -105,6 +106,7 @@ func (r *Runtime) open(ctx context.Context, id connection.ID, mode accessMode) (
 	if ctx == nil {
 		return nil, fmt.Errorf("%w: context is required", errRuntimeUnavailable)
 	}
+
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("%w: %w", errRuntimeUnavailable, err)
 	}
@@ -113,6 +115,7 @@ func (r *Runtime) open(ctx context.Context, id connection.ID, mode accessMode) (
 	if err != nil {
 		return nil, err
 	}
+
 	keepLease := false
 	defer func() {
 		if !keepLease {
@@ -130,6 +133,7 @@ func (r *Runtime) open(ctx context.Context, id connection.ID, mode accessMode) (
 	if err != nil {
 		return nil, err
 	}
+
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("%w: %w", errRuntimeUnavailable, err)
 	}
@@ -138,15 +142,18 @@ func (r *Runtime) open(ctx context.Context, id connection.ID, mode accessMode) (
 	if err != nil {
 		return nil, err
 	}
+
 	if physical == nil {
 		return nil, fmt.Errorf("%w: physical opener returned nil", errRuntimeUnavailable)
 	}
+
 	if err := ctx.Err(); err != nil {
 		_ = physical.Close()
 		return nil, fmt.Errorf("%w: %w", errRuntimeUnavailable, err)
 	}
 
 	keepLease = true
+
 	return &client{
 		conn:    physical,
 		release: release,
@@ -166,6 +173,7 @@ func (r *Runtime) acquire(id connection.ID) (func(), error) {
 		entry = &logicalEntry{}
 		r.entries[id] = entry
 	}
+
 	entry.active++
 	r.active++
 
@@ -179,6 +187,7 @@ func (r *Runtime) release(id connection.ID, entry *logicalEntry) {
 	if entry.active > 0 {
 		entry.active--
 	}
+
 	if r.active > 0 {
 		r.active--
 	}
@@ -202,6 +211,7 @@ func (r *Runtime) Invalidate(id connection.ID) {
 
 	if entry, exists := r.entries[id]; exists {
 		entry.detached = true
+
 		delete(r.entries, id)
 	}
 }
@@ -216,12 +226,15 @@ func (r *Runtime) Close(ctx context.Context) error {
 		r.isClosed = true
 		for id, entry := range r.entries {
 			entry.detached = true
+
 			delete(r.entries, id)
 		}
+
 		if r.active == 0 {
 			r.closeDrainLocked()
 		}
 	}
+
 	drain := r.drain
 	r.mu.Unlock()
 
@@ -237,6 +250,7 @@ func (r *Runtime) closeDrainLocked() {
 	if r.drainClosed {
 		return
 	}
+
 	r.drainClosed = true
 	close(r.drain)
 }
@@ -245,6 +259,7 @@ func resolvedPath(id connection.ID, resolved connection.ResolvedDefinition) (str
 	if resolved.ID != id || resolved.Kind != Kind {
 		return "", fmt.Errorf("%w: identity mismatch", errInvalidResolvedDefinition)
 	}
+
 	if len(resolved.Secrets) != 1 {
 		return "", fmt.Errorf("%w: path secret required", errInvalidResolvedDefinition)
 	}
@@ -253,6 +268,7 @@ func resolvedPath(id connection.ID, resolved connection.ResolvedDefinition) (str
 	if !exists || len(pathBytes) == 0 || !utf8.Valid(pathBytes) {
 		return "", fmt.Errorf("%w: path secret required", errInvalidResolvedDefinition)
 	}
+
 	if slices.Contains(pathBytes, 0) {
 		return "", fmt.Errorf("%w: path secret invalid", errInvalidResolvedDefinition)
 	}

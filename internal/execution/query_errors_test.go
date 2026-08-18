@@ -207,6 +207,7 @@ func TestClassifyRelationalQuerySQLiteFailure(t *testing.T) {
 	if failure.Category != ErrorCategoryDatabaseConflict || !failure.Retryable {
 		t.Fatalf("SQLite classification = %#v, want retryable database conflict", failure)
 	}
+
 	if failure.DatabaseError != databaseError {
 		t.Fatalf("SQLite database projection = %#v, want %#v", failure.DatabaseError, databaseError)
 	}
@@ -215,6 +216,7 @@ func TestClassifyRelationalQuerySQLiteFailure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Marshal() error = %v", err)
 	}
+
 	for _, want := range []string{`"kind":"sqlite"`, `"code":"SQLITE_BUSY"`, `"extended_code":"SQLITE_BUSY_SNAPSHOT"`} {
 		if !containsJSONText(encoded, want) {
 			t.Fatalf("SQLite failure JSON %q missing %q", encoded, want)

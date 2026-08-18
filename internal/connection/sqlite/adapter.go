@@ -58,12 +58,15 @@ func parseConnectionURI(input []byte) (string, error) {
 	if uri.Scheme != string(Kind) || uri.Opaque != "" {
 		return "", invalidConnectionString("malformed uri")
 	}
+
 	if uri.Host != "" || uri.User != nil {
 		return "", invalidConnectionString("authority not allowed")
 	}
+
 	if uri.RawQuery != "" || uri.ForceQuery {
 		return "", invalidConnectionString("query not allowed")
 	}
+
 	if bytes.Contains(input, []byte{'#'}) {
 		return "", invalidConnectionString("fragment not allowed")
 	}
@@ -77,6 +80,7 @@ func parseConnectionURI(input []byte) (string, error) {
 	if err != nil || path == "" || !utf8.ValidString(path) || strings.IndexByte(path, '\x00') >= 0 {
 		return "", invalidConnectionString("invalid path")
 	}
+
 	if !filepath.IsAbs(path) {
 		return "", invalidConnectionString("absolute path required")
 	}

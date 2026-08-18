@@ -35,6 +35,7 @@ func newDiscoverer(runtime discoveryOpener, queryTimeout time.Duration) (*Discov
 	if isNilInterface(runtime) {
 		return nil, errDiscoveryRuntimeRequired
 	}
+
 	if queryTimeout <= 0 {
 		return nil, errMetadataQueryTimeoutRequired
 	}
@@ -66,6 +67,7 @@ func (d *Discoverer) open(ctx context.Context, sourceID connection.ID) (*client,
 	if ctx == nil {
 		return nil, fmt.Errorf("%w: context is required", execution.ErrCancelled)
 	}
+
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("%w: %w", execution.ErrCancelled, err)
 	}
@@ -75,8 +77,10 @@ func (d *Discoverer) open(ctx context.Context, sourceID connection.ID) (*client,
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return nil, fmt.Errorf("%w: %w", execution.ErrCancelled, ctxErr)
 		}
+
 		return nil, fmt.Errorf("%w: %w", execution.ErrDatabaseUnavailable, err)
 	}
+
 	if client == nil || client.conn == nil {
 		return nil, execution.ErrDatabaseUnavailable
 	}

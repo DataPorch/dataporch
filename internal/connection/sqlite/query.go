@@ -42,15 +42,19 @@ func NewQueryExecutor(runtime queryOpener, options QueryOptions) (*QueryExecutor
 	if isNilInterface(runtime) {
 		return nil, errQueryOpenerRequired
 	}
+
 	if options.Timeout <= 0 {
 		return nil, errQueryTimeoutRequired
 	}
+
 	if options.ResponseByteLimit <= 0 {
 		return nil, errQueryByteLimitRequired
 	}
+
 	if options.TruncationEnabled && options.RowLimit <= 0 {
 		return nil, errQueryRowLimitRequired
 	}
+
 	return &QueryExecutor{
 		runtime:   runtime,
 		timeout:   options.Timeout,
@@ -71,12 +75,15 @@ func (e *QueryExecutor) Query(
 	if requestContext == nil {
 		return result, execution.ErrCancelled
 	}
+
 	if err := requestContext.Err(); err != nil {
 		return result, projectSQLiteError(requestContext, nil, err, sqliteErrorPhasePrepare)
 	}
+
 	if request.Source.ID == "" || request.Source.Kind != Kind {
 		return result, execution.ErrInvalidRequest
 	}
+
 	if strings.TrimSpace(request.Query) == "" {
 		return result, execution.ErrInvalidQuery
 	}
@@ -88,16 +95,19 @@ func (e *QueryExecutor) Query(
 	if err != nil {
 		return result, projectSQLiteError(requestContext, queryContext, err, sqliteErrorPhaseOpen)
 	}
+
 	if client == nil || client.conn == nil {
 		if client != nil {
 			_ = client.close()
 		}
+
 		return result, execution.ErrInternal
 	}
 	defer func() {
 		if err := client.close(); err != nil {
 			returnErr = errors.Join(returnErr, projectSQLiteError(requestContext, queryContext, err, sqliteErrorPhaseClose))
 		}
+
 		if returnErr != nil {
 			result = execution.RelationalQueryResult{}
 		}
@@ -107,6 +117,7 @@ func (e *QueryExecutor) Query(
 	if err != nil {
 		return result, projectSQLiteError(requestContext, queryContext, err, sqliteErrorPhasePrepare)
 	}
+
 	if isNilInterface(stmt) {
 		return result, execution.ErrInvalidQuery
 	}
@@ -114,6 +125,7 @@ func (e *QueryExecutor) Query(
 		if err := stmt.Close(); err != nil {
 			returnErr = errors.Join(returnErr, projectSQLiteError(requestContext, queryContext, err, sqliteErrorPhaseClose))
 		}
+
 		if returnErr != nil {
 			result = execution.RelationalQueryResult{}
 		}
@@ -127,9 +139,11 @@ func (e *QueryExecutor) Query(
 		Kind:     request.Source.Kind,
 		SourceID: request.Source.ID,
 	}
+
 	result, err = e.readResult(queryContext, stmt, result)
 	if err != nil {
 		return execution.RelationalQueryResult{}, projectSQLiteError(requestContext, queryContext, err, sqliteErrorPhaseStep)
 	}
+
 	return result, nil
 }

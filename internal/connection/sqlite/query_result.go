@@ -30,6 +30,7 @@ func (e *QueryExecutor) readResult(
 			DatabaseType: stmt.ColumnDeclType(index),
 		})
 	}
+
 	result.Rows = make([][]*string, 0)
 
 	budget, err := newQueryResultBudget(result, e.byteLimit)
@@ -41,6 +42,7 @@ func (e *QueryExecutor) readResult(
 		if err := queryContext.Err(); err != nil {
 			return execution.RelationalQueryResult{}, err
 		}
+
 		if e.truncate && len(result.Rows) == e.rowLimit {
 			result.Truncated = true
 			break
@@ -50,26 +52,31 @@ func (e *QueryExecutor) readResult(
 		if err != nil {
 			return execution.RelationalQueryResult{}, err
 		}
+
 		rowSize, rowFits, err := encodedRowSize(row, e.byteLimit)
 		if err != nil {
 			return execution.RelationalQueryResult{}, err
 		}
+
 		if !rowFits || !budget.FitsAdditionalRow(rowSize) {
 			return execution.RelationalQueryResult{}, execution.ErrResultTooLarge
 		}
 
 		result.Rows = append(result.Rows, row)
+
 		budget.RetainRow(rowSize)
 	}
 
 	if err := stmt.Err(); err != nil {
 		return execution.RelationalQueryResult{}, err
 	}
+
 	if err := queryContext.Err(); err != nil {
 		return execution.RelationalQueryResult{}, err
 	}
 
 	result.RowCount = len(result.Rows)
+
 	return result, nil
 }
 
@@ -80,8 +87,10 @@ func (e *QueryExecutor) readRow(stmt statement, columnCount int) ([]*string, err
 		if err != nil {
 			return nil, err
 		}
+
 		row[index] = value
 	}
+
 	return row, nil
 }
 
@@ -100,14 +109,18 @@ func (e *QueryExecutor) cellValue(stmt statement, index int) (*string, error) {
 		if len(raw) > e.byteLimit {
 			return nil, execution.ErrResultTooLarge
 		}
+
 		value := string(raw)
+
 		return &value, nil
 	case sqlite3.BLOB:
 		raw := stmt.ColumnRawBlob(index)
 		if e.byteLimit < 3 || len(raw) > (e.byteLimit-3)/2 {
 			return nil, execution.ErrResultTooLarge
 		}
+
 		value := blobLiteral(raw)
+
 		return &value, nil
 	default:
 		return nil, execution.ErrInternal
@@ -116,14 +129,18 @@ func (e *QueryExecutor) cellValue(stmt statement, index int) (*string, error) {
 
 func blobLiteral(raw []byte) string {
 	const digits = "0123456789ABCDEF"
+
 	encoded := make([]byte, 3+2*len(raw))
 	encoded[0] = 'X'
+
 	encoded[1] = '\''
 	for index, value := range raw {
 		encoded[2+2*index] = digits[value>>4]
 		encoded[3+2*index] = digits[value&0x0f]
 	}
+
 	encoded[len(encoded)-1] = '\''
+
 	return string(encoded)
 }
 
@@ -139,10 +156,12 @@ func newQueryResultBudget(result execution.RelationalQueryResult, limit int) (qu
 	if err != nil {
 		return queryResultBudget{}, err
 	}
+
 	sourceJSON, err := json.Marshal(result.SourceID)
 	if err != nil {
 		return queryResultBudget{}, err
 	}
+
 	columnsJSON, err := json.Marshal(result.Columns)
 	if err != nil {
 		return queryResultBudget{}, err
@@ -169,6 +188,7 @@ func newQueryResultBudget(result execution.RelationalQueryResult, limit int) (qu
 	) {
 		return queryResultBudget{}, execution.ErrResultTooLarge
 	}
+
 	return budget, nil
 }
 
@@ -178,8 +198,10 @@ func (b queryResultBudget) fits(parts ...int) bool {
 		if part < 0 || part > remaining {
 			return false
 		}
+
 		remaining -= part
 	}
+
 	return true
 }
 
@@ -188,7 +210,9 @@ func (b queryResultBudget) FitsAdditionalRow(rowSize int) bool {
 	if b.retainedRows > 0 {
 		separator = 1
 	}
+
 	nextCount := b.retainedRows + 1
+
 	return b.fits(
 		b.fixedSize,
 		b.rowsSize,
@@ -203,39 +227,49 @@ func (b *queryResultBudget) RetainRow(rowSize int) {
 	if b.retainedRows > 0 {
 		b.rowsSize++
 	}
+
 	b.rowsSize += rowSize
 	b.retainedRows++
 }
 
 func encodedRowSize(row []*string, limit int) (int, bool, error) {
 	remaining := limit
+
 	consume := func(size int) bool {
 		if size < 0 || size > remaining {
 			return false
 		}
+
 		remaining -= size
+
 		return true
 	}
 	if !consume(2) {
 		return 0, false, nil
 	}
+
 	for index, value := range row {
 		if index > 0 && !consume(1) {
 			return 0, false, nil
 		}
+
 		if value == nil {
 			if !consume(len("null")) {
 				return 0, false, nil
 			}
+
 			continue
 		}
+
 		encoded, err := json.Marshal(*value)
 		if err != nil {
 			return 0, false, err
 		}
+
 		if !consume(len(encoded)) {
 			return 0, false, nil
 		}
 	}
+
 	return limit - remaining, true, nil
 }

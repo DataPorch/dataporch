@@ -22,6 +22,7 @@ func openPhysicalConnection(
 	if ctx == nil {
 		return nil, fmt.Errorf("%w: context is required", errSQLiteFileUnavailable)
 	}
+
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("%w: %w", errSQLiteFileUnavailable, err)
 	}
@@ -35,7 +36,9 @@ func openPhysicalConnection(
 	if err != nil {
 		return nil, fmt.Errorf("sqlite: opening database: %w", err)
 	}
+
 	physical := &physicalConnection{conn: conn}
+
 	defer func() {
 		if ret == nil {
 			retErr = errors.Join(retErr, physical.Close())
@@ -43,6 +46,7 @@ func openPhysicalConnection(
 	}()
 
 	physical.SetInterrupt(ctx)
+
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("%w: %w", errSQLiteFileUnavailable, err)
 	}
@@ -52,6 +56,7 @@ func openPhysicalConnection(
 		physical = nil
 		return nil, err
 	}
+
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("%w: %w", errSQLiteFileUnavailable, err)
 	}
@@ -72,19 +77,23 @@ func validateSQLiteConnection(conn rawConnection) error {
 	if err != nil {
 		return fmt.Errorf("sqlite: validating database: %w", err)
 	}
+
 	if stmt == nil || strings.TrimSpace(tail) != "" {
 		if stmt != nil {
 			_ = stmt.Close()
 		}
+
 		return fmt.Errorf("%w: invalid schema statement", errSQLiteFileUnavailable)
 	}
 
 	stmt.Step()
 	stepErr := stmt.Err()
+
 	closeErr := stmt.Close()
 	if stepErr != nil {
 		return errors.Join(fmt.Errorf("sqlite: validating database: %w", stepErr), closeErr)
 	}
+
 	if closeErr != nil {
 		return fmt.Errorf("sqlite: closing validation statement: %w", closeErr)
 	}

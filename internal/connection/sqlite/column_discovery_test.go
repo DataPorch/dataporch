@@ -47,6 +47,7 @@ func TestDiscovererListColumnsMapsMetadataAndPaginatesByOrdinal(t *testing.T) {
 	t.Parallel()
 
 	discoverer := newColumnDiscoverer(t)
+
 	page, err := discoverer.ListColumns(t.Context(), execution.ColumnDiscoveryRequest{
 		SourceID: "columns",
 		Schema:   "main",
@@ -56,9 +57,11 @@ func TestDiscovererListColumnsMapsMetadataAndPaginatesByOrdinal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListColumns() error = %v", err)
 	}
+
 	if page.RelationKind != execution.RelationKindTable || !page.HasMore || len(page.Columns) != 4 {
 		t.Fatalf("ListColumns() = %#v, want table relation and four-column lookahead page", page)
 	}
+
 	if !reflect.DeepEqual(page.Constraints, []execution.Constraint{}) {
 		t.Fatalf("ListColumns().Constraints = %#v, want initialized empty slice", page.Constraints)
 	}
@@ -72,6 +75,7 @@ func TestDiscovererListColumnsMapsMetadataAndPaginatesByOrdinal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListColumns(all) error = %v", err)
 	}
+
 	if all.HasMore || len(all.Columns) != 8 {
 		t.Fatalf("ListColumns(all) = %#v, want eight columns without more", all)
 	}
@@ -97,18 +101,23 @@ func TestDiscovererListColumnsMapsMetadataAndPaginatesByOrdinal(t *testing.T) {
 		if !ok {
 			t.Fatalf("unexpected column %q", column.Name)
 		}
+
 		if column.OrdinalPosition != index+1 {
 			t.Errorf("%s ordinal = %d, want %d", column.Name, column.OrdinalPosition, index+1)
 		}
+
 		if column.FormattedType != expected.formatted || column.Type.Affinity != expected.affinity || column.Nullable != expected.nullable {
 			t.Errorf("%s metadata = %#v, want declaration=%q affinity=%q nullable=%v", column.Name, column, expected.formatted, expected.affinity, expected.nullable)
 		}
+
 		if column.Type.Schema != "" || column.Type.Name != "" || column.Type.Category != execution.TypeCategoryDynamic || column.Type.Length != nil || column.Type.Precision != nil || column.Type.Scale != nil || column.Type.TemporalPrecision != nil || column.Type.IsArray || column.Type.ElementType != nil || column.Type.DomainBaseType != nil {
 			t.Errorf("%s dynamic type metadata = %#v, want only category and affinity", column.Name, column.Type)
 		}
+
 		if !reflect.DeepEqual(column.DefaultExpression, expected.defaultV) {
 			t.Errorf("%s default = %#v, want %#v", column.Name, column.DefaultExpression, expected.defaultV)
 		}
+
 		if expected.generated == "" {
 			if column.Generated != nil || column.Identity != nil || column.Description != nil {
 				t.Errorf("%s optional metadata = %#v, want absent", column.Name, column)
@@ -128,6 +137,7 @@ func TestDiscovererListColumnsMapsMetadataAndPaginatesByOrdinal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListColumns(filtered) error = %v", err)
 	}
+
 	if got := []string{filtered.Columns[0].Name, filtered.Columns[1].Name}; !reflect.DeepEqual(got, []string{"generated_virtual", "generated_stored"}) {
 		t.Fatalf("filtered columns = %#v, want generated columns", got)
 	}
@@ -142,6 +152,7 @@ func TestDiscovererListColumnsMapsMetadataAndPaginatesByOrdinal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListColumns(after) error = %v", err)
 	}
+
 	if len(after.Columns) != 4 || after.Columns[0].OrdinalPosition != 5 {
 		t.Fatalf("after columns = %#v, want four columns starting at ordinal five", after.Columns)
 	}
@@ -171,9 +182,11 @@ func TestDiscovererListColumnsMapsViewVirtualAndHostileNames(t *testing.T) {
 			if err != nil {
 				t.Fatalf("ListColumns(%q) error = %v", test.table, err)
 			}
+
 			if page.RelationKind != test.kind {
 				t.Fatalf("ListColumns(%q).RelationKind = %q, want %q", test.table, page.RelationKind, test.kind)
 			}
+
 			got := make([]string, 0, len(page.Columns))
 			for _, column := range page.Columns {
 				got = append(got, column.Name)
@@ -181,6 +194,7 @@ func TestDiscovererListColumnsMapsViewVirtualAndHostileNames(t *testing.T) {
 					t.Fatalf("hidden column leaked: %#v", column)
 				}
 			}
+
 			if !reflect.DeepEqual(got, test.want) {
 				t.Fatalf("ListColumns(%q) names = %#v, want %#v", test.table, got, test.want)
 			}
@@ -220,16 +234,19 @@ func newColumnDiscoverer(t *testing.T) *Discoverer {
 	t.Helper()
 
 	path := createColumnFixture(t)
+
 	runtime, err := newRuntime(&fixturePreparer{path: path}, openColumnFixtureConnection)
 	if err != nil {
 		t.Fatalf("NewRuntime() error = %v", err)
 	}
+
 	t.Cleanup(func() { _ = runtime.Close(context.Background()) })
 
 	discoverer, err := NewDiscoverer(runtime)
 	if err != nil {
 		t.Fatalf("NewDiscoverer() error = %v", err)
 	}
+
 	return discoverer
 }
 
@@ -238,14 +255,17 @@ func openColumnFixtureConnection(ctx context.Context, path string, mode accessMo
 	if err != nil {
 		return nil, err
 	}
+
 	physical, ok := connection.(*physicalConnection)
 	if !ok {
 		_ = connection.Close()
 		return nil, errors.New("sqlite: column fixture opener received unexpected connection")
 	}
+
 	if err := statementext.Register(physical.conn); err != nil {
 		return nil, errors.Join(err, connection.Close())
 	}
+
 	return connection, nil
 }
 
@@ -253,11 +273,14 @@ func createColumnFixture(t *testing.T) string {
 	t.Helper()
 
 	path := t.TempDir() + "/columns.db"
+
 	conn, err := sqlite3.OpenFlags(path, sqlite3.OPEN_READWRITE|sqlite3.OPEN_CREATE|sqlite3.OPEN_URI)
 	if err != nil {
 		t.Fatalf("OpenFlags(columns) error = %v", err)
 	}
+
 	t.Cleanup(func() { _ = conn.Close() })
+
 	if err := statementext.Register(conn); err != nil {
 		t.Fatalf("Register(statement) error = %v", err)
 	}
@@ -278,6 +301,7 @@ func createColumnFixture(t *testing.T) string {
 		`CREATE VIRTUAL TABLE "column_virtual" USING statement((SELECT 'value' AS content))`,
 	}
 	statements = append(statements, fmt.Sprintf("CREATE TABLE %s (value TEXT)", quoteFixtureIdentifier(`100%;_column"quoted`)))
+
 	statements = append(statements, `CREATE INDEX "column_subject_text_idx" ON "column_subject" (text_col)`)
 	for _, statement := range statements {
 		if err := conn.Exec(statement); err != nil {

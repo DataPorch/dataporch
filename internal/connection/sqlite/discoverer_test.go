@@ -28,6 +28,7 @@ func TestDiscovererStartsMetadataTimeoutAfterOpen(t *testing.T) {
 	raw := &deadlineDiscoveryRawConnection{}
 	runtime := &deadlineDiscoveryRuntime{raw: raw}
 	timeout := 100 * time.Millisecond
+
 	discoverer, err := newDiscoverer(runtime, timeout)
 	if err != nil {
 		t.Fatalf("newDiscoverer() error = %v", err)
@@ -86,6 +87,7 @@ func TestDiscovererProjectsCatalogFailures(t *testing.T) {
 				stepErr:    test.stepErr,
 				closeErr:   test.closeErr,
 			}
+
 			discoverer, err := newDiscoverer(&discoveryErrorRuntime{raw: raw}, time.Second)
 			if err != nil {
 				t.Fatalf("newDiscoverer() error = %v", err)
@@ -99,10 +101,12 @@ func TestDiscovererProjectsCatalogFailures(t *testing.T) {
 			if err == nil {
 				t.Fatal("ListTables() error = nil, want projected catalog failure")
 			}
+
 			failure := databaseFailureFromError(t, err)
 			if failure.Category != test.category {
 				t.Fatalf("failure category = %q, want %q", failure.Category, test.category)
 			}
+
 			if strings.Contains(err.Error(), "/private/secret.db") {
 				t.Fatalf("catalog path leaked from projected error: %v", err)
 			}
@@ -116,6 +120,7 @@ func TestDiscovererClassifiesMetadataTimeout(t *testing.T) {
 	raw := &discoveryErrorRawConnection{
 		stepWait: true,
 	}
+
 	discoverer, err := newDiscoverer(&discoveryErrorRuntime{raw: raw}, 5*time.Millisecond)
 	if err != nil {
 		t.Fatalf("newDiscoverer() error = %v", err)
@@ -138,6 +143,7 @@ type deadlineDiscoveryRuntime struct {
 
 func (r *deadlineDiscoveryRuntime) open(ctx context.Context, _ connection.ID, _ accessMode) (*client, error) {
 	_, r.openDeadline = ctx.Deadline()
+
 	return &client{
 		conn:    r.raw,
 		release: func() {},
@@ -160,6 +166,7 @@ type discoveryErrorRuntime struct {
 
 func (r *discoveryErrorRuntime) open(ctx context.Context, _ connection.ID, _ accessMode) (*client, error) {
 	r.raw.SetInterrupt(ctx)
+
 	return &client{
 		conn:    r.raw,
 		release: func() {},
@@ -190,6 +197,7 @@ func (c *discoveryErrorRawConnection) Prepare(string) (statement, string, error)
 	if c.prepareErr != nil {
 		return nil, "", c.prepareErr
 	}
+
 	return &discoveryErrorStatement{
 		interruptDone: c.interruptDone,
 		stepErr:       c.stepErr,
@@ -275,5 +283,6 @@ func (s *discoveryErrorStatement) Step() bool {
 		<-s.interruptDone
 		s.stepErr = sqlite3.INTERRUPT
 	}
+
 	return false
 }

@@ -49,6 +49,7 @@ func (d *Discoverer) ListTables(
 	if err != nil {
 		return page, projectSQLiteDiscoveryError(ctx, queryCtx, err, sqliteErrorPhasePrepare)
 	}
+
 	if stmt == nil || strings.TrimSpace(tail) != "" {
 		invalidErr := fmt.Errorf("%w: invalid relation catalog statement", execution.ErrInternal)
 		if stmt != nil {
@@ -57,6 +58,7 @@ func (d *Discoverer) ListTables(
 				projectSQLiteDiscoveryError(ctx, queryCtx, stmt.Close(), sqliteErrorPhaseClose),
 			)
 		}
+
 		return page, invalidErr
 	}
 	defer func() {
@@ -69,9 +71,11 @@ func (d *Discoverer) ListTables(
 	if err := stmt.BindText(1, request.Search); err != nil {
 		return page, projectSQLiteDiscoveryError(ctx, queryCtx, err, sqliteErrorPhaseStep)
 	}
+
 	if err := stmt.BindText(2, request.AfterName); err != nil {
 		return page, projectSQLiteDiscoveryError(ctx, queryCtx, err, sqliteErrorPhaseStep)
 	}
+
 	if err := stmt.BindInt64(3, int64(request.Limit+1)); err != nil {
 		return page, projectSQLiteDiscoveryError(ctx, queryCtx, err, sqliteErrorPhaseStep)
 	}
@@ -80,6 +84,7 @@ func (d *Discoverer) ListTables(
 		table := execution.Table{
 			Name: stmt.ColumnText(0),
 		}
+
 		relationType := stmt.ColumnText(1)
 		switch relationType {
 		case "table":
@@ -91,8 +96,10 @@ func (d *Discoverer) ListTables(
 		default:
 			return page, projectSQLiteDiscoveryError(ctx, queryCtx, fmt.Errorf("%w: %s", execution.ErrInternal, relationType), sqliteErrorPhaseStep)
 		}
+
 		page.Tables = append(page.Tables, table)
 	}
+
 	if err := stmt.Err(); err != nil {
 		return page, projectSQLiteDiscoveryError(ctx, queryCtx, err, sqliteErrorPhaseStep)
 	}

@@ -452,6 +452,7 @@ func TestQueryToolLogsOneContextualSuccess(t *testing.T) {
 		logRecord["truncated"] != false {
 		t.Fatalf("success log = %#v", logRecord)
 	}
+
 	if _, exists := logRecord["query"]; exists || strings.Contains(logs.String(), "select safe_value") {
 		t.Fatalf("success log leaked raw SQL: %s", logs.String())
 	}
@@ -495,6 +496,7 @@ func TestQueryToolLogsOneContextualFailure(t *testing.T) {
 		databaseFields["line"] != float64(19) {
 		t.Fatalf("database error log group = %#v", logRecord["database_error"])
 	}
+
 	if _, exists := logRecord["query"]; exists || strings.Contains(logs.String(), "select retryable") {
 		t.Fatalf("failure log leaked raw SQL: %s", logs.String())
 	}
@@ -520,6 +522,7 @@ func TestQueryToolDoesNotLogCellsOrCredentials(t *testing.T) {
 	defer server.Close()
 
 	query := "select protected /* raw-query-canary */"
+
 	result := callRelationalQuery(t, session, query)
 	if result.IsError {
 		t.Fatalf("query result is an error: %#v", result)

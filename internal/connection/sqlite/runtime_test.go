@@ -57,6 +57,7 @@ func TestRuntimeOpenValidatesResolvedDefinition(t *testing.T) {
 
 			preparer := &runtimePreparer{definition: test.definition}
 			opener := &runtimeOpener{}
+
 			runtime, err := newRuntime(preparer, opener.open)
 			if err != nil {
 				t.Fatalf("newRuntime() error = %v", err)
@@ -66,9 +67,11 @@ func TestRuntimeOpenValidatesResolvedDefinition(t *testing.T) {
 			if err == nil {
 				t.Fatal("Runtime.open() error = nil, want invalid definition error")
 			}
+
 			if opener.calls() != 0 {
 				t.Fatalf("physical opener calls = %d, want 0", opener.calls())
 			}
+
 			if !runtimeSecretsCleared(preparer.lastSecrets) {
 				t.Fatalf("resolved secret bytes were not cleared: %#v", preparer.lastSecrets)
 			}
@@ -87,6 +90,7 @@ func TestRuntimeOpenClearsSecretsAndClosesPhysicalClientOnce(t *testing.T) {
 	}
 	preparer := &runtimePreparer{definition: definition}
 	opener := &runtimeOpener{}
+
 	runtime, err := newRuntime(preparer, opener.open)
 	if err != nil {
 		t.Fatalf("newRuntime() error = %v", err)
@@ -96,6 +100,7 @@ func TestRuntimeOpenClearsSecretsAndClosesPhysicalClientOnce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Runtime.open() error = %v", err)
 	}
+
 	if !runtimeSecretsCleared(preparer.lastSecrets) {
 		t.Fatalf("resolved secret bytes were not cleared: %#v", preparer.lastSecrets)
 	}
@@ -103,12 +108,15 @@ func TestRuntimeOpenClearsSecretsAndClosesPhysicalClientOnce(t *testing.T) {
 	if err := client.close(); err != nil {
 		t.Fatalf("client.close() error = %v", err)
 	}
+
 	if err := client.close(); err != nil {
 		t.Fatalf("repeated client.close() error = %v", err)
 	}
+
 	if got := opener.lastCloseCount(); got != 1 {
 		t.Fatalf("physical close count = %d, want 1", got)
 	}
+
 	if err := runtime.Close(t.Context()); err != nil {
 		t.Fatalf("Runtime.Close() error = %v", err)
 	}
@@ -160,6 +168,7 @@ func TestRuntimeInvalidationDetachesOnlyCurrentEntry(t *testing.T) {
 		ID: "source", Kind: Kind, Secrets: map[string][]byte{secretPath: []byte("/tmp/source.db")},
 	}}
 	opener := &runtimeOpener{}
+
 	runtime, err := newRuntime(preparer, opener.open)
 	if err != nil {
 		t.Fatalf("newRuntime() error = %v", err)
@@ -169,20 +178,24 @@ func TestRuntimeInvalidationDetachesOnlyCurrentEntry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first Runtime.open() error = %v", err)
 	}
+
 	other, err := runtime.open(t.Context(), "other", accessModeQuery)
 	if err != nil {
 		t.Fatalf("other Runtime.open() error = %v", err)
 	}
 
 	runtime.Invalidate("source")
+
 	if _, exists := runtime.entries["source"]; exists {
 		t.Fatal("invalidated source remains the current logical entry")
 	}
+
 	if _, exists := runtime.entries["other"]; !exists {
 		t.Fatal("invalidation detached an unrelated logical entry")
 	}
 
 	preparer.definition.Secrets[secretPath] = []byte("/tmp/replacement.db")
+
 	replacement, err := runtime.open(t.Context(), "source", accessModeQuery)
 	if err != nil {
 		t.Fatalf("replacement Runtime.open() error = %v", err)
@@ -206,6 +219,7 @@ func TestRuntimeInvalidationDetachesOnlyCurrentEntry(t *testing.T) {
 			t.Fatalf("client.close() error = %v", err)
 		}
 	}
+
 	if err := runtime.Close(t.Context()); err != nil {
 		t.Fatalf("Runtime.Close() error = %v", err)
 	}
@@ -218,10 +232,12 @@ func TestRuntimeCloseWaitsAndRejectsNewWork(t *testing.T) {
 		ID: "source", Kind: Kind, Secrets: map[string][]byte{secretPath: []byte("/tmp/source.db")},
 	}}
 	opener := &runtimeOpener{}
+
 	runtime, err := newRuntime(preparer, opener.open)
 	if err != nil {
 		t.Fatalf("newRuntime() error = %v", err)
 	}
+
 	active, err := runtime.open(t.Context(), "source", accessModeQuery)
 	if err != nil {
 		t.Fatalf("Runtime.open() error = %v", err)
@@ -229,15 +245,18 @@ func TestRuntimeCloseWaitsAndRejectsNewWork(t *testing.T) {
 
 	canceled, cancel := context.WithCancel(t.Context())
 	cancel()
+
 	if err := runtime.Close(canceled); !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled Runtime.Close() error = %v, want context.Canceled", err)
 	}
+
 	if _, err := runtime.open(t.Context(), "source", accessModeQuery); err == nil {
 		t.Fatal("Runtime.open() after close error = nil, want rejection")
 	}
 
 	done := make(chan error, 1)
 	go func() { done <- runtime.Close(t.Context()) }()
+
 	select {
 	case err := <-done:
 		t.Fatalf("Runtime.Close() returned while active: %v", err)
@@ -247,6 +266,7 @@ func TestRuntimeCloseWaitsAndRejectsNewWork(t *testing.T) {
 	if err := active.close(); err != nil {
 		t.Fatalf("active.close() error = %v", err)
 	}
+
 	select {
 	case err := <-done:
 		if err != nil {
@@ -255,6 +275,7 @@ func TestRuntimeCloseWaitsAndRejectsNewWork(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("Runtime.Close() did not return after active client closed")
 	}
+
 	if err := runtime.Close(t.Context()); err != nil {
 		t.Fatalf("repeated Runtime.Close() error = %v", err)
 	}
@@ -267,31 +288,39 @@ func TestRuntimeConcurrentOpensUseIndependentPhysicalClients(t *testing.T) {
 		ID: "source", Kind: Kind, Secrets: map[string][]byte{secretPath: []byte("/tmp/source.db")},
 	}}
 	opener := &runtimeOpener{}
+
 	runtime, err := newRuntime(preparer, opener.open)
 	if err != nil {
 		t.Fatalf("newRuntime() error = %v", err)
 	}
 
 	const count = 16
+
 	clients := make([]*client, count)
 	errCh := make(chan error, count)
+
 	var group sync.WaitGroup
 	for index := range clients {
 		group.Add(1)
 		go func(index int) {
 			defer group.Done()
+
 			opened, err := runtime.open(t.Context(), "source", accessModeQuery)
 			clients[index] = opened
+
 			errCh <- err
 		}(index)
 	}
+
 	group.Wait()
 	close(errCh)
+
 	for err := range errCh {
 		if err != nil {
 			t.Fatalf("concurrent Runtime.open() error = %v", err)
 		}
 	}
+
 	if got := opener.calls(); got != count {
 		t.Fatalf("physical opener calls = %d, want %d", got, count)
 	}
@@ -301,6 +330,7 @@ func TestRuntimeConcurrentOpensUseIndependentPhysicalClients(t *testing.T) {
 			t.Fatalf("client.close() error = %v", err)
 		}
 	}
+
 	if err := runtime.Close(t.Context()); err != nil {
 		t.Fatalf("Runtime.Close() error = %v", err)
 	}
@@ -321,7 +351,9 @@ func (p *runtimePreparer) Prepare(_ context.Context, id connection.ID) (connecti
 	if definition.ID == "source" && id != "source" {
 		definition.ID = id
 	}
+
 	p.lastSecrets = definition.Secrets
+
 	return definition, p.err
 }
 
@@ -336,6 +368,7 @@ func (o *runtimeOpener) open(_ context.Context, _ string, _ accessMode) (rawConn
 
 	connection := &runtimeRawConnection{}
 	o.connections = append(o.connections, connection)
+
 	return connection, nil
 }
 
@@ -353,6 +386,7 @@ func (o *runtimeOpener) lastCloseCount() int {
 	if len(o.connections) == 0 {
 		return 0
 	}
+
 	return o.connections[len(o.connections)-1].closeCount
 }
 
@@ -365,6 +399,7 @@ func (c *runtimeRawConnection) Close() error {
 	c.mu.Lock()
 	c.closeCount++
 	c.mu.Unlock()
+
 	return nil
 }
 
@@ -404,5 +439,6 @@ func runtimeSecretsCleared(secrets map[string][]byte) bool {
 			}
 		}
 	}
+
 	return true
 }

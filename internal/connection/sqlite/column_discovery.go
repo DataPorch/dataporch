@@ -71,6 +71,7 @@ func (d *Discoverer) ListColumns(
 	}()
 
 	page.Columns = make([]execution.Column, 0, request.Limit+1)
+
 	page.Constraints = make([]execution.Constraint, 0)
 	if request.Schema != "main" {
 		return page, projectSQLiteDiscoveryError(ctx, queryCtx, execution.ErrSchemaNotFound, sqliteErrorPhaseStep)
@@ -85,6 +86,7 @@ func (d *Discoverer) ListColumns(
 	if err != nil {
 		return page, projectSQLiteDiscoveryError(ctx, queryCtx, err, sqliteErrorPhasePrepare)
 	}
+
 	if stmt == nil || strings.TrimSpace(tail) != "" {
 		invalidErr := fmt.Errorf("%w: invalid column catalog statement", execution.ErrInternal)
 		if stmt != nil {
@@ -93,6 +95,7 @@ func (d *Discoverer) ListColumns(
 				projectSQLiteDiscoveryError(ctx, queryCtx, stmt.Close(), sqliteErrorPhaseClose),
 			)
 		}
+
 		return page, invalidErr
 	}
 	defer func() {
@@ -105,12 +108,15 @@ func (d *Discoverer) ListColumns(
 	if err := stmt.BindText(1, request.Table); err != nil {
 		return page, projectSQLiteDiscoveryError(ctx, queryCtx, err, sqliteErrorPhaseStep)
 	}
+
 	if err := stmt.BindText(2, request.Search); err != nil {
 		return page, projectSQLiteDiscoveryError(ctx, queryCtx, err, sqliteErrorPhaseStep)
 	}
+
 	if err := stmt.BindInt64(3, int64(request.AfterOrdinal)); err != nil {
 		return page, projectSQLiteDiscoveryError(ctx, queryCtx, err, sqliteErrorPhaseStep)
 	}
+
 	if err := stmt.BindInt64(4, int64(request.Limit+1)); err != nil {
 		return page, projectSQLiteDiscoveryError(ctx, queryCtx, err, sqliteErrorPhaseStep)
 	}
@@ -120,8 +126,10 @@ func (d *Discoverer) ListColumns(
 		if err != nil {
 			return page, projectSQLiteDiscoveryError(ctx, queryCtx, err, sqliteErrorPhaseStep)
 		}
+
 		page.Columns = append(page.Columns, column)
 	}
+
 	if err := stmt.Err(); err != nil {
 		return page, projectSQLiteDiscoveryError(ctx, queryCtx, err, sqliteErrorPhaseStep)
 	}
@@ -130,6 +138,7 @@ func (d *Discoverer) ListColumns(
 		page.HasMore = true
 		page.Columns = page.Columns[:request.Limit]
 	}
+
 	if request.AfterOrdinal == 0 {
 		page.Constraints, err = listSQLiteConstraints(client.conn, request.Table)
 		if err != nil {
@@ -145,11 +154,13 @@ func resolveRelationKind(conn rawConnection, table string) (kind execution.Relat
 	if err != nil {
 		return "", fmt.Errorf("sqlite: preparing relation lookup: %w", err)
 	}
+
 	if stmt == nil || strings.TrimSpace(tail) != "" {
 		invalidErr := fmt.Errorf("%w: invalid relation lookup statement", execution.ErrInternal)
 		if stmt != nil {
 			invalidErr = errors.Join(invalidErr, stmt.Close())
 		}
+
 		return "", invalidErr
 	}
 	defer func() { retErr = errors.Join(retErr, stmt.Close()) }()
@@ -157,12 +168,15 @@ func resolveRelationKind(conn rawConnection, table string) (kind execution.Relat
 	if err := stmt.BindText(1, table); err != nil {
 		return "", fmt.Errorf("sqlite: binding relation lookup: %w", err)
 	}
+
 	if !stmt.Step() {
 		if err := stmt.Err(); err != nil {
 			return "", fmt.Errorf("sqlite: reading relation lookup: %w", err)
 		}
+
 		return "", execution.ErrRelationNotFound
 	}
+
 	if err := stmt.Err(); err != nil {
 		return "", fmt.Errorf("sqlite: reading relation lookup: %w", err)
 	}
@@ -186,12 +200,14 @@ func scanSQLiteColumn(stmt statement) (execution.Column, error) {
 	if cid < 0 || cid >= math.MaxInt64 {
 		return execution.Column{}, fmt.Errorf("%w: invalid column ordinal", execution.ErrInternal)
 	}
+
 	ordinal := cid + 1
 	if ordinal > int64(maxInt()) {
 		return execution.Column{}, fmt.Errorf("%w: invalid column ordinal", execution.ErrInternal)
 	}
 
 	declared := stmt.ColumnText(2)
+
 	column := execution.Column{
 		Name:            stmt.ColumnText(1),
 		OrdinalPosition: int(ordinal),

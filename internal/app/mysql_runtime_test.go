@@ -1,3 +1,4 @@
+//nolint:dupl // Adapter composition tests intentionally share the same contract.
 package app
 
 import (
@@ -10,6 +11,7 @@ func TestNewMySQLModule(t *testing.T) {
 	t.Parallel()
 
 	manager := newRelationalTestManager(t)
+
 	module, err := newMySQLModule(manager, validQueryPolicy())
 	if err != nil {
 		t.Fatalf("newMySQLModule() error = %v", err)

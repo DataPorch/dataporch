@@ -66,6 +66,7 @@ func TestMySQLErrorCategory(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
+
 			var state [5]byte
 			copy(state[:], test.state)
 			projected := projectRelationalQueryError(&gomysql.MySQLError{
@@ -73,6 +74,7 @@ func TestMySQLErrorCategory(t *testing.T) {
 				SQLState: state,
 				Message:  "native failure",
 			})
+
 			failure := execution.ClassifyRelationalQuery(context.Background(), projected)
 			if failure.Category != test.category || failure.Retryable != test.retryable {
 				t.Fatalf("failure = %#v, want category=%q retryable=%v", failure, test.category, test.retryable)
@@ -92,11 +94,13 @@ func TestProjectRelationalQueryError(t *testing.T) {
 	if err := projectRelationalQueryError(dialErr); !errors.Is(err, execution.ErrDatabaseUnavailable) {
 		t.Fatalf("dial projection = %v, want unavailable", err)
 	}
+
 	if err := projectRelationalQueryError(errOpenInvalidated); !errors.Is(err, execution.ErrDatabaseUnavailable) {
 		t.Fatalf("invalidation projection = %v, want unavailable", err)
 	}
 
 	canary := errors.New("driver credential=secret-canary")
+
 	projected := projectRelationalQueryError(canary)
 	if !errors.Is(projected, execution.ErrInternal) || strings.Contains(projected.Error(), "secret-canary") {
 		t.Fatalf("generic projection = %v, want safe internal error", projected)
@@ -108,18 +112,21 @@ func TestProjectRelationalQueryErrorContextPrecedence(t *testing.T) {
 
 	requestCtx, cancel := context.WithCancel(context.Background())
 	cancel()
+
 	if err := projectMySQLQueryError(requestCtx, context.Background(), &gomysql.MySQLError{Number: 1045}); !errors.Is(err, execution.ErrCancelled) {
 		t.Fatalf("cancelled request projection = %v, want cancelled", err)
 	}
 
 	deadlineCtx, deadlineCancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
 	defer deadlineCancel()
+
 	if err := projectMySQLQueryError(deadlineCtx, context.Background(), &gomysql.MySQLError{Number: 1045}); !errors.Is(err, execution.ErrQueryTimeout) {
 		t.Fatalf("deadline request projection = %v, want timeout", err)
 	}
 
 	queryCtx, queryCancel := context.WithCancelCause(context.Background())
 	queryCancel(execution.ErrQueryTimeout)
+
 	if err := projectMySQLQueryError(context.Background(), queryCtx, &gomysql.MySQLError{Number: 1045}); !errors.Is(err, execution.ErrQueryTimeout) {
 		t.Fatalf("query timeout projection = %v, want timeout", err)
 	}
@@ -129,6 +136,7 @@ func TestMySQLDiagnosticBoundsAndRedacts(t *testing.T) {
 	t.Parallel()
 
 	message := strings.Repeat("a", 511) + "😀"
+
 	got := mysqlDiagnostic(message)
 	if !utf8.ValidString(got) || len(got) > 512 || got != strings.Repeat("a", 511) {
 		t.Fatalf("mysqlDiagnostic() = %q, valid=%t length=%d", got, utf8.ValidString(got), len(got))
@@ -145,10 +153,12 @@ func TestProjectMySQLDatabaseFailureFields(t *testing.T) {
 
 	err := &gomysql.MySQLError{Number: 1045, Message: "access denied"}
 	projected := projectRelationalQueryError(fmt.Errorf("outer: %w", err))
+
 	var databaseFailure *execution.DatabaseFailure
 	if !errors.As(projected, &databaseFailure) {
 		t.Fatalf("projected error = %v, want DatabaseFailure", projected)
 	}
+
 	failure := execution.ClassifyRelationalQuery(context.Background(), projected)
 	if failure.DatabaseError == nil || failure.DatabaseError.Code != "1045" || failure.DatabaseError.Kind != Kind {
 		t.Fatalf("database failure = %#v", failure)

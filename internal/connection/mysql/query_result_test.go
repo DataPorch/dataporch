@@ -52,6 +52,7 @@ func TestMySQLCellString(t *testing.T) {
 			if !errors.Is(err, test.wantErr) {
 				t.Fatalf("mysqlCellString() error = %v, want %v", err, test.wantErr)
 			}
+
 			if !reflect.DeepEqual(got, test.want) {
 				t.Fatalf("mysqlCellString() = %#v, want %#v", got, test.want)
 			}
@@ -65,6 +66,7 @@ func TestEncodedRowSize(t *testing.T) {
 	t.Parallel()
 
 	row := []*string{ptr("hello"), nil, ptr("X'00FF'")}
+
 	encoded, err := json.Marshal(row)
 	if err != nil {
 		t.Fatalf("json.Marshal() error = %v", err)
@@ -74,6 +76,7 @@ func TestEncodedRowSize(t *testing.T) {
 	if err != nil {
 		t.Fatalf("encodedRowSize() error = %v", err)
 	}
+
 	if !fits || size != len(encoded) {
 		t.Fatalf("size=%d fits=%v, want size=%d fits=true", size, fits, len(encoded))
 	}
@@ -82,6 +85,7 @@ func TestEncodedRowSize(t *testing.T) {
 	if err != nil {
 		t.Fatalf("encodedRowSize() small limit error = %v", err)
 	}
+
 	if fits {
 		t.Fatal("row must not fit below its encoded JSON size")
 	}
@@ -160,32 +164,41 @@ func (r *resultProbeRows) Next(destination []driver.Value) error {
 		if r.terminalErr != nil {
 			err := r.terminalErr
 			r.terminalErr = nil
+
 			return err
 		}
+
 		return io.EOF
 	}
+
 	if r.beforeRow != nil {
 		r.beforeRow()
 		r.beforeRow = nil
 	}
+
 	copy(destination, r.values[r.index])
 	r.index++
+
 	return nil
 }
 
-var _ driver.QueryerContext = (*resultProbeConn)(nil)
-var _ driver.RowsColumnTypeDatabaseTypeName = (*resultProbeRows)(nil)
+var (
+	_ driver.QueryerContext                 = (*resultProbeConn)(nil)
+	_ driver.RowsColumnTypeDatabaseTypeName = (*resultProbeRows)(nil)
+)
 
-func openResultProbeRows(t *testing.T, probe *resultProbeRows) *sql.Rows {
+func openResultProbeRows(t *testing.T, probe *resultProbeRows) queryRows {
 	t.Helper()
 
 	db := sql.OpenDB(&resultProbeConnector{rows: probe})
+
 	t.Cleanup(func() { _ = db.Close() })
 
-	rows, err := db.QueryContext(t.Context(), "SELECT probe")
+	rows, err := db.QueryContext(t.Context(), "SELECT probe") //nolint:rowserrcheck // result reader owns iteration and terminal error checks.
 	if err != nil {
 		t.Fatalf("QueryContext() error = %v", err)
 	}
+
 	return rows
 }
 
@@ -214,6 +227,8 @@ func TestQueryResultReaderRowsAndTruncation(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
 			probe := &resultProbeRows{
 				columns:       []string{"value"},
 				databaseTypes: []string{"VARCHAR"},
@@ -224,13 +239,16 @@ func TestQueryResultReaderRowsAndTruncation(t *testing.T) {
 				truncationEnabled: test.truncate,
 				rowLimit:          test.rowLimit,
 			}
+
 			result, err := reader.readResult(t.Context(), openResultProbeRows(t, probe), queryResultRequest())
 			if err != nil {
 				t.Fatalf("readResult() error = %v", err)
 			}
+
 			if len(result.Rows) != test.wantRows || result.RowCount != test.wantRows || result.Truncated != test.wantTruncated {
 				t.Fatalf("result=%#v, want rows=%d truncated=%v", result, test.wantRows, test.wantTruncated)
 			}
+
 			if !probe.closed.Load() {
 				t.Fatal("rows were not closed")
 			}
@@ -243,6 +261,7 @@ func TestQueryResultReaderRejectsZeroColumns(t *testing.T) {
 
 	probe := &resultProbeRows{}
 	reader := queryResultReader{responseByteLimit: 4096}
+
 	_, err := reader.readResult(t.Context(), openResultProbeRows(t, probe), queryResultRequest())
 	if !errors.Is(err, execution.ErrInvalidQuery) || !probe.closed.Load() {
 		t.Fatalf("readResult() error=%v closed=%v", err, probe.closed.Load())
@@ -256,6 +275,7 @@ func TestQueryResultReaderBounds(t *testing.T) {
 	empty := execution.RelationalQueryResult{
 		Kind: Kind, SourceID: "finance", Columns: columns, Rows: make([][]*string, 0),
 	}
+
 	encodedEmpty, err := json.Marshal(empty)
 	if err != nil {
 		t.Fatalf("Marshal(empty) error = %v", err)
@@ -271,11 +291,14 @@ func TestQueryResultReaderBounds(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
 			probe := &resultProbeRows{
 				columns: []string{"value"}, databaseTypes: []string{test.databaseType},
 				values: [][]driver.Value{{test.value}},
 			}
 			reader := queryResultReader{responseByteLimit: len(encodedEmpty) + 32}
+
 			_, err := reader.readResult(t.Context(), openResultProbeRows(t, probe), queryResultRequest())
 			if !errors.Is(err, execution.ErrResultTooLarge) {
 				t.Fatalf("readResult() error=%v, want %v", err, execution.ErrResultTooLarge)
@@ -300,6 +323,7 @@ func TestQueryResultReaderBounds(t *testing.T) {
 		values: [][]driver.Value{{value}, {value}},
 	}
 	reader := queryResultReader{responseByteLimit: limit}
+
 	_, err = reader.readResult(t.Context(), openResultProbeRows(t, probe), queryResultRequest())
 	if !errors.Is(err, execution.ErrResultTooLarge) {
 		t.Fatalf("aggregate readResult() error=%v, want %v", err, execution.ErrResultTooLarge)
@@ -314,6 +338,7 @@ func TestQueryResultReaderReturnsRowsErrorsAndCancellation(t *testing.T) {
 		columns: []string{"value"}, databaseTypes: []string{"VARCHAR"}, terminalErr: terminalErr,
 	}
 	reader := queryResultReader{responseByteLimit: 4096}
+
 	_, err := reader.readResult(t.Context(), openResultProbeRows(t, probe), queryResultRequest())
 	if !errors.Is(err, terminalErr) {
 		t.Fatalf("terminal error=%v, want %v", err, terminalErr)
@@ -324,6 +349,7 @@ func TestQueryResultReaderReturnsRowsErrorsAndCancellation(t *testing.T) {
 		columns: []string{"value"}, databaseTypes: []string{"VARCHAR"},
 		values: [][]driver.Value{{"a"}}, closeErr: closeErr,
 	}
+
 	_, err = reader.readResult(t.Context(), openResultProbeRows(t, probe), queryResultRequest())
 	if !errors.Is(err, closeErr) {
 		t.Fatalf("close error=%v, want %v", err, closeErr)
@@ -334,6 +360,7 @@ func TestQueryResultReaderReturnsRowsErrorsAndCancellation(t *testing.T) {
 		columns: []string{"value"}, databaseTypes: []string{"VARCHAR"},
 		values: [][]driver.Value{{"a"}}, beforeRow: cancel,
 	}
+
 	_, err = reader.readResult(ctx, openResultProbeRows(t, probe), queryResultRequest())
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancelled read error=%v, want %v", err, context.Canceled)

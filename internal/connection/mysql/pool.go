@@ -95,7 +95,7 @@ func (sqlPoolFactory) New(ctx context.Context, definition connection.ResolvedDef
 
 	connector, err := gomysql.NewConnector(config)
 	if err != nil {
-		return nil, fmt.Errorf("%w: creating connector: %v", errInvalidRuntimeDefinition, err)
+		return nil, fmt.Errorf("%w: creating connector: %w", errInvalidRuntimeDefinition, err)
 	}
 
 	db := sql.OpenDB(connector)
@@ -121,7 +121,7 @@ func (p *mysqlRuntimePool) Query(
 		return nil, errInvalidRuntimeDefinition
 	}
 
-	return p.db.QueryContext(ctx, query, arguments...)
+	return p.db.QueryContext(ctx, query, arguments...) //nolint:rowserrcheck // callers consume Err through catalogRows.
 }
 
 func (p *mysqlRuntimePool) Close() error {
@@ -156,6 +156,7 @@ func validateRuntimeDefinition(definition connection.ResolvedDefinition) (runtim
 	return settings, nil
 }
 
+//nolint:gocyclo // Runtime validation deliberately checks every accepted setting and boundary.
 func validateRuntimeSettings(values map[string]string) (runtimeSettings, error) {
 	for name, value := range values {
 		switch name {
@@ -189,10 +190,12 @@ func validateRuntimeSettings(values map[string]string) (runtimeSettings, error) 
 	}
 
 	sslMode := defaultSSLMode
+
 	if value, exists := values[settingSSLMode]; exists {
 		if !isSupportedSSLMode(value) {
 			return runtimeSettings{}, errInvalidRuntimeDefinition
 		}
+
 		sslMode = value
 	}
 
@@ -267,6 +270,7 @@ func driverConfig(settings runtimeSettings) (*gomysql.Config, error) {
 	if err != nil {
 		return nil, errInvalidRuntimeDefinition
 	}
+
 	cfg.TLS = tlsConfig
 	cfg.AllowFallbackToPlaintext = fallback
 
@@ -278,20 +282,21 @@ func runtimeTLSConfig(host, sslMode string) (*tls.Config, bool, error) {
 	case sslModeDisable:
 		return nil, false, nil
 	case sslModePrefer:
-		return &tls.Config{ //nolint:gosec // prefer intentionally permits unverified TLS before plaintext fallback.
+		return &tls.Config{
 			ServerName:         host,
-			InsecureSkipVerify: true,
+			InsecureSkipVerify: true, //nolint:gosec // prefer intentionally permits unverified TLS before plaintext fallback.
 		}, true, nil
 	case sslModeRequire:
-		return &tls.Config{ //nolint:gosec // require intentionally encrypts without identity verification by contract.
+		return &tls.Config{
 			ServerName:         host,
-			InsecureSkipVerify: true,
+			InsecureSkipVerify: true, //nolint:gosec // require intentionally encrypts without identity verification by contract.
 		}, false, nil
 	case sslModeVerifyFull:
 		roots, err := x509.SystemCertPool()
 		if err != nil || roots == nil {
 			return nil, false, fmt.Errorf("loading system certificate pool: %w", err)
 		}
+
 		return &tls.Config{
 			ServerName: host,
 			RootCAs:    roots,

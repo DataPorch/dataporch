@@ -14,6 +14,7 @@ func createMySQLDiscoveryFixture(t *testing.T, fixture *mysqlIntegrationFixture)
 
 	primary := testQuotedIdentifier(t, fixture.primaryDB)
 	secondary := testQuotedIdentifier(t, fixture.secondaryDB)
+
 	statements := []string{
 		fmt.Sprintf(`CREATE TABLE %s.accounts (
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -59,12 +60,15 @@ func createMySQLDiscoveryFixture(t *testing.T, fixture *mysqlIntegrationFixture)
 
 func constraintByKind(t *testing.T, constraints []execution.Constraint, kind string) execution.Constraint {
 	t.Helper()
+
 	for _, constraint := range constraints {
 		if constraint.Kind == kind {
 			return constraint
 		}
 	}
+
 	t.Fatalf("constraint kind %q not found in %#v", kind, constraints)
+
 	return execution.Constraint{}
 }
 
@@ -75,11 +79,14 @@ func TestDiscoveryMySQLIntegration(t *testing.T) {
 	createMySQLDiscoveryFixture(t, fixture)
 
 	primaryOpener := newMySQLIntegrationOpener(t, "mysql_primary", fixture.readerURI(t, fixture.primaryDB, fixture.password))
+
 	primary, err := NewDiscoverer(primaryOpener)
 	if err != nil {
 		t.Fatalf("NewDiscoverer(primary) error = %v", err)
 	}
+
 	secondaryOpener := newMySQLIntegrationOpener(t, "mysql_secondary", fixture.readerURI(t, fixture.secondaryDB, fixture.password))
+
 	secondary, err := NewDiscoverer(secondaryOpener)
 	if err != nil {
 		t.Fatalf("NewDiscoverer(secondary) error = %v", err)
@@ -89,6 +96,7 @@ func TestDiscoveryMySQLIntegration(t *testing.T) {
 	if err != nil || len(primarySchemas.Schemas) != 1 || primarySchemas.Schemas[0].Name != fixture.primaryDB {
 		t.Fatalf("primary schemas=%#v error=%v", primarySchemas, err)
 	}
+
 	secondarySchemas, err := secondary.ListSchemas(t.Context(), execution.SchemaDiscoveryRequest{SourceID: "mysql_secondary", Limit: 10})
 	if err != nil || len(secondarySchemas.Schemas) != 1 || secondarySchemas.Schemas[0].Name != fixture.secondaryDB {
 		t.Fatalf("secondary schemas=%#v error=%v", secondarySchemas, err)
@@ -100,19 +108,24 @@ func TestDiscoveryMySQLIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListTables() error = %v", err)
 	}
+
 	foundAccounts := false
 	foundView := false
+
 	for _, table := range tables.Tables {
 		if table.Name == "accounts" && table.Kind == execution.RelationKindTable {
 			foundAccounts = true
 		}
+
 		if table.Name == "active_accounts" && table.Kind == execution.RelationKindView {
 			foundView = true
 		}
+
 		if table.Name == "external_accounts" {
 			t.Fatal("primary discovery enumerated secondary database")
 		}
 	}
+
 	if !foundAccounts || !foundView {
 		t.Fatalf("tables=%#v, missing table/view", tables.Tables)
 	}
@@ -124,13 +137,16 @@ func TestDiscoveryMySQLIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListColumns(accounts) error = %v", err)
 	}
+
 	for _, column := range columns.Columns {
 		if column.Type.Affinity != "" {
 			t.Fatalf("column %q affinity=%q, want empty", column.Name, column.Type.Affinity)
 		}
 	}
+
 	primaryKey := constraintByKind(t, columns.Constraints, "primary_key")
 	unique := constraintByKind(t, columns.Constraints, "unique")
+
 	check := constraintByKind(t, columns.Constraints, "check")
 	if !primaryKey.Validated || !unique.Validated || check.CheckExpression == nil || !check.Validated {
 		t.Fatalf("constraints=%#v", columns.Constraints)
@@ -142,6 +158,7 @@ func TestDiscoveryMySQLIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListColumns(account_children) error = %v", err)
 	}
+
 	if fk := constraintByKind(t, sameDB.Constraints, "foreign_key"); fk.Referenced == nil || fk.DeleteAction != "cascade" {
 		t.Fatalf("same-db fk=%#v", fk)
 	}
@@ -152,6 +169,7 @@ func TestDiscoveryMySQLIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListColumns(external_children) error = %v", err)
 	}
+
 	if fk := constraintByKind(t, crossDB.Constraints, "foreign_key"); fk.Referenced != nil || len(fk.Columns) == 0 {
 		t.Fatalf("cross-db fk=%#v", fk)
 	}
@@ -169,12 +187,15 @@ func TestDiscoveryMySQLIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("literal ListTables() error = %v", err)
 	}
+
 	foundLiteral := false
+
 	for _, table := range literal.Tables {
 		if table.Name == "literal_%_probe" {
 			foundLiteral = true
 		}
 	}
+
 	if !foundLiteral {
 		t.Fatalf("literal search tables=%#v", literal.Tables)
 	}

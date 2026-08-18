@@ -25,6 +25,7 @@ func (o *fakeQueryOpener) OpenQuery(context.Context, connection.ID) (*Client, er
 	if o.recorder != nil {
 		o.recorder.add("OpenQuery")
 	}
+
 	return o.client, o.err
 }
 
@@ -54,6 +55,7 @@ func TestNewQueryExecutorRejectsInvalidOptions(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
+
 			_, err := NewQueryExecutor(test.opener, test.options)
 			if !errors.Is(err, test.want) {
 				t.Fatalf("NewQueryExecutor() error = %v, want %v", err, test.want)
@@ -86,17 +88,23 @@ func TestQueryExecutorRejectsInvalidRequestsBeforeOpen(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
 			opener := &fakeQueryOpener{}
+
 			executor, err := NewQueryExecutor(opener, validOptions)
 			if err != nil {
 				t.Fatalf("NewQueryExecutor() error = %v", err)
 			}
+
 			request := validRequest
 			test.mutate(&request)
+
 			_, err = executor.Query(test.context(), request)
 			if !errors.Is(err, test.want) {
 				t.Fatalf("Query() error = %v, want %v", err, test.want)
 			}
+
 			if opener.calls != 0 {
 				t.Fatalf("OpenQuery() calls = %d, want zero", opener.calls)
 			}
@@ -108,6 +116,7 @@ func TestQueryExecutorDeadlineUsesTimeoutSentinel(t *testing.T) {
 	t.Parallel()
 
 	opener := &fakeQueryOpener{}
+
 	executor, err := NewQueryExecutor(opener, QueryOptions{
 		Timeout:           time.Second,
 		ResponseByteLimit: 4096,
@@ -115,6 +124,7 @@ func TestQueryExecutorDeadlineUsesTimeoutSentinel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewQueryExecutor() error = %v", err)
 	}
+
 	deadline, cancel := context.WithDeadline(t.Context(), time.Now().Add(-time.Second))
 	defer cancel()
 
@@ -124,6 +134,7 @@ func TestQueryExecutorDeadlineUsesTimeoutSentinel(t *testing.T) {
 	if !errors.Is(err, execution.ErrQueryTimeout) || !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("Query() error = %v, want query timeout and deadline", err)
 	}
+
 	if opener.calls != 0 {
 		t.Fatalf("OpenQuery() calls = %d, want zero", opener.calls)
 	}
@@ -164,7 +175,9 @@ func (c *recordingQueryConnection) BeginTx(_ context.Context, options *sql.TxOpt
 	if options != nil && options.ReadOnly {
 		mode = "readonly"
 	}
+
 	c.recorder.add("BeginTx:" + mode)
+
 	return c.transaction, c.beginErr
 }
 
@@ -188,8 +201,10 @@ func (transaction *recordingQueryTransaction) QueryContext(
 	args ...any,
 ) (queryRows, error) {
 	transaction.gotQuery = query
+
 	transaction.gotArgs = append([]any(nil), args...)
 	transaction.recorder.add("QueryContext:" + query)
+
 	return transaction.rows, transaction.queryErr
 }
 
@@ -232,6 +247,7 @@ func newQueryTestFixture(t *testing.T) *queryTestFixture {
 	connection := &recordingQueryConnection{recorder: recorder, transaction: transaction}
 	pool := &recordingQueryPool{recorder: recorder, connection: connection}
 	opener := &fakeQueryOpener{recorder: recorder, client: &Client{pool: pool, database: "finance"}}
+
 	executor, err := NewQueryExecutor(opener, QueryOptions{
 		Timeout: time.Second, ResponseByteLimit: 4096,
 		TruncationEnabled: true, RowLimit: 10,
@@ -239,6 +255,7 @@ func newQueryTestFixture(t *testing.T) *queryTestFixture {
 	if err != nil {
 		t.Fatalf("NewQueryExecutor() error = %v", err)
 	}
+
 	return &queryTestFixture{
 		recorder: recorder, probe: probe, rows: rows, transaction: transaction,
 		connection: connection, pool: pool, opener: opener, executor: executor,
@@ -250,12 +267,14 @@ func TestQueryExecutorForwardsOpaqueSQLAndCleansUp(t *testing.T) {
 
 	fixture := newQueryTestFixture(t)
 	query := "SELECT /* opaque */ value"
+
 	result, err := fixture.executor.Query(t.Context(), execution.RelationalQueryExecutionRequest{
 		Source: connection.Definition{ID: "finance", Kind: Kind}, Query: query,
 	})
 	if err != nil {
 		t.Fatalf("Query() error = %v", err)
 	}
+
 	wantCalls := []string{
 		"OpenQuery", "Acquire", "BeginTx:readonly", "QueryContext:" + query,
 		"Rows.Close", "Rollback", "Destroy",
@@ -263,9 +282,11 @@ func TestQueryExecutorForwardsOpaqueSQLAndCleansUp(t *testing.T) {
 	if !reflect.DeepEqual(fixture.recorder.calls, wantCalls) {
 		t.Fatalf("calls = %#v, want %#v", fixture.recorder.calls, wantCalls)
 	}
+
 	if fixture.transaction.gotQuery != query || len(fixture.transaction.gotArgs) != 0 {
 		t.Fatalf("forwarded query=%q args=%#v", fixture.transaction.gotQuery, fixture.transaction.gotArgs)
 	}
+
 	if result.RowCount != 1 || len(result.Rows) != 1 {
 		t.Fatalf("result = %#v", result)
 	}
@@ -327,17 +348,21 @@ func TestQueryExecutorFailureCleanup(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			fixture := newQueryTestFixture(t)
 			test.configure(fixture)
+
 			result, err := fixture.executor.Query(t.Context(), execution.RelationalQueryExecutionRequest{
 				Source: connection.Definition{ID: "finance", Kind: Kind}, Query: "SELECT 1",
 			})
 			if err == nil {
 				t.Fatal("Query() error = nil")
 			}
+
 			if !reflect.DeepEqual(fixture.recorder.calls, test.wantCalls) {
 				t.Fatalf("calls = %#v, want %#v", fixture.recorder.calls, test.wantCalls)
 			}
+
 			if test.wantZero && !reflect.DeepEqual(result, execution.RelationalQueryResult{}) {
 				t.Fatalf("result = %#v, want zero result", result)
 			}
@@ -362,6 +387,7 @@ func TestQueryExecutorJoinsPrimaryAndCleanupFailures(t *testing.T) {
 		!errors.Is(err, execution.ErrDatabaseConflict) {
 		t.Fatalf("Query() error = %v, want primary + both cleanup failures", err)
 	}
+
 	if !reflect.DeepEqual(result, execution.RelationalQueryResult{}) {
 		t.Fatalf("result = %#v, want zero result", result)
 	}

@@ -21,6 +21,11 @@ WHERE TABLE_SCHEMA = ?
 ORDER BY CAST(TABLE_NAME AS BINARY)
 LIMIT ?`
 
+const (
+	mysqlRelationTypeTable = "BASE TABLE"
+	mysqlRelationTypeView  = "VIEW"
+)
+
 func (d *Discoverer) ListTables(
 	ctx context.Context,
 	request execution.TableDiscoveryRequest,
@@ -29,6 +34,7 @@ func (d *Discoverer) ListTables(
 	if err != nil {
 		return page, err
 	}
+
 	if request.Schema != client.database {
 		return page, execution.ErrSchemaNotFound
 	}
@@ -50,6 +56,7 @@ func (d *Discoverer) ListTables(
 	if err != nil {
 		return page, classifyDiscoveryQueryError(ctx, queryCtx, err)
 	}
+
 	if isNilInterface(rows) {
 		return page, fmt.Errorf("%w: nil catalog rows", execution.ErrInternal)
 	}
@@ -63,6 +70,7 @@ func (d *Discoverer) ListTables(
 	}()
 
 	page.Tables = make([]execution.Table, 0, request.Limit+1)
+
 	for rows.Next() {
 		var (
 			table        execution.Table
@@ -76,9 +84,11 @@ func (d *Discoverer) ListTables(
 		if err != nil {
 			return page, err
 		}
+
 		if !request.IncludeDescriptions {
 			table.Description = nil
 		}
+
 		page.Tables = append(page.Tables, table)
 	}
 
@@ -90,14 +100,15 @@ func (d *Discoverer) ListTables(
 		page.HasMore = true
 		page.Tables = page.Tables[:request.Limit]
 	}
+
 	return page, nil
 }
 
 func relationKind(tableType string) (execution.RelationKind, error) {
 	switch tableType {
-	case "BASE TABLE":
+	case mysqlRelationTypeTable:
 		return execution.RelationKindTable, nil
-	case "VIEW":
+	case mysqlRelationTypeView:
 		return execution.RelationKindView, nil
 	default:
 		return "", fmt.Errorf("%w: %s", execution.ErrUnsupportedRelationKind, tableType)

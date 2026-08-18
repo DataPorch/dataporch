@@ -57,9 +57,11 @@ func TestMySQLRuntimePoolAcquireAndDestroy(t *testing.T) {
 
 	probe := &discardProbeConn{}
 	db := sql.OpenDB(&discardProbeConnector{conn: probe})
+
 	t.Cleanup(func() { _ = db.Close() })
 
 	pool := &mysqlRuntimePool{db: db}
+
 	acquired, err := pool.Acquire(t.Context())
 	if err != nil {
 		t.Fatalf("Acquire() error = %v", err)
@@ -69,15 +71,19 @@ func TestMySQLRuntimePoolAcquireAndDestroy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BeginTx() error = %v", err)
 	}
+
 	if !probe.readOnlySeen.Load() {
 		t.Fatal("BeginTx() did not preserve ReadOnly=true")
 	}
+
 	if err := transaction.Rollback(); err != nil {
 		t.Fatalf("Rollback() error = %v", err)
 	}
+
 	if err := acquired.Destroy(); err != nil {
 		t.Fatalf("Destroy() error = %v", err)
 	}
+
 	if !probe.closed.Load() {
 		t.Fatal("Destroy() did not discard the physical driver connection")
 	}
@@ -93,12 +99,14 @@ func TestMySQLQueryConnectionDestroyHandlesNilAndClosed(t *testing.T) {
 
 	probe := &discardProbeConn{}
 	db := sql.OpenDB(&discardProbeConnector{conn: probe})
+
 	t.Cleanup(func() { _ = db.Close() })
 
 	sqlConnection, err := db.Conn(t.Context())
 	if err != nil {
 		t.Fatalf("db.Conn() error = %v", err)
 	}
+
 	if err := sqlConnection.Close(); err != nil {
 		t.Fatalf("sql.Conn.Close() error = %v", err)
 	}

@@ -1,3 +1,4 @@
+//nolint:dupl // Relational module constructors intentionally mirror explicit adapter wiring.
 package app
 
 import (

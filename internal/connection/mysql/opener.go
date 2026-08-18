@@ -81,9 +81,11 @@ func newOpener(dependencies openerDependencies) (*Opener, error) {
 	if dependencies.preparer == nil {
 		return nil, errDefinitionPreparerRequired
 	}
+
 	if dependencies.pools == nil {
 		return nil, errPoolFactoryRequired
 	}
+
 	if dependencies.openTimeout <= 0 {
 		return nil, errOpenTimeoutRequired
 	}
@@ -103,6 +105,7 @@ func (o *Opener) Open(ctx context.Context, id connection.ID) (*Client, error) {
 	if err != nil {
 		return nil, projectMySQLQueryError(ctx, nil, err)
 	}
+
 	return client, nil
 }
 
@@ -111,6 +114,7 @@ func (o *Opener) OpenQuery(ctx context.Context, id connection.ID) (*Client, erro
 	if err != nil {
 		return nil, projectMySQLQueryError(ctx, nil, err)
 	}
+
 	return client, nil
 }
 
@@ -118,9 +122,11 @@ func (o *Opener) openRaw(ctx context.Context, id connection.ID) (*Client, error)
 	if ctx == nil {
 		return nil, errRuntimeContextRequired
 	}
+
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+
 	if err := (connection.Definition{ID: id, Kind: Kind}).Validate(); err != nil {
 		return nil, errRuntimeInvalidID
 	}
@@ -136,11 +142,14 @@ func (o *Opener) openRaw(ctx context.Context, id connection.ID) (*Client, error)
 		if entry.client != nil {
 			client := entry.client
 			o.mu.Unlock()
+
 			return client, nil
 		}
+
 		if entry.attempt != nil {
 			attempt := entry.attempt
 			o.mu.Unlock()
+
 			return waitForAttempt(ctx, attempt)
 		}
 	}
@@ -186,22 +195,25 @@ func (o *Opener) finishAttempt(
 		o.generations[id] == generation &&
 		exists && entry != nil && entry.attempt == attempt
 
-	if isCurrent {
+	if isCurrent { //nolint:nestif // generation checks and stale-pool disposal must remain atomic.
 		if err == nil && client != nil {
 			entry.client = client
 			entry.attempt = nil
 			attempt.client = client
 		} else {
 			delete(o.entries, id)
+
 			if err == nil {
 				err = errRuntimePoolMissing
 			}
+
 			attempt.err = err
 		}
 	} else {
 		if client != nil {
 			stalePool = client.pool
 		}
+
 		switch {
 		case o.isClosed:
 			attempt.err = ErrRuntimeClosed
@@ -226,9 +238,11 @@ func waitForAttempt(ctx context.Context, attempt *openAttempt) (*Client, error) 
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
+
 		if attempt.client != nil {
 			return attempt.client, nil
 		}
+
 		return nil, attempt.err
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -245,15 +259,18 @@ func (o *Opener) openRuntime(ctx context.Context, id connection.ID) (*Client, er
 	if resolved.ID != id {
 		return nil, errRuntimeDefinitionMismatch
 	}
+
 	if resolved.Kind != Kind {
 		return nil, ErrUnsupportedKind
 	}
 
 	database := strings.Clone(resolved.Settings[settingDatabase])
+
 	pool, err := o.pools.New(ctx, resolved)
 	if err != nil {
 		return nil, rawAttemptError(ctx, err)
 	}
+
 	if pool == nil {
 		return nil, errRuntimePoolMissing
 	}
@@ -262,6 +279,7 @@ func (o *Opener) openRuntime(ctx context.Context, id connection.ID) (*Client, er
 		o.closeTracked(pool)
 		return nil, rawAttemptError(ctx, err)
 	}
+
 	if cause := context.Cause(ctx); cause != nil {
 		o.closeTracked(pool)
 		return nil, cause
@@ -274,6 +292,7 @@ func rawAttemptError(ctx context.Context, err error) error {
 	if cause := context.Cause(ctx); cause != nil {
 		return cause
 	}
+
 	return err
 }
 
@@ -295,12 +314,15 @@ func (o *Opener) Invalidate(id connection.ID) {
 	o.generations[id]++
 	entry := o.entries[id]
 	delete(o.entries, id)
+
 	if entry != nil {
 		if entry.attempt != nil {
 			entry.attempt.cancel(errOpenInvalidated)
 		}
+
 		if entry.client != nil {
 			closePool = entry.client.pool
+
 			o.closers.Add(1)
 		}
 	}
@@ -315,6 +337,7 @@ func (o *Opener) closeTracked(pool runtimePool) {
 	if pool == nil {
 		return
 	}
+
 	o.mu.Lock()
 	o.closers.Add(1)
 	o.mu.Unlock()
@@ -324,6 +347,7 @@ func (o *Opener) closeTracked(pool runtimePool) {
 func (o *Opener) startTrackedClose(pool runtimePool) {
 	go func() {
 		defer o.closers.Done()
+
 		if err := pool.Close(); err != nil {
 			o.mu.Lock()
 			o.closeErr = errors.Join(o.closeErr, err)
@@ -338,17 +362,22 @@ func (o *Opener) Close(ctx context.Context) error {
 	}
 
 	var closePools []runtimePool
+
 	o.mu.Lock()
 	if !o.isClosed {
 		o.isClosed = true
+
 		for id, entry := range o.entries {
 			if entry.attempt != nil {
 				entry.attempt.cancel(ErrRuntimeClosed)
 			}
+
 			if entry.client != nil {
 				o.closers.Add(1)
+
 				closePools = append(closePools, entry.client.pool)
 			}
+
 			delete(o.entries, id)
 		}
 		go o.completeClose()
@@ -364,6 +393,7 @@ func (o *Opener) Close(ctx context.Context) error {
 		o.mu.Lock()
 		err := o.closeErr
 		o.mu.Unlock()
+
 		return err
 	case <-ctx.Done():
 		return fmt.Errorf("%w: %w", ErrShutdownTimeout, ctx.Err())
@@ -373,6 +403,7 @@ func (o *Opener) Close(ctx context.Context) error {
 func (o *Opener) startTrackedCloseAlreadyCounted(pool runtimePool) {
 	go func() {
 		defer o.closers.Done()
+
 		if err := pool.Close(); err != nil {
 			o.mu.Lock()
 			o.closeErr = errors.Join(o.closeErr, err)

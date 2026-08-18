@@ -15,10 +15,12 @@ import (
 
 func newMySQLIntegrationQueryExecutor(t *testing.T, opener *Opener, options QueryOptions) *QueryExecutor {
 	t.Helper()
+
 	executor, err := NewQueryExecutor(opener, options)
 	if err != nil {
 		t.Fatalf("NewQueryExecutor() error = %v", err)
 	}
+
 	return executor
 }
 
@@ -78,9 +80,11 @@ func TestQueryMySQLIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("binary query error=%v", err)
 	}
+
 	if len(binary.Rows) != 1 || len(binary.Rows[0]) != 3 {
 		t.Fatalf("binary result=%#v", binary)
 	}
+
 	for _, value := range binary.Rows[0] {
 		if value == nil || *value != "X'00FF'" {
 			t.Fatalf("binary value=%v, want X'00FF'", value)
@@ -90,10 +94,12 @@ func TestQueryMySQLIntegration(t *testing.T) {
 	if _, err := executor.Query(t.Context(), queryRequest("mysql_primary", "SELECT @dataporch_session_marker := 'dirty'")); err != nil {
 		t.Fatalf("setting session marker error=%v", err)
 	}
+
 	marker, err := executor.Query(t.Context(), queryRequest("mysql_primary", "SELECT @dataporch_session_marker"))
 	if err != nil || len(marker.Rows) != 1 || len(marker.Rows[0]) != 1 || marker.Rows[0][0] != nil {
 		t.Fatalf("session marker result=%#v error=%v", marker, err)
 	}
+
 	if _, err := executor.Query(t.Context(), queryRequest("mysql_primary", "SELECT 1")); err != nil {
 		t.Fatalf("post-isolation SELECT error=%v", err)
 	}
@@ -102,6 +108,7 @@ func TestQueryMySQLIntegration(t *testing.T) {
 		Timeout: 2 * time.Second, ResponseByteLimit: 64 * 1024,
 		TruncationEnabled: true, RowLimit: 1,
 	})
+
 	result, err := truncated.Query(t.Context(), queryRequest("mysql_primary", "SELECT id FROM accounts ORDER BY id"))
 	if err != nil || result.RowCount != 1 || !result.Truncated {
 		t.Fatalf("truncated result=%#v error=%v", result, err)
@@ -110,6 +117,7 @@ func TestQueryMySQLIntegration(t *testing.T) {
 	tiny := newMySQLIntegrationQueryExecutor(t, opener, QueryOptions{
 		Timeout: 2 * time.Second, ResponseByteLimit: 64,
 	})
+
 	_, err = tiny.Query(t.Context(), queryRequest("mysql_primary", "SELECT REPEAT('x', 1024)"))
 	if !errors.Is(err, execution.ErrResultTooLarge) {
 		t.Fatalf("byte-limit error=%v, want %v", err, execution.ErrResultTooLarge)
@@ -117,6 +125,7 @@ func TestQueryMySQLIntegration(t *testing.T) {
 
 	cancelled, cancel := context.WithCancel(t.Context())
 	cancel()
+
 	_, err = executor.Query(cancelled, queryRequest("mysql_primary", "SELECT 1"))
 	if !errors.Is(err, execution.ErrCancelled) {
 		t.Fatalf("cancelled query error=%v", err)
@@ -124,6 +133,7 @@ func TestQueryMySQLIntegration(t *testing.T) {
 
 	deadline, stop := context.WithTimeout(t.Context(), 10*time.Millisecond)
 	defer stop()
+
 	_, err = executor.Query(deadline, queryRequest("mysql_primary", "SELECT SLEEP(1)"))
 	if !errors.Is(err, execution.ErrQueryTimeout) && !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("deadline query error=%v", err)

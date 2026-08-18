@@ -1,3 +1,4 @@
+//nolint:dupl // Adapter composition tests intentionally share the same contract.
 package app
 
 import (

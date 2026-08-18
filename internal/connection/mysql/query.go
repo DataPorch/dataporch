@@ -42,12 +42,15 @@ func NewQueryExecutor(opener queryClientOpener, options QueryOptions) (*QueryExe
 	if isNilInterface(opener) {
 		return nil, errQueryOpenerRequired
 	}
+
 	if options.Timeout <= 0 {
 		return nil, errRelationalQueryTimeoutRequired
 	}
+
 	if options.ResponseByteLimit <= 0 {
 		return nil, errQueryByteLimitRequired
 	}
+
 	if options.TruncationEnabled && options.RowLimit <= 0 {
 		return nil, errQueryRowLimitRequired
 	}
@@ -65,6 +68,7 @@ func NewQueryExecutor(opener queryClientOpener, options QueryOptions) (*QueryExe
 
 func (*QueryExecutor) Kind() connection.Kind { return Kind }
 
+//nolint:gocyclo // Query orchestration intentionally enumerates each bounded resource and cleanup boundary.
 func (e *QueryExecutor) Query(
 	requestContext context.Context,
 	request execution.RelationalQueryExecutionRequest,
@@ -72,12 +76,15 @@ func (e *QueryExecutor) Query(
 	if requestContext == nil {
 		return result, execution.ErrCancelled
 	}
+
 	if err := requestContext.Err(); err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
 			return result, fmt.Errorf("%w: %w", execution.ErrQueryTimeout, err)
 		}
+
 		return result, fmt.Errorf("%w: %w", execution.ErrCancelled, err)
 	}
+
 	if request.Source.ID == "" || request.Source.Kind != Kind || strings.TrimSpace(request.Query) == "" {
 		return result, execution.ErrInvalidRequest
 	}
@@ -89,6 +96,7 @@ func (e *QueryExecutor) Query(
 	if err != nil {
 		return result, e.executionError(requestContext, queryContext, err)
 	}
+
 	if client == nil || client.pool == nil {
 		return result, execution.ErrInternal
 	}
@@ -102,6 +110,7 @@ func (e *QueryExecutor) Query(
 	if err != nil {
 		return result, e.executionError(requestContext, queryContext, err)
 	}
+
 	if acquired == nil {
 		return result, execution.ErrInternal
 	}
@@ -122,6 +131,7 @@ func (e *QueryExecutor) Query(
 	if err != nil {
 		return result, e.executionError(requestContext, queryContext, err)
 	}
+
 	if transaction == nil {
 		return result, execution.ErrInternal
 	}
@@ -132,6 +142,7 @@ func (e *QueryExecutor) Query(
 			closeErr := rows.Close()
 			err = errors.Join(err, closeErr, rows.Err())
 		}
+
 		return result, e.executionError(requestContext, queryContext, err)
 	}
 
@@ -173,9 +184,11 @@ func (*QueryExecutor) executionError(
 			if errors.Is(requestErr, context.DeadlineExceeded) {
 				return fmt.Errorf("%w: %w", execution.ErrQueryTimeout, requestErr)
 			}
+
 			return fmt.Errorf("%w: %w", execution.ErrCancelled, requestErr)
 		}
 	}
+
 	if queryContext != nil {
 		if queryErr := queryContext.Err(); queryErr != nil {
 			return fmt.Errorf("%w: %w", execution.ErrQueryTimeout, queryErr)

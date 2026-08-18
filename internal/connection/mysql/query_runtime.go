@@ -44,10 +44,12 @@ func (p *mysqlRuntimePool) Acquire(ctx context.Context) (queryConnection, error)
 	if p == nil || p.db == nil {
 		return nil, errInvalidRuntimeDefinition
 	}
+
 	connection, err := p.db.Conn(ctx)
 	if err != nil {
 		return nil, err
 	}
+
 	return &mysqlQueryConnection{connection: connection}, nil
 }
 
@@ -58,10 +60,12 @@ func (c *mysqlQueryConnection) BeginTx(
 	if c == nil || c.connection == nil {
 		return nil, sql.ErrConnDone
 	}
+
 	transaction, err := c.connection.BeginTx(ctx, options)
 	if err != nil {
 		return nil, err
 	}
+
 	return &mysqlQueryTransaction{transaction: transaction}, nil
 }
 
@@ -73,13 +77,15 @@ func (t *mysqlQueryTransaction) QueryContext(
 	if t == nil || t.transaction == nil {
 		return nil, sql.ErrTxDone
 	}
-	return t.transaction.QueryContext(ctx, query, args...)
+
+	return t.transaction.QueryContext(ctx, query, args...) //nolint:rowserrcheck // queryResultReader consumes Rows.Err.
 }
 
 func (t *mysqlQueryTransaction) Rollback() error {
 	if t == nil || t.transaction == nil {
 		return nil
 	}
+
 	return t.transaction.Rollback()
 }
 
@@ -94,5 +100,6 @@ func (c *mysqlQueryConnection) Destroy() error {
 	if errors.Is(err, driver.ErrBadConn) || errors.Is(err, sql.ErrConnDone) {
 		return nil
 	}
+
 	return err
 }

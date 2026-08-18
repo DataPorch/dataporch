@@ -10,6 +10,7 @@ func TestAdapterParseConnectionString(t *testing.T) {
 	t.Parallel()
 
 	adapter := New()
+
 	parsed, err := adapter.ParseConnectionString([]byte(
 		"mysql://reader:secret@db.example.com:3307/finance?sslmode=verify-full",
 	))
@@ -110,6 +111,7 @@ func TestAdapterParseConnectionStringOmitsRuntimeDefaults(t *testing.T) {
 	if _, exists := parsed.Settings[settingPort]; exists {
 		t.Fatal("port must remain absent when omitted")
 	}
+
 	if _, exists := parsed.Settings[settingSSLMode]; exists {
 		t.Fatal("sslmode must remain absent when omitted")
 	}

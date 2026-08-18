@@ -30,6 +30,7 @@ func (o *testClientOpener) Open(ctx context.Context, sourceID connection.ID) (*C
 	if ctx == nil {
 		return nil, errors.New("nil context")
 	}
+
 	return client, err
 }
 
@@ -59,6 +60,7 @@ func (p *testCatalogPool) Query(
 	p.queryContext = append(p.queryContext, ctx)
 	rows := p.rows
 	queryErr := p.queryErr
+
 	var result testCatalogResult
 	if queryIndex < len(p.results) {
 		result = p.results[queryIndex]
@@ -68,12 +70,15 @@ func (p *testCatalogPool) Query(
 	if queryIndex < len(p.results) {
 		return result.rows, result.err
 	}
+
 	if queryErr != nil {
 		return nil, queryErr
 	}
+
 	if rows == nil {
 		rows = &testCatalogRows{}
 	}
+
 	return rows, nil
 }
 
@@ -108,6 +113,7 @@ func (r *testCatalogRows) Next() bool {
 
 	r.current = r.values[r.index]
 	r.index++
+
 	return true
 }
 
@@ -115,6 +121,7 @@ func (r *testCatalogRows) Scan(destinations ...any) error {
 	if r.scanErr != nil {
 		return r.scanErr
 	}
+
 	if len(destinations) != len(r.current) {
 		return errors.New("wrong scan destination count")
 	}
@@ -124,6 +131,7 @@ func (r *testCatalogRows) Scan(destinations ...any) error {
 			return err
 		}
 	}
+
 	return nil
 }
 
@@ -138,14 +146,18 @@ func assignTestScanDestination(destination, value any) error {
 		valueTarget.Set(reflect.Zero(valueTarget.Type()))
 		return nil
 	}
+
 	if valueTarget.Kind() == reflect.Pointer {
 		inner := reflect.New(valueTarget.Type().Elem())
 		if err := assignTestScanValue(inner.Elem(), value); err != nil {
 			return err
 		}
+
 		valueTarget.Set(inner)
+
 		return nil
 	}
+
 	return assignTestScanValue(valueTarget, value)
 }
 
@@ -155,10 +167,12 @@ func assignTestScanValue(target reflect.Value, value any) error {
 		target.Set(source)
 		return nil
 	}
+
 	if source.Type().ConvertibleTo(target.Type()) {
 		target.Set(source.Convert(target.Type()))
 		return nil
 	}
+
 	return errors.New("scan value type mismatch")
 }
 
@@ -166,9 +180,11 @@ func TestNewDiscovererValidatesDependencies(t *testing.T) {
 	t.Parallel()
 
 	opener := &testClientOpener{}
+
 	if _, err := newDiscoverer(nil, time.Second); !errors.Is(err, errClientOpenerRequired) {
 		t.Fatalf("newDiscoverer(nil) error = %v, want %v", err, errClientOpenerRequired)
 	}
+
 	if _, err := newDiscoverer(opener, 0); !errors.Is(err, errQueryTimeoutRequired) {
 		t.Fatalf("newDiscoverer(timeout=0) error = %v, want %v", err, errQueryTimeoutRequired)
 	}
@@ -177,6 +193,7 @@ func TestNewDiscovererValidatesDependencies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewDiscoverer() error = %v", err)
 	}
+
 	if discoverer.Kind() != Kind {
 		t.Fatalf("Kind() = %q, want %q", discoverer.Kind(), Kind)
 	}
@@ -188,13 +205,14 @@ func TestDiscovererRejectsNilAndCancelledContexts(t *testing.T) {
 	opener := &testClientOpener{client: &Client{pool: &testCatalogPool{}}}
 	discoverer := lifecycleTestDiscoverer(t, opener)
 
-	_, err := discoverer.ListSchemas(nil, execution.SchemaDiscoveryRequest{SourceID: "finance", Limit: 1})
+	_, err := discoverer.ListSchemas(nil, execution.SchemaDiscoveryRequest{SourceID: "finance", Limit: 1}) //nolint:staticcheck // nil context is the validation case under test.
 	if !errors.Is(err, execution.ErrCancelled) {
 		t.Fatalf("ListSchemas(nil) error = %v, want cancellation", err)
 	}
 
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
+
 	_, err = discoverer.ListTables(ctx, execution.TableDiscoveryRequest{SourceID: "finance", Schema: "finance", Limit: 1})
 	if !errors.Is(err, execution.ErrCancelled) || !errors.Is(err, context.Canceled) {
 		t.Fatalf("ListTables(cancelled) error = %v, want cancellation", err)
@@ -203,6 +221,7 @@ func TestDiscovererRejectsNilAndCancelledContexts(t *testing.T) {
 	opener.mu.Lock()
 	openCalls := opener.openCall
 	opener.mu.Unlock()
+
 	if openCalls != 0 {
 		t.Fatalf("Open calls = %d, want 0 for invalid contexts", openCalls)
 	}
@@ -223,10 +242,12 @@ func TestDiscovererProjectsUnavailableOpenerErrors(t *testing.T) {
 
 func lifecycleTestDiscoverer(t *testing.T, opener clientOpener) *Discoverer {
 	t.Helper()
+
 	discoverer, err := newDiscoverer(opener, time.Second)
 	if err != nil {
 		t.Fatalf("newDiscoverer() error = %v", err)
 	}
+
 	return discoverer
 }
 

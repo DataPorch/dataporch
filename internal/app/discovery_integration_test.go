@@ -307,16 +307,19 @@ func newMySQLAppIntegrationSession(
 	if dsn == "" {
 		t.Skip("DATAPORCH_TEST_MYSQL_DSN is not set")
 	}
+
 	parsed, err := mysql.New().ParseConnectionString([]byte(dsn))
 	if err != nil {
 		t.Fatalf("mysql ParseConnectionString() error = %v", err)
 	}
+
 	database := parsed.Settings["database"]
 	for _, value := range parsed.Secrets {
 		clear(value)
 	}
 
 	cfg := testConfigFor(t)
+
 	cfg.HTTPAddress = freeTCPAddress(t)
 	if err := InitializeSecrets(cfg); err != nil {
 		t.Fatalf("InitializeSecrets() error = %v", err)
@@ -326,10 +329,12 @@ func newMySQLAppIntegrationSession(
 	if err != nil {
 		t.Fatalf("mcpTokenLocal.New() error = %v", err)
 	}
+
 	tokenService, err := mcptoken.New(tokenStore, time.Now)
 	if err != nil {
 		t.Fatalf("mcptoken.New() error = %v", err)
 	}
+
 	token, _, err := tokenService.Create(t.Context())
 	if err != nil {
 		t.Fatalf("token Create() error = %v", err)
@@ -339,18 +344,22 @@ func newMySQLAppIntegrationSession(
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
+
 	startIntegrationApplication(t, application, cfg.AdminSocketPath, cfg.HTTPAddress)
 
 	sourceID := connection.ID("mysql_app")
+
 	response, err := importOverSocket(
 		cfg.AdminSocketPath, string(sourceID), string(mysql.Kind), dsn,
 	)
 	if err != nil {
 		t.Fatalf("importOverSocket() error = %v", err)
 	}
+
 	if response.Body != nil {
 		_ = response.Body.Close()
 	}
+
 	if response.StatusCode != http.StatusCreated {
 		t.Fatalf("import status = %d, want %d", response.StatusCode, http.StatusCreated)
 	}
@@ -362,6 +371,7 @@ func TestDiscoveryImportToMCPMySQLIntegration(t *testing.T) {
 	t.Parallel()
 
 	session, sourceID, database := newMySQLAppIntegrationSession(t)
+
 	page := callDiscoveryTool[execution.ListRelationalSchemasResult](
 		t,
 		session,

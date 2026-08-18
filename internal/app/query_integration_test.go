@@ -169,6 +169,7 @@ func TestQueryImportToMCPMySQLIntegration(t *testing.T) {
 	t.Parallel()
 
 	session, sourceID, _ := newMySQLAppIntegrationSession(t)
+
 	result := callRelationalQueryTool(t, session, map[string]any{
 		"kind": string(mysql.Kind), "source_id": sourceID, "query": "SELECT 1 AS value",
 	})
@@ -180,10 +181,12 @@ func TestQueryImportToMCPMySQLIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Marshal(query structured content) error = %v", err)
 	}
+
 	var output execution.RelationalQueryResult
 	if err := json.Unmarshal(encoded, &output); err != nil {
 		t.Fatalf("Unmarshal(query result) error = %v", err)
 	}
+
 	if output.Kind != mysql.Kind || output.SourceID != sourceID || output.RowCount != 1 || len(output.Rows) != 1 {
 		t.Fatalf("query output = %#v", output)
 	}

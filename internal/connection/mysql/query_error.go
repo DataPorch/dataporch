@@ -23,6 +23,7 @@ func (e *mysqlRelationalQueryError) Error() string {
 	if e == nil || e.classification == nil {
 		return execution.ErrInternal.Error()
 	}
+
 	return e.classification.Error()
 }
 
@@ -30,6 +31,7 @@ func (e *mysqlRelationalQueryError) Unwrap() []error {
 	if e == nil {
 		return nil
 	}
+
 	return []error{e.classification, e.cause}
 }
 
@@ -54,11 +56,13 @@ func mysqlSQLState(state [5]byte) string {
 	if state == [5]byte{} {
 		return ""
 	}
+
 	return string(state[:])
 }
 
 func mysqlErrorCategory(number uint16, sqlState string) (execution.ErrorCategory, bool) {
 	sqlState = strings.ToUpper(sqlState)
+
 	switch number {
 	case 1045:
 		return execution.ErrorCategoryDatabaseAuthenticationFailed, false
@@ -96,7 +100,7 @@ func mysqlErrorCategory(number uint16, sqlState string) (execution.ErrorCategory
 }
 
 func projectRelationalQueryError(err error) error {
-	return projectMySQLQueryError(nil, nil, err)
+	return projectMySQLQueryError(context.Background(), context.Background(), err)
 }
 
 func projectMySQLQueryError(
@@ -126,6 +130,7 @@ func projectMySQLQueryError(
 				return wrapMySQLClassification(execution.ErrQueryCancelled, err)
 			}
 		}
+
 		switch queryContext.Err() {
 		case context.DeadlineExceeded:
 			return wrapMySQLClassification(execution.ErrQueryTimeout, err)
@@ -141,6 +146,7 @@ func projectMySQLQueryErrorWithoutContext(err error) error {
 	if err == nil {
 		return nil
 	}
+
 	if isMySQLProjectedError(err) || isMySQLKnownError(err) {
 		return err
 	}
@@ -149,15 +155,18 @@ func projectMySQLQueryErrorWithoutContext(err error) error {
 	if errors.As(err, &mysqlErr) && mysqlErr != nil {
 		category, retryable := mysqlErrorCategory(mysqlErr.Number, mysqlSQLState(mysqlErr.SQLState))
 		failure := execution.NewDatabaseFailure(category, retryable, projectMySQLError(mysqlErr))
+
 		return &mysqlRelationalQueryError{classification: failure, cause: err}
 	}
 
 	if isMySQLUnavailableError(err) {
 		return wrapMySQLClassification(execution.ErrDatabaseUnavailable, err)
 	}
+
 	if errors.Is(err, context.Canceled) {
 		return wrapMySQLClassification(execution.ErrCancelled, err)
 	}
+
 	if errors.Is(err, context.DeadlineExceeded) {
 		return wrapMySQLClassification(execution.ErrQueryTimeout, err)
 	}
@@ -169,6 +178,7 @@ func wrapMySQLClassification(classification, cause error) error {
 	if cause == nil {
 		return classification
 	}
+
 	return &mysqlRelationalQueryError{classification: classification, cause: cause}
 }
 
@@ -202,6 +212,7 @@ func isMySQLKnownError(err error) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -217,6 +228,7 @@ func isMySQLUnavailableError(err error) bool {
 	if errors.As(err, &networkError) {
 		return true
 	}
+
 	if errors.Is(err, syscall.ECONNREFUSED) ||
 		errors.Is(err, syscall.ECONNRESET) ||
 		errors.Is(err, syscall.ECONNABORTED) ||
@@ -225,6 +237,7 @@ func isMySQLUnavailableError(err error) bool {
 	}
 
 	message := strings.ToLower(err.Error())
+
 	return strings.Contains(message, "connection refused") || strings.Contains(message, "dial tcp")
 }
 
@@ -243,6 +256,7 @@ func mysqlDiagnostic(message string) string {
 	if message == "" {
 		return "MySQL database error."
 	}
+
 	if len(message) <= 512 {
 		return message
 	}
@@ -251,5 +265,6 @@ func mysqlDiagnostic(message string) string {
 	for !utf8.ValidString(message) {
 		message = message[:len(message)-1]
 	}
+
 	return message
 }

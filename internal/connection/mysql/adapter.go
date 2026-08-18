@@ -59,6 +59,7 @@ func (*Adapter) ParseConnectionString(input []byte) (connection.ParsedConnection
 	if fields.port != "" {
 		settings[settingPort] = strings.Clone(fields.port)
 	}
+
 	if fields.sslMode != "" {
 		settings[settingSSLMode] = strings.Clone(fields.sslMode)
 	}
@@ -81,6 +82,7 @@ func parseConnectionURI(input []byte) (connectionFields, error) {
 	if err != nil {
 		return connectionFields{}, invalidConnectionString("malformed uri")
 	}
+
 	if uri.Opaque != "" || uri.Scheme != string(Kind) {
 		return connectionFields{}, invalidConnectionString("invalid scheme")
 	}
@@ -89,14 +91,17 @@ func parseConnectionURI(input []byte) (connectionFields, error) {
 	if err != nil {
 		return connectionFields{}, err
 	}
+
 	host, port, err := parseAddress(uri)
 	if err != nil {
 		return connectionFields{}, err
 	}
+
 	database, err := parseDatabase(uri)
 	if err != nil {
 		return connectionFields{}, err
 	}
+
 	sslMode, err := parseSSLMode(uri.RawQuery)
 	if err != nil {
 		return connectionFields{}, err
@@ -118,10 +123,12 @@ func parseCredentials(uri *url.URL) (string, string, error) {
 	}
 
 	username := uri.User.Username()
+
 	password, hasPassword := uri.User.Password()
 	if username == "" || !hasPassword || password == "" {
 		return "", "", invalidConnectionString("username and password are required")
 	}
+
 	if strings.ContainsRune(username, '\x00') || strings.ContainsRune(password, '\x00') {
 		return "", "", invalidConnectionString("credentials contain nul")
 	}

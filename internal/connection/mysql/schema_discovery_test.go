@@ -65,17 +65,22 @@ func TestListSchemasProjectsOnlyImportedDatabase(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
 			page, err := discoverer.ListSchemas(t.Context(), test.request)
 			if err != nil {
 				t.Fatalf("ListSchemas() error = %v", err)
 			}
+
 			if len(page.Schemas) != len(test.wantSchemas) {
 				t.Fatalf("schemas = %#v, want names %v", page.Schemas, test.wantSchemas)
 			}
+
 			for index, name := range test.wantSchemas {
 				if page.Schemas[index].Name != name {
 					t.Fatalf("schema[%d].Name = %q, want %q", index, page.Schemas[index].Name, name)
 				}
+
 				if page.Schemas[index].Description != nil {
 					t.Fatalf("schema[%d].Description = %v, want nil", index, page.Schemas[index].Description)
 				}
@@ -86,6 +91,7 @@ func TestListSchemasProjectsOnlyImportedDatabase(t *testing.T) {
 	pool.mu.Lock()
 	queryCount := pool.queryCount
 	pool.mu.Unlock()
+
 	if queryCount != 0 {
 		t.Fatalf("catalog query count = %d, want 0", queryCount)
 	}
@@ -112,6 +118,7 @@ func TestListSchemasOpensRequestedSource(t *testing.T) {
 	sourceID := opener.sourceID
 	openCalls := opener.openCall
 	opener.mu.Unlock()
+
 	if sourceID != "source-1" || openCalls != 1 {
 		t.Fatalf("opener source/calls = %q/%d, want source-1/1", sourceID, openCalls)
 	}

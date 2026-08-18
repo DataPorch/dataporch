@@ -35,6 +35,7 @@ func newDiscoverer(opener clientOpener, queryTimeout time.Duration) (*Discoverer
 	if isNilInterface(opener) {
 		return nil, errClientOpenerRequired
 	}
+
 	if queryTimeout <= 0 {
 		return nil, errQueryTimeoutRequired
 	}
@@ -50,6 +51,7 @@ func (d *Discoverer) open(ctx context.Context, sourceID connection.ID) (*Client,
 	if ctx == nil {
 		return nil, fmt.Errorf("%w: context is required", execution.ErrCancelled)
 	}
+
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("%w: %w", execution.ErrCancelled, err)
 	}
@@ -59,8 +61,10 @@ func (d *Discoverer) open(ctx context.Context, sourceID connection.ID) (*Client,
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return nil, fmt.Errorf("%w: %w", execution.ErrCancelled, ctxErr)
 		}
+
 		return nil, fmt.Errorf("%w: %w", execution.ErrDatabaseUnavailable, err)
 	}
+
 	if client == nil || client.pool == nil {
 		return nil, execution.ErrDatabaseUnavailable
 	}
@@ -82,12 +86,14 @@ func isNilInterface(value any) bool {
 	}
 
 	reflected := reflect.ValueOf(value)
-	switch reflected.Kind() {
-	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
-		return reflected.IsNil()
-	default:
+
+	kind := reflected.Kind()
+	if kind != reflect.Chan && kind != reflect.Func && kind != reflect.Interface &&
+		kind != reflect.Map && kind != reflect.Pointer && kind != reflect.Slice {
 		return false
 	}
+
+	return reflected.IsNil()
 }
 
 var _ execution.RelationalDiscoverer = (*Discoverer)(nil)

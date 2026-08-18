@@ -43,6 +43,13 @@ WHERE tc.CONSTRAINT_SCHEMA = ?
   AND tc.CONSTRAINT_TYPE IN ('PRIMARY KEY', 'UNIQUE', 'FOREIGN KEY', 'CHECK')
 ORDER BY CAST(tc.CONSTRAINT_NAME AS BINARY), kcu.ORDINAL_POSITION`
 
+const (
+	mysqlConstraintTypeCheck      = "CHECK"
+	mysqlConstraintTypeUnique     = "UNIQUE"
+	mysqlConstraintKindCheck      = "check"
+	mysqlConstraintKindForeignKey = "foreign_key"
+)
+
 type mysqlConstraintRow struct {
 	name             string
 	constraintType   string
@@ -77,6 +84,7 @@ type orderedConstraintColumn struct {
 	name    string
 }
 
+//nolint:gocyclo // Constraint aggregation preserves each nullable catalog field and first-page policy.
 func listConstraints(
 	parentCtx context.Context,
 	queryCtx context.Context,
@@ -86,10 +94,12 @@ func listConstraints(
 	columns []execution.Column,
 ) (constraints []execution.Constraint, retErr error) {
 	constraints = make([]execution.Constraint, 0)
+
 	rows, err := pool.Query(queryCtx, listConstraintsSQL, database, database, table)
 	if err != nil {
 		return nil, classifyDiscoveryQueryError(parentCtx, queryCtx, err)
 	}
+
 	if isNilInterface(rows) {
 		return nil, fmt.Errorf("%w: nil constraint rows", execution.ErrInternal)
 	}
@@ -104,6 +114,7 @@ func listConstraints(
 
 	byName := make(map[string]*mysqlConstraintAccumulator)
 	ordered := make([]*mysqlConstraintAccumulator, 0)
+
 	for rows.Next() {
 		row, err := scanConstraintRow(rows)
 		if err != nil {
@@ -120,36 +131,45 @@ func listConstraints(
 			byName[row.name] = constraint
 			ordered = append(ordered, constraint)
 		}
-		if row.columnName != nil && row.constraintType != "CHECK" {
+
+		if row.columnName != nil && row.constraintType != mysqlConstraintTypeCheck {
 			constraint.columns = append(constraint.columns, orderedConstraintColumn{
 				ordinal: int64ValueOrZero(row.ordinal),
 				name:    strings.Clone(*row.columnName),
 			})
 		}
+
 		if row.referencedSchema != nil {
 			constraint.referencedSchema = stringPointerClone(row.referencedSchema)
 		}
+
 		if row.referencedTable != nil {
 			constraint.referencedTable = stringPointerClone(row.referencedTable)
 		}
+
 		if row.referencedColumn != nil {
 			constraint.referencedColumns = append(constraint.referencedColumns, orderedConstraintColumn{
 				ordinal: int64ValueOrZero(row.ordinal),
 				name:    strings.Clone(*row.referencedColumn),
 			})
 		}
+
 		if row.matchOption != nil {
 			constraint.matchOption = strings.Clone(*row.matchOption)
 		}
+
 		if row.updateRule != nil {
 			constraint.updateRule = strings.Clone(*row.updateRule)
 		}
+
 		if row.deleteRule != nil {
 			constraint.deleteRule = strings.Clone(*row.deleteRule)
 		}
+
 		if row.checkClause != nil {
 			constraint.checkClause = stringPointerClone(row.checkClause)
 		}
+
 		constraint.enforced = row.enforced
 	}
 
@@ -161,14 +181,17 @@ func listConstraints(
 	for _, column := range columns {
 		retainedColumns[column.Name] = struct{}{}
 	}
+
 	for _, accumulator := range ordered {
 		constraint, err := materializeConstraint(accumulator, database, retainedColumns)
 		if err != nil {
 			return nil, err
 		}
+
 		if constraint == nil {
 			continue
 		}
+
 		constraints = append(constraints, *constraint)
 	}
 
@@ -216,9 +239,11 @@ func scanConstraintRow(rows catalogRows) (mysqlConstraintRow, error) {
 	row.deleteRule = deleteRule
 	row.checkClause = checkClause
 	row.enforced = strings.EqualFold(strings.TrimSpace(enforcedText), "YES")
+
 	return row, nil
 }
 
+//nolint:gocyclo // Constraint materialization maps relation-specific metadata and redacts cross-database references.
 func materializeConstraint(
 	accumulator *mysqlConstraintAccumulator,
 	database string,
@@ -230,10 +255,11 @@ func materializeConstraint(
 	}
 
 	columns := orderedColumnNames(accumulator.columns)
-	if kind != "check" && !hasRetainedColumn(columns, retainedColumns) {
+	if kind != mysqlConstraintKindCheck && !hasRetainedColumn(columns, retainedColumns) {
 		return nil, nil
 	}
-	if kind == "check" {
+
+	if kind == mysqlConstraintKindCheck {
 		columns = make([]string, 0)
 	}
 
@@ -243,23 +269,26 @@ func materializeConstraint(
 		Columns:   columns,
 		Validated: accumulator.enforced,
 	}
-	if accumulator.checkClause != nil && kind == "check" {
+	if accumulator.checkClause != nil && kind == mysqlConstraintKindCheck {
 		constraint.CheckExpression = stringPointerClone(accumulator.checkClause)
 	}
 
-	if kind == "foreign_key" {
+	if kind == mysqlConstraintKindForeignKey {
 		constraint.MatchType, err = normalizeMatchOption(accumulator.matchOption)
 		if err != nil {
 			return nil, err
 		}
+
 		constraint.UpdateAction, err = normalizeForeignKeyAction(accumulator.updateRule)
 		if err != nil {
 			return nil, err
 		}
+
 		constraint.DeleteAction, err = normalizeForeignKeyAction(accumulator.deleteRule)
 		if err != nil {
 			return nil, err
 		}
+
 		if accumulator.referencedSchema != nil && accumulator.referencedTable != nil &&
 			*accumulator.referencedSchema == database {
 			constraint.Referenced = &execution.ConstraintReference{
@@ -277,12 +306,12 @@ func constraintKind(value string) (string, error) {
 	switch value {
 	case "PRIMARY KEY":
 		return "primary_key", nil
-	case "UNIQUE":
+	case mysqlConstraintTypeUnique:
 		return "unique", nil
 	case "FOREIGN KEY":
-		return "foreign_key", nil
-	case "CHECK":
-		return "check", nil
+		return mysqlConstraintKindForeignKey, nil
+	case mysqlConstraintTypeCheck:
+		return mysqlConstraintKindCheck, nil
 	default:
 		return "", fmt.Errorf("%w: unknown mysql constraint type", execution.ErrInternal)
 	}
@@ -330,6 +359,7 @@ func orderedColumnNames(values []orderedConstraintColumn) []string {
 	for _, value := range ordered {
 		names = append(names, strings.Clone(value.name))
 	}
+
 	return names
 }
 
@@ -339,6 +369,7 @@ func hasRetainedColumn(columns []string, retained map[string]struct{}) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -346,6 +377,7 @@ func int64ValueOrZero(value *int64) int64 {
 	if value == nil {
 		return 0
 	}
+
 	return *value
 }
 
@@ -353,6 +385,8 @@ func stringPointerClone(value *string) *string {
 	if value == nil {
 		return nil
 	}
+
 	cloned := strings.Clone(*value)
+
 	return &cloned
 }

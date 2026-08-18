@@ -10,6 +10,7 @@ import (
 	"github.com/adamraziv/dataporch/internal/execution"
 )
 
+//nolint:gocyclo // The test covers parameter order, pagination, descriptions, and row cleanup.
 func TestListTablesUsesBoundedParameterizedMySQLCatalogQuery(t *testing.T) {
 	t.Parallel()
 
@@ -22,6 +23,7 @@ func TestListTablesUsesBoundedParameterizedMySQLCatalogQuery(t *testing.T) {
 	discoverer := lifecycleTestDiscoverer(t, opener)
 
 	search := `%_literal`
+
 	page, err := discoverer.ListTables(t.Context(), execution.TableDiscoveryRequest{
 		SourceID:            "analytics",
 		Schema:              "Sales Data",
@@ -50,16 +52,20 @@ func TestListTablesUsesBoundedParameterizedMySQLCatalogQuery(t *testing.T) {
 	if !reflect.DeepEqual(arguments, wantArguments) {
 		t.Fatalf("query arguments = %#v, want %#v", arguments, wantArguments)
 	}
+
 	if strings.Contains(query, search) {
 		t.Fatalf("query contains user search %q: %s", search, query)
 	}
+
 	if !strings.Contains(query, "FROM INFORMATION_SCHEMA.TABLES") ||
 		!strings.Contains(query, "TABLE_TYPE IN ('BASE TABLE', 'VIEW')") {
 		t.Fatalf("query = %s", query)
 	}
+
 	if deadline, ok := queryContext.Deadline(); !ok || time.Until(deadline) <= 0 || time.Until(deadline) > time.Second {
 		t.Fatalf("query deadline = %v, want roughly one second", deadline)
 	}
+
 	if rows.closeCalls != 1 {
 		t.Fatalf("rows close calls = %d, want 1", rows.closeCalls)
 	}
@@ -84,6 +90,7 @@ func TestListTablesRejectsOutsideImportedSchemaBeforeCatalogAccess(t *testing.T)
 	pool.mu.Lock()
 	queryCount := pool.queryCount
 	pool.mu.Unlock()
+
 	if queryCount != 0 {
 		t.Fatalf("catalog query count = %d, want 0", queryCount)
 	}
@@ -105,6 +112,8 @@ func TestListTablesMapsViewsAndRejectsUnknownRelationKinds(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
 			rows := &testCatalogRows{values: [][]any{{"items", test.tableType, nil}}}
 			pool := &testCatalogPool{rows: rows}
 			opener := &testClientOpener{client: &Client{pool: pool, database: "finance"}}
@@ -119,8 +128,10 @@ func TestListTablesMapsViewsAndRejectsUnknownRelationKinds(t *testing.T) {
 				if !errors.Is(err, test.wantErr) {
 					t.Fatalf("ListTables() error = %v, want %v", err, test.wantErr)
 				}
+
 				return
 			}
+
 			if err != nil || len(page.Tables) != 1 || page.Tables[0].Kind != test.wantKind {
 				t.Fatalf("page = %#v, error = %v, want kind %v", page, err, test.wantKind)
 			}
@@ -146,6 +157,7 @@ func TestListTablesHandlesRowsFailuresAndCloseErrors(t *testing.T) {
 	if !errors.Is(err, rowErr) || !errors.Is(err, closeErr) || !errors.Is(err, execution.ErrInternal) {
 		t.Fatalf("ListTables() error = %v, want row, close, and internal errors", err)
 	}
+
 	if rows.closeCalls != 1 {
 		t.Fatalf("rows close calls = %d, want 1", rows.closeCalls)
 	}

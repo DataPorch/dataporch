@@ -30,9 +30,11 @@ func TestValidateRuntimeDefinitionDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("validateRuntimeDefinition() error = %v", err)
 	}
+
 	if settings.port != 3306 {
 		t.Fatalf("port = %d, want 3306", settings.port)
 	}
+
 	if settings.sslMode != sslModePrefer {
 		t.Fatalf("sslMode = %q, want %q", settings.sslMode, sslModePrefer)
 	}
@@ -130,6 +132,7 @@ func TestValidateRuntimeDefinitionRejectsInvalidDefinitions(t *testing.T) {
 	}
 }
 
+//nolint:gocyclo // Each TLS mode is asserted with its independent security contract.
 func TestDriverConfigTLSModes(t *testing.T) {
 	t.Parallel()
 
@@ -172,16 +175,20 @@ func TestDriverConfigTLSModes(t *testing.T) {
 			if (cfg.TLS != nil) != test.wantTLS {
 				t.Fatalf("TLS present = %v, want %v", cfg.TLS != nil, test.wantTLS)
 			}
+
 			if cfg.AllowFallbackToPlaintext != test.wantFallback {
 				t.Fatalf("AllowFallbackToPlaintext = %v, want %v", cfg.AllowFallbackToPlaintext, test.wantFallback)
 			}
+
 			if cfg.TLS != nil {
 				if cfg.TLS.ServerName != "db.example.com" {
 					t.Fatalf("ServerName = %q, want db.example.com", cfg.TLS.ServerName)
 				}
+
 				if cfg.TLS.InsecureSkipVerify != test.wantInsecure {
 					t.Fatalf("InsecureSkipVerify = %v, want %v", cfg.TLS.InsecureSkipVerify, test.wantInsecure)
 				}
+
 				if test.wantRoots && cfg.TLS.RootCAs == nil {
 					t.Fatal("verify-full must use the system root pool")
 				}

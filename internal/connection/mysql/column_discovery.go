@@ -48,6 +48,7 @@ func (d *Discoverer) ListColumns(
 	if err != nil {
 		return page, err
 	}
+
 	if request.Schema != client.database {
 		return page, execution.ErrSchemaNotFound
 	}
@@ -80,6 +81,7 @@ func (d *Discoverer) ListColumns(
 	if err != nil {
 		return page, classifyDiscoveryQueryError(ctx, queryCtx, err)
 	}
+
 	if isNilInterface(rows) {
 		return page, fmt.Errorf("%w: nil catalog rows", execution.ErrInternal)
 	}
@@ -98,6 +100,7 @@ func (d *Discoverer) ListColumns(
 		if err != nil {
 			return page, classifyDiscoveryQueryError(ctx, queryCtx, err)
 		}
+
 		page.Columns = append(page.Columns, column)
 	}
 
@@ -106,11 +109,13 @@ func (d *Discoverer) ListColumns(
 	}
 
 	page.RelationKind = relationKindValue
+
 	page.Constraints = make([]execution.Constraint, 0)
 	if len(page.Columns) > request.Limit {
 		page.HasMore = true
 		page.Columns = page.Columns[:request.Limit]
 	}
+
 	if request.AfterOrdinal == 0 {
 		page.Constraints, err = listConstraints(
 			ctx,
@@ -124,6 +129,7 @@ func (d *Discoverer) ListColumns(
 			return execution.ColumnDiscoveryPage{}, err
 		}
 	}
+
 	return page, nil
 }
 
@@ -138,6 +144,7 @@ func resolveRelation(
 	if err != nil {
 		return "", classifyDiscoveryQueryError(parentCtx, queryCtx, err)
 	}
+
 	if isNilInterface(rows) {
 		return "", fmt.Errorf("%w: nil relation rows", execution.ErrInternal)
 	}
@@ -154,6 +161,7 @@ func resolveRelation(
 		if err := rows.Err(); err != nil {
 			return "", classifyDiscoveryQueryError(parentCtx, queryCtx, err)
 		}
+
 		return "", execution.ErrRelationNotFound
 	}
 
@@ -161,6 +169,7 @@ func resolveRelation(
 	if err := rows.Scan(&tableType); err != nil {
 		return "", classifyDiscoveryQueryError(parentCtx, queryCtx, err)
 	}
+
 	if err := rows.Err(); err != nil {
 		return "", classifyDiscoveryQueryError(parentCtx, queryCtx, err)
 	}
@@ -211,6 +220,7 @@ func scanColumn(rows catalogRows, includeDescriptions bool) (execution.Column, e
 	if generated != nil {
 		defaultExpression = nil
 	}
+
 	if !includeDescriptions {
 		description = nil
 	}
@@ -252,6 +262,7 @@ func int32Pointer(value *int64) *int32 {
 	}
 
 	converted := int32(*value)
+
 	return &converted
 }
 
@@ -259,6 +270,7 @@ func columnIdentity(extra string) *execution.Identity {
 	if strings.Contains(strings.ToUpper(extra), "AUTO_INCREMENT") {
 		return &execution.Identity{Generation: "by_default"}
 	}
+
 	return nil
 }
 
@@ -278,5 +290,6 @@ func stringValue(value *string) string {
 	if value == nil {
 		return ""
 	}
+
 	return *value
 }

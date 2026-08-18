@@ -11,6 +11,7 @@ import (
 	"github.com/adamraziv/dataporch/internal/execution"
 )
 
+//nolint:gocyclo // The fixture asserts each constraint family and cross-database redaction rule.
 func TestListConstraintsAggregatesAndRedactsReferences(t *testing.T) {
 	t.Parallel()
 
@@ -25,8 +26,10 @@ func TestListConstraintsAggregatesAndRedactsReferences(t *testing.T) {
 		{"orders_hidden_unique", "UNIQUE", "not_returned", int64(1), nil, nil, nil, nil, nil, nil, nil, "YES"},
 	}}
 	pool := &testCatalogPool{rows: rows}
+
 	queryCtx, cancel := context.WithTimeout(t.Context(), time.Second)
 	defer cancel()
+
 	columns := []execution.Column{
 		{Name: "id"},
 		{Name: "tenant_id"},
@@ -39,6 +42,7 @@ func TestListConstraintsAggregatesAndRedactsReferences(t *testing.T) {
 	if err != nil {
 		t.Fatalf("listConstraints() error = %v", err)
 	}
+
 	if len(constraints) != 6 {
 		t.Fatalf("constraints = %#v, want hidden non-overlapping constraint omitted", constraints)
 	}
@@ -46,6 +50,7 @@ func TestListConstraintsAggregatesAndRedactsReferences(t *testing.T) {
 	if constraints[0].Kind != "primary_key" || !constraints[0].Validated || !reflect.DeepEqual(constraints[0].Columns, []string{"id"}) {
 		t.Fatalf("primary key = %#v", constraints[0])
 	}
+
 	if constraints[1].Kind != "unique" || !reflect.DeepEqual(constraints[1].Columns, []string{"tenant_id", "external_id"}) {
 		t.Fatalf("composite unique = %#v", constraints[1])
 	}
@@ -71,6 +76,7 @@ func TestListConstraintsAggregatesAndRedactsReferences(t *testing.T) {
 		check.CheckExpression == nil || *check.CheckExpression != "amount >= 0" || !check.Validated {
 		t.Fatalf("enforced check = %#v", check)
 	}
+
 	notEnforced := constraints[5]
 	if notEnforced.Kind != "check" || notEnforced.Validated || notEnforced.CheckExpression == nil {
 		t.Fatalf("not-enforced check = %#v", notEnforced)
@@ -80,9 +86,11 @@ func TestListConstraintsAggregatesAndRedactsReferences(t *testing.T) {
 	arguments := append([]any(nil), pool.arguments[0]...)
 	query := pool.queries[0]
 	pool.mu.Unlock()
+
 	if !reflect.DeepEqual(arguments, []any{"finance", "finance", "orders"}) {
 		t.Fatalf("constraint query arguments = %#v", arguments)
 	}
+
 	if !strings.Contains(query, "INFORMATION_SCHEMA.TABLE_CONSTRAINTS") || !strings.Contains(query, "TABLE_SCHEMA = ?") {
 		t.Fatalf("constraint query = %s", query)
 	}
@@ -113,6 +121,8 @@ func TestListColumnsAttachesConstraintsOnlyOnFirstPage(t *testing.T) {
 	}
 
 	t.Run("first page", func(t *testing.T) {
+		t.Parallel()
+
 		pool := newPool()
 		discoverer := lifecycleTestDiscoverer(t, &testClientOpener{client: &Client{pool: pool, database: "finance"}})
 
@@ -125,18 +135,23 @@ func TestListColumnsAttachesConstraintsOnlyOnFirstPage(t *testing.T) {
 		if err != nil {
 			t.Fatalf("ListColumns() error = %v", err)
 		}
+
 		if len(page.Constraints) != 1 || page.Constraints[0].Kind != "primary_key" {
 			t.Fatalf("constraints = %#v", page.Constraints)
 		}
+
 		pool.mu.Lock()
 		queryCount := pool.queryCount
 		pool.mu.Unlock()
+
 		if queryCount != 3 {
 			t.Fatalf("query count = %d, want relation, columns, constraints", queryCount)
 		}
 	})
 
 	t.Run("later page", func(t *testing.T) {
+		t.Parallel()
+
 		pool := newPool()
 		discoverer := lifecycleTestDiscoverer(t, &testClientOpener{client: &Client{pool: pool, database: "finance"}})
 
@@ -150,12 +165,15 @@ func TestListColumnsAttachesConstraintsOnlyOnFirstPage(t *testing.T) {
 		if err != nil {
 			t.Fatalf("ListColumns() error = %v", err)
 		}
+
 		if page.Constraints == nil || len(page.Constraints) != 0 {
 			t.Fatalf("constraints = %#v, want empty later-page slice", page.Constraints)
 		}
+
 		pool.mu.Lock()
 		queryCount := pool.queryCount
 		pool.mu.Unlock()
+
 		if queryCount != 2 {
 			t.Fatalf("query count = %d, want relation and columns only", queryCount)
 		}

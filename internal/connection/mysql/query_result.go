@@ -17,21 +17,28 @@ type queryResultReader struct {
 	rowLimit          int
 }
 
+const mysqlBinaryBlobType = "BLOB"
+
 func mysqlCellString(value any, databaseType string) (*string, error) {
 	switch value := value.(type) {
 	case nil:
 		return nil, nil
 	case []byte:
 		raw := append([]byte(nil), value...)
+
 		if isBinaryDatabaseType(databaseType) {
 			maxInt := int(^uint(0) >> 1)
 			if len(raw) > (maxInt-3)/2 {
 				return nil, execution.ErrResultTooLarge
 			}
+
 			text := mysqlBinaryLiteral(raw)
+
 			return &text, nil
 		}
+
 		text := string(raw)
+
 		return &text, nil
 	case string:
 		text := strings.Clone(value)
@@ -58,7 +65,7 @@ func mysqlCellString(value any, databaseType string) (*string, error) {
 
 func isBinaryDatabaseType(databaseType string) bool {
 	switch strings.ToUpper(strings.TrimSpace(databaseType)) {
-	case "BINARY", "VARBINARY", "TINYBLOB", "BLOB", "MEDIUMBLOB", "LONGBLOB", "BIT", "GEOMETRY", "VECTOR":
+	case "BINARY", "VARBINARY", "TINYBLOB", mysqlBinaryBlobType, "MEDIUMBLOB", "LONGBLOB", "BIT", "GEOMETRY", "VECTOR":
 		return true
 	default:
 		return false
@@ -70,11 +77,13 @@ func mysqlBinaryLiteral(raw []byte) string {
 
 	encoded := make([]byte, 3+2*len(raw))
 	encoded[0] = 'X'
+
 	encoded[1] = '\''
 	for index, value := range raw {
 		encoded[2+2*index] = digits[value>>4]
 		encoded[3+2*index] = digits[value&0x0f]
 	}
+
 	encoded[len(encoded)-1] = '\''
 
 	return string(encoded)
@@ -95,10 +104,12 @@ func newQueryResultBudget(
 	if err != nil {
 		return queryResultBudget{}, err
 	}
+
 	sourceJSON, err := json.Marshal(result.SourceID)
 	if err != nil {
 		return queryResultBudget{}, err
 	}
+
 	columnsJSON, err := json.Marshal(result.Columns)
 	if err != nil {
 		return queryResultBudget{}, err
@@ -135,8 +146,10 @@ func (b queryResultBudget) fits(parts ...int) bool {
 		if part < 0 || part > remaining {
 			return false
 		}
+
 		remaining -= part
 	}
+
 	return true
 }
 
@@ -145,6 +158,7 @@ func (b queryResultBudget) FitsAdditionalRow(rowSize int) bool {
 	if b.retainedRows > 0 {
 		separator = 1
 	}
+
 	nextCount := b.retainedRows + 1
 
 	return b.fits(
@@ -161,6 +175,7 @@ func (b *queryResultBudget) RetainRow(rowSize int) {
 	if b.retainedRows > 0 {
 		b.rowsSize++
 	}
+
 	b.rowsSize += rowSize
 	b.retainedRows++
 }
@@ -171,27 +186,34 @@ func encodedRowSize(row []*string, limit int) (int, bool, error) {
 		if size < 0 || size > remaining {
 			return false
 		}
+
 		remaining -= size
+
 		return true
 	}
 
 	if !consume(2) {
 		return 0, false, nil
 	}
+
 	for index, value := range row {
 		if index > 0 && !consume(1) {
 			return 0, false, nil
 		}
+
 		if value == nil {
 			if !consume(len("null")) {
 				return 0, false, nil
 			}
+
 			continue
 		}
+
 		encoded, err := json.Marshal(*value)
 		if err != nil {
 			return 0, false, err
 		}
+
 		if !consume(len(encoded)) {
 			return 0, false, nil
 		}
@@ -200,6 +222,7 @@ func encodedRowSize(row []*string, limit int) (int, bool, error) {
 	return limit - remaining, true, nil
 }
 
+//nolint:funlen,gocyclo // Result conversion explicitly enforces type, cancellation, truncation, and byte-budget boundaries.
 func (r queryResultReader) readResult(
 	ctx context.Context,
 	rows queryRows,
@@ -211,6 +234,7 @@ func (r queryResultReader) readResult(
 
 	defer func() {
 		closeErr := rows.Close()
+
 		terminalErr := rows.Err()
 		if closeErr != nil || terminalErr != nil {
 			result = execution.RelationalQueryResult{}
@@ -222,6 +246,7 @@ func (r queryResultReader) readResult(
 	if err != nil {
 		return result, err
 	}
+
 	if len(names) == 0 {
 		return result, execution.ErrInvalidQuery
 	}
@@ -230,6 +255,7 @@ func (r queryResultReader) readResult(
 	if err != nil {
 		return result, err
 	}
+
 	if len(columnTypes) != len(names) {
 		return result, execution.ErrInternal
 	}
@@ -253,6 +279,7 @@ func (r queryResultReader) readResult(
 	}
 
 	raw := make([]any, len(names))
+
 	destinations := make([]any, len(names))
 	for index := range raw {
 		destinations[index] = &raw[index]
@@ -262,12 +289,14 @@ func (r queryResultReader) readResult(
 		if err := ctx.Err(); err != nil {
 			return execution.RelationalQueryResult{}, err
 		}
+
 		if r.truncationEnabled && budget.retainedRows >= r.rowLimit {
 			result.Truncated = true
 			break
 		}
 
 		clear(raw)
+
 		if err := rows.Scan(destinations...); err != nil {
 			return execution.RelationalQueryResult{}, err
 		}
@@ -275,6 +304,7 @@ func (r queryResultReader) readResult(
 		row := make([]*string, len(raw))
 		for index, value := range raw {
 			databaseType := columnTypes[index].DatabaseTypeName()
+
 			switch typed := value.(type) {
 			case []byte:
 				if isBinaryDatabaseType(databaseType) {
@@ -294,6 +324,7 @@ func (r queryResultReader) readResult(
 			if err != nil {
 				return execution.RelationalQueryResult{}, err
 			}
+
 			row[index] = cell
 		}
 
@@ -301,16 +332,21 @@ func (r queryResultReader) readResult(
 		if err != nil {
 			return execution.RelationalQueryResult{}, err
 		}
+
 		if !fits || !budget.FitsAdditionalRow(rowSize) {
 			return execution.RelationalQueryResult{}, execution.ErrResultTooLarge
 		}
+
 		budget.RetainRow(rowSize)
+
 		result.Rows = append(result.Rows, row)
 	}
 
 	if err := ctx.Err(); err != nil {
 		return execution.RelationalQueryResult{}, err
 	}
+
 	result.RowCount = len(result.Rows)
+
 	return result, nil
 }

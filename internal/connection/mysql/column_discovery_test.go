@@ -17,6 +17,7 @@ func TestResolveRelationUsesDatabaseAndTableArguments(t *testing.T) {
 
 	rows := &testCatalogRows{values: [][]any{{"BASE TABLE"}}}
 	pool := &testCatalogPool{rows: rows}
+
 	queryCtx, cancel := context.WithTimeout(t.Context(), time.Second)
 	defer cancel()
 
@@ -24,6 +25,7 @@ func TestResolveRelationUsesDatabaseAndTableArguments(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolveRelation() error = %v", err)
 	}
+
 	if kind != execution.RelationKindTable {
 		t.Fatalf("relation kind = %q, want %q", kind, execution.RelationKindTable)
 	}
@@ -32,9 +34,11 @@ func TestResolveRelationUsesDatabaseAndTableArguments(t *testing.T) {
 	arguments := append([]any(nil), pool.arguments[0]...)
 	query := pool.queries[0]
 	pool.mu.Unlock()
+
 	if !reflect.DeepEqual(arguments, []any{"finance", "orders"}) {
 		t.Fatalf("relation arguments = %#v", arguments)
 	}
+
 	if !strings.Contains(query, "FROM INFORMATION_SCHEMA.TABLES") || !strings.Contains(query, "TABLE_NAME = ?") {
 		t.Fatalf("relation query = %s", query)
 	}
@@ -44,6 +48,7 @@ func TestResolveRelationReturnsNotFoundForEmptyResult(t *testing.T) {
 	t.Parallel()
 
 	pool := &testCatalogPool{rows: &testCatalogRows{}}
+
 	queryCtx, cancel := context.WithTimeout(t.Context(), time.Second)
 	defer cancel()
 
@@ -82,6 +87,8 @@ func TestScanColumnMapsMySQLTypesWithoutAffinity(t *testing.T) {
 
 	for index, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
 			row := &testCatalogRows{values: [][]any{{
 				"value", index + 1, test.columnType, test.dataType,
 				int64Value(test.length), nil, nil, nil, "YES", nil, "", nil, "comment",
@@ -92,18 +99,23 @@ func TestScanColumnMapsMySQLTypesWithoutAffinity(t *testing.T) {
 			if err != nil {
 				t.Fatalf("scanColumn() error = %v", err)
 			}
+
 			if column.FormattedType != test.columnType || column.Type.Name != test.dataType {
 				t.Fatalf("column type = %#v, want formatted=%q name=%q", column, test.columnType, test.dataType)
 			}
+
 			if column.Type.Category != test.category {
 				t.Fatalf("category = %q, want %q", column.Type.Category, test.category)
 			}
+
 			if column.Type.Affinity != "" {
 				t.Fatalf("affinity = %q, want empty", column.Type.Affinity)
 			}
+
 			if test.length == nil && column.Type.Length != nil {
 				t.Fatalf("length = %v, want nil", column.Type.Length)
 			}
+
 			if test.length != nil && (column.Type.Length == nil || *column.Type.Length != int32(*test.length)) {
 				t.Fatalf("length = %v, want %d", column.Type.Length, *test.length)
 			}
@@ -111,6 +123,7 @@ func TestScanColumnMapsMySQLTypesWithoutAffinity(t *testing.T) {
 	}
 }
 
+//nolint:gocyclo // The table-driven case covers all nullable metadata and generation mappings.
 func TestScanColumnMapsNullableMetadataIdentityGeneratedAndDescription(t *testing.T) {
 	t.Parallel()
 
@@ -124,21 +137,27 @@ func TestScanColumnMapsNullableMetadataIdentityGeneratedAndDescription(t *testin
 	if err != nil {
 		t.Fatalf("scanColumn() error = %v", err)
 	}
+
 	if column.Nullable {
 		t.Fatal("Nullable = true, want false")
 	}
+
 	if column.Type.TemporalPrecision == nil || *column.Type.TemporalPrecision != 6 {
 		t.Fatalf("temporal precision = %v, want 6", column.Type.TemporalPrecision)
 	}
+
 	if column.Identity == nil || column.Identity.Generation != "by_default" {
 		t.Fatalf("identity = %#v, want by_default", column.Identity)
 	}
+
 	if column.Generated == nil || column.Generated.Kind != "stored" || column.Generated.Expression != "created_at + interval 1 day" {
 		t.Fatalf("generated = %#v", column.Generated)
 	}
+
 	if column.DefaultExpression != nil {
 		t.Fatalf("DefaultExpression = %v, want nil for generated column", column.DefaultExpression)
 	}
+
 	if column.Description == nil || *column.Description != "created" {
 		t.Fatalf("Description = %v, want created", column.Description)
 	}
@@ -148,10 +167,12 @@ func TestScanColumnMapsNullableMetadataIdentityGeneratedAndDescription(t *testin
 		"YES", "guest", "", nil, "hidden",
 	}}}
 	row.Next()
+
 	column, err = scanColumn(row, false)
 	if err != nil {
 		t.Fatalf("scanColumn(includeDescriptions=false) error = %v", err)
 	}
+
 	if column.Description != nil {
 		t.Fatalf("Description = %v, want nil", column.Description)
 	}
@@ -172,6 +193,7 @@ func TestScanColumnDropsOutOfRangeNumericMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("scanColumn() error = %v", err)
 	}
+
 	if column.Type.Length != nil || column.Type.Precision != nil || column.Type.Scale != nil || column.Type.TemporalPrecision != nil {
 		t.Fatalf("out-of-range metadata = %#v, want all nil", column.Type)
 	}
@@ -203,27 +225,34 @@ func TestListColumnsResolvesRelationAndUsesParameterizedColumnQuery(t *testing.T
 	if err != nil {
 		t.Fatalf("ListColumns() error = %v", err)
 	}
+
 	if len(page.Columns) != 1 || !page.HasMore || page.RelationKind != execution.RelationKindView {
 		t.Fatalf("page = %#v, want one view column with more", page)
 	}
+
 	if page.Columns[0].Identity == nil || page.Columns[0].Identity.Generation != "by_default" {
 		t.Fatalf("identity = %#v", page.Columns[0].Identity)
 	}
 
 	pool.mu.Lock()
+
 	arguments := make([][]any, len(pool.arguments))
 	for index := range pool.arguments {
 		arguments[index] = append([]any(nil), pool.arguments[index]...)
 	}
+
 	queries := append([]string(nil), pool.queries...)
 	pool.mu.Unlock()
+
 	if !reflect.DeepEqual(arguments[0], []any{"finance", "orders"}) {
 		t.Fatalf("relation arguments = %#v", arguments[0])
 	}
+
 	wantColumnArguments := []any{true, "finance", "orders", search, search, 3, 2}
 	if !reflect.DeepEqual(arguments[1], wantColumnArguments) {
 		t.Fatalf("column arguments = %#v, want %#v", arguments[1], wantColumnArguments)
 	}
+
 	if strings.Contains(queries[1], search) {
 		t.Fatalf("column query contains user search %q: %s", search, queries[1])
 	}
@@ -245,9 +274,11 @@ func TestListColumnsRejectsOutsideImportedSchemaBeforeQueries(t *testing.T) {
 	if !errors.Is(err, execution.ErrSchemaNotFound) {
 		t.Fatalf("ListColumns() error = %v, want schema not found", err)
 	}
+
 	pool.mu.Lock()
 	queryCount := pool.queryCount
 	pool.mu.Unlock()
+
 	if queryCount != 0 {
 		t.Fatalf("query count = %d, want 0", queryCount)
 	}
@@ -261,5 +292,6 @@ func int64Value(value *int64) any {
 	if value == nil {
 		return nil
 	}
+
 	return *value
 }

@@ -114,6 +114,45 @@ func TestRuntimeOpenClearsSecretsAndClosesPhysicalClientOnce(t *testing.T) {
 	}
 }
 
+func TestRuntimeReleaseRemovesInactiveEntry(t *testing.T) {
+	t.Parallel()
+
+	preparer := &runtimePreparer{definition: connection.ResolvedDefinition{
+		ID:   "source",
+		Kind: Kind,
+		Secrets: map[string][]byte{
+			secretPath: []byte("/tmp/source.db"),
+		},
+	}}
+	opener := &runtimeOpener{}
+
+	runtime, err := newRuntime(preparer, opener.open)
+	if err != nil {
+		t.Fatalf("newRuntime() error = %v", err)
+	}
+
+	opened, err := runtime.open(t.Context(), "source", accessModeQuery)
+	if err != nil {
+		t.Fatalf("Runtime.open() error = %v", err)
+	}
+
+	if _, exists := runtime.entries["source"]; !exists {
+		t.Fatal("active source entry is missing")
+	}
+
+	if err := opened.close(); err != nil {
+		t.Fatalf("client.close() error = %v", err)
+	}
+
+	if _, exists := runtime.entries["source"]; exists {
+		t.Fatal("inactive source entry remains retained")
+	}
+
+	if err := runtime.Close(t.Context()); err != nil {
+		t.Fatalf("Runtime.Close() error = %v", err)
+	}
+}
+
 func TestRuntimeInvalidationDetachesOnlyCurrentEntry(t *testing.T) {
 	t.Parallel()
 
@@ -149,7 +188,20 @@ func TestRuntimeInvalidationDetachesOnlyCurrentEntry(t *testing.T) {
 		t.Fatalf("replacement Runtime.open() error = %v", err)
 	}
 
-	for _, client := range []*client{first, other, replacement} {
+	replacementEntry := runtime.entries["source"]
+	if replacementEntry == nil {
+		t.Fatal("replacement logical entry is missing")
+	}
+
+	if err := first.close(); err != nil {
+		t.Fatalf("first client.close() error = %v", err)
+	}
+
+	if got := runtime.entries["source"]; got != replacementEntry {
+		t.Fatalf("stale release changed replacement entry: got %p, want %p", got, replacementEntry)
+	}
+
+	for _, client := range []*client{other, replacement} {
 		if err := client.close(); err != nil {
 			t.Fatalf("client.close() error = %v", err)
 		}

@@ -168,10 +168,10 @@ func (r *Runtime) acquire(id connection.ID) (func(), error) {
 	entry.active++
 	r.active++
 
-	return func() { r.release(entry) }, nil
+	return func() { r.release(id, entry) }, nil
 }
 
-func (r *Runtime) release(entry *logicalEntry) {
+func (r *Runtime) release(id connection.ID, entry *logicalEntry) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -181,6 +181,11 @@ func (r *Runtime) release(entry *logicalEntry) {
 	if r.active > 0 {
 		r.active--
 	}
+
+	if entry.active == 0 && r.entries[id] == entry {
+		delete(r.entries, id)
+	}
+
 	if r.isClosed && r.active == 0 {
 		r.closeDrainLocked()
 	}

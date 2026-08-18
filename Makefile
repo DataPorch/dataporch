@@ -6,7 +6,7 @@ GOVULNCHECK ?= govulncheck
 
 .DEFAULT_GOAL := help
 
-.PHONY: audit build build-cgo-disabled check clean fmt fmt-check help lint lint-fix lint-integration run test test-cgo-disabled test-integration test-race tidy tidy-check vet
+.PHONY: audit build build-cgo-disabled check clean fmt fmt-check help lint lint-fix lint-integration run test test-cgo-disabled test-integration test-integration-postgres test-integration-sqlite test-race tidy tidy-check vet
 
 build:
 	@mkdir -p $(BUILD_DIR)
@@ -24,8 +24,15 @@ test-cgo-disabled:
 test-race:
 	$(GO) test -race -shuffle=on ./...
 
-test-integration:
-	$(GO) test -race -count=1 -tags=integration ./internal/connection/postgres ./internal/connection/sqlite ./internal/app
+test-integration: test-integration-postgres test-integration-sqlite
+
+test-integration-postgres:
+	$(GO) test -race -count=1 -tags=integration ./internal/connection/postgres
+	$(GO) test -race -count=1 -tags=integration -run '^Test.*Postgres.*Integration$$' ./internal/app
+
+test-integration-sqlite:
+	$(GO) test -race -count=1 -tags=integration ./internal/connection/sqlite
+	$(GO) test -race -count=1 -tags=integration -run '^Test.*SQLite.*Integration$$' ./internal/app
 
 build-cgo-disabled:
 	CGO_ENABLED=0 $(GO) build -trimpath ./cmd/dataporch
@@ -88,7 +95,9 @@ help:
 		'  run          Run DataPorch locally.' \
 		'  test-cgo-disabled  Run tests with CGO disabled.' \
 		'  test         Run unit tests.' \
-		'  test-integration  Run relational integration tests (PostgreSQL requires DATAPORCH_TEST_POSTGRES_DSN).' \
+		'  test-integration  Run all relational integration tests; PostgreSQL requires DATAPORCH_TEST_POSTGRES_DSN.' \
+		'  test-integration-postgres  Run PostgreSQL adapter and PostgreSQL app integration tests.' \
+		'  test-integration-sqlite  Run SQLite adapter and SQLite app integration tests.' \
 		'  test-race    Run unit tests with the race detector.' \
 		'  tidy         Reconcile module files.' \
 		'  tidy-check   Verify module files are tidy.' \

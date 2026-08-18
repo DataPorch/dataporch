@@ -67,9 +67,11 @@ func TestQueryExecutorPassesOriginalQueryUnchangedAndAcceptsShapes(t *testing.T)
 			stmt := newQueryStatement([]queryRow{{cells: []queryCell{{kind: sqlite3.INTEGER, integer: 1}}}})
 			opener := &queryOpenerStub{conn: &queryRawConnection{stmt: stmt}}
 			openerRaw, ok := opener.conn.(*queryRawConnection)
+
 			if !ok {
 				t.Fatal("query opener connection has unexpected type")
 			}
+
 			openerRaw.queryLog = &opener.queries
 			executor := newTestQueryExecutor(t, opener, QueryOptions{
 				Timeout:           time.Second,

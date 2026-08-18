@@ -356,7 +356,7 @@ func sqliteDiagnostic(message string) string {
 		return message
 	}
 	message = message[:512]
-	for len(message) > 0 && !utf8.RuneStart(message[len(message)-1]) {
+	for !utf8.ValidString(message) {
 		message = message[:len(message)-1]
 	}
 	return message

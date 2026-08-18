@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/adamraziv/dataporch/internal/execution"
 	sqlite3 "github.com/ncruces/go-sqlite3"
@@ -117,6 +118,51 @@ func TestProjectSQLiteErrorRedactsDiagnosticsAndOpenFailures(t *testing.T) {
 
 	if err := projectSQLiteError(context.Background(), context.Background(), errSQLiteFileUnavailable, sqliteErrorPhaseOpen); !errors.Is(err, execution.ErrDatabaseUnavailable) {
 		t.Fatalf("file unavailable error = %v, want ErrDatabaseUnavailable", err)
+	}
+}
+
+func TestSQLiteDiagnosticTruncatesAtUTF8Boundary(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "split four-byte rune",
+			input: strings.Repeat("a", 511) + "😀",
+			want:  strings.Repeat("a", 511),
+		},
+		{
+			name:  "complete four-byte rune at boundary",
+			input: strings.Repeat("a", 508) + "😀" + "tail",
+			want:  strings.Repeat("a", 508) + "😀",
+		},
+		{
+			name:  "split three-byte rune",
+			input: strings.Repeat("a", 510) + "€",
+			want:  strings.Repeat("a", 510),
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := sqliteDiagnostic(test.input)
+			if !utf8.ValidString(got) {
+				t.Fatalf("sqliteDiagnostic() returned invalid UTF-8: %q", got)
+			}
+
+			if got != test.want {
+				t.Fatalf("sqliteDiagnostic() = %q, want %q", got, test.want)
+			}
+
+			if len(got) > 512 {
+				t.Fatalf("sqliteDiagnostic() length = %d, want <= 512", len(got))
+			}
+		})
 	}
 }
 

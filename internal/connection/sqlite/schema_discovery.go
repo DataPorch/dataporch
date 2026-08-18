@@ -17,17 +17,14 @@ func (d *Discoverer) ListSchemas(
 		return page, fmt.Errorf("%w: context is required", execution.ErrCancelled)
 	}
 
-	queryCtx, cancel := d.queryContext(ctx)
-	defer cancel()
-
-	client, err := d.open(queryCtx, request.SourceID)
+	client, err := d.open(ctx, request.SourceID)
 	if err != nil {
-		return execution.SchemaDiscoveryPage{}, projectSQLiteDiscoveryError(ctx, queryCtx, err, sqliteErrorPhaseOpen)
+		return execution.SchemaDiscoveryPage{}, projectSQLiteDiscoveryError(ctx, nil, err, sqliteErrorPhaseOpen)
 	}
 	defer func() {
 		retErr = errors.Join(
 			retErr,
-			projectSQLiteDiscoveryError(ctx, queryCtx, client.close(), sqliteErrorPhaseClose),
+			projectSQLiteDiscoveryError(ctx, nil, client.close(), sqliteErrorPhaseClose),
 		)
 	}()
 

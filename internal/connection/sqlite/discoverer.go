@@ -84,6 +84,26 @@ func (d *Discoverer) open(ctx context.Context, sourceID connection.ID) (*client,
 	return client, nil
 }
 
+func (d *Discoverer) openCatalog(
+	ctx context.Context,
+	sourceID connection.ID,
+) (*client, context.Context, context.CancelFunc, error) {
+	client, err := d.open(ctx, sourceID)
+	if err != nil {
+		return nil, nil, nil, projectSQLiteDiscoveryError(
+			ctx,
+			nil,
+			err,
+			sqliteErrorPhaseOpen,
+		)
+	}
+
+	queryCtx, cancel := d.queryContext(ctx)
+	client.conn.SetInterrupt(queryCtx)
+
+	return client, queryCtx, cancel, nil
+}
+
 func (d *Discoverer) queryContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeoutCause(ctx, d.queryTimeout, execution.ErrQueryTimeout)
 }

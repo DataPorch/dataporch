@@ -28,13 +28,11 @@ func (d *Discoverer) ListTables(
 		return page, fmt.Errorf("%w: context is required", execution.ErrCancelled)
 	}
 
-	queryCtx, cancel := d.queryContext(ctx)
-	defer cancel()
-
-	client, err := d.open(queryCtx, request.SourceID)
+	client, queryCtx, cancel, err := d.openCatalog(ctx, request.SourceID)
 	if err != nil {
-		return execution.TableDiscoveryPage{}, projectSQLiteDiscoveryError(ctx, queryCtx, err, sqliteErrorPhaseOpen)
+		return execution.TableDiscoveryPage{}, err
 	}
+	defer cancel()
 	defer func() {
 		retErr = errors.Join(
 			retErr,

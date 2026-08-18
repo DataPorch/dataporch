@@ -111,6 +111,19 @@ func (d *Discoverer) ListColumns(
 		page.HasMore = true
 		page.Columns = page.Columns[:request.Limit]
 	}
+	if request.AfterOrdinal == 0 {
+		page.Constraints, err = listConstraints(
+			ctx,
+			queryCtx,
+			client.pool,
+			client.database,
+			request.Table,
+			page.Columns,
+		)
+		if err != nil {
+			return execution.ColumnDiscoveryPage{}, err
+		}
+	}
 	return page, nil
 }
 

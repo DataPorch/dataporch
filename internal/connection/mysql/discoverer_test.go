@@ -2,6 +2,7 @@ package mysql
 
 import (
 	"context"
+	"database/sql/driver"
 	"errors"
 	"reflect"
 	"sync"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/adamraziv/dataporch/internal/connection"
 	"github.com/adamraziv/dataporch/internal/execution"
+	gomysql "github.com/go-sql-driver/mysql"
 )
 
 type testClientOpener struct {
@@ -237,6 +239,94 @@ func TestDiscovererProjectsUnavailableOpenerErrors(t *testing.T) {
 	_, err := discoverer.ListSchemas(t.Context(), execution.SchemaDiscoveryRequest{SourceID: "finance", Limit: 1})
 	if !errors.Is(err, execution.ErrDatabaseUnavailable) || !errors.Is(err, openErr) {
 		t.Fatalf("ListSchemas() error = %v, want unavailable opener error", err)
+	}
+}
+
+func TestListTablesProjectsMySQLPermissionErrorsForDiscoveryClassification(t *testing.T) {
+	t.Parallel()
+
+	nativeErr := &gomysql.MySQLError{
+		Number:   1142,
+		SQLState: [5]byte{'4', '2', '0', '0', '0'},
+		Message:  "SELECT command denied",
+	}
+	discoverer := lifecycleTestDiscoverer(t, &testClientOpener{
+		client: &Client{pool: &testCatalogPool{queryErr: nativeErr}, database: "finance"},
+	})
+
+	_, err := discoverer.ListTables(t.Context(), execution.TableDiscoveryRequest{
+		SourceID: "finance",
+		Schema:   "finance",
+		Limit:    1,
+	})
+	if !errors.Is(err, nativeErr) {
+		t.Fatalf("ListTables() error = %v, want native cause", err)
+	}
+
+	failure := execution.Classify(err)
+	if failure.Category != execution.ErrorCategoryDatabasePermissionDenied {
+		t.Fatalf(
+			"Classify(ListTables()) category = %q, want %q",
+			failure.Category,
+			execution.ErrorCategoryDatabasePermissionDenied,
+		)
+	}
+}
+
+func TestClassifyDiscoveryQueryErrorUsesDiscoverySentinels(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		err  error
+		want execution.ErrorCategory
+	}{
+		{
+			name: "permission denied",
+			err:  &gomysql.MySQLError{Number: 1142},
+			want: execution.ErrorCategoryDatabasePermissionDenied,
+		},
+		{
+			name: "query timeout",
+			err:  &gomysql.MySQLError{Number: 3024},
+			want: execution.ErrorCategoryQueryTimeout,
+		},
+		{
+			name: "query cancelled",
+			err:  &gomysql.MySQLError{Number: 1317},
+			want: execution.ErrorCategoryCancelled,
+		},
+		{
+			name: "database unavailable",
+			err:  &gomysql.MySQLError{Number: 1040},
+			want: execution.ErrorCategoryDatabaseUnavailable,
+		},
+		{
+			name: "bad connection",
+			err:  driver.ErrBadConn,
+			want: execution.ErrorCategoryDatabaseUnavailable,
+		},
+		{
+			name: "unknown native error",
+			err:  &gomysql.MySQLError{Number: 9999},
+			want: execution.ErrorCategoryInternal,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := classifyDiscoveryQueryError(t.Context(), t.Context(), test.err)
+			if !errors.Is(err, test.err) {
+				t.Fatalf("classifyDiscoveryQueryError() error = %v, want native cause", err)
+			}
+
+			failure := execution.Classify(err)
+			if failure.Category != test.want {
+				t.Fatalf("failure category = %q, want %q", failure.Category, test.want)
+			}
+		})
 	}
 }
 

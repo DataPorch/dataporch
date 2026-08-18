@@ -14,12 +14,17 @@ func (e *QueryExecutor) readResult(
 	stmt statement,
 	result execution.RelationalQueryResult,
 ) (execution.RelationalQueryResult, error) {
-	if stmt == nil || stmt.ColumnCount() == 0 {
+	if stmt == nil {
 		return execution.RelationalQueryResult{}, execution.ErrInvalidQuery
 	}
 
-	result.Columns = make([]execution.RelationalQueryColumn, 0, stmt.ColumnCount())
-	for index := 0; index < stmt.ColumnCount(); index++ {
+	columnCount := stmt.ColumnCount()
+	if columnCount == 0 {
+		return execution.RelationalQueryResult{}, execution.ErrInvalidQuery
+	}
+
+	result.Columns = make([]execution.RelationalQueryColumn, 0, columnCount)
+	for index := range columnCount {
 		result.Columns = append(result.Columns, execution.RelationalQueryColumn{
 			Name:         stmt.ColumnName(index),
 			DatabaseType: stmt.ColumnDeclType(index),
@@ -70,7 +75,7 @@ func (e *QueryExecutor) readResult(
 
 func (e *QueryExecutor) readRow(stmt statement, columnCount int) ([]*string, error) {
 	row := make([]*string, columnCount)
-	for index := 0; index < columnCount; index++ {
+	for index := range columnCount {
 		value, err := e.cellValue(stmt, index)
 		if err != nil {
 			return nil, err

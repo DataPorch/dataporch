@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"net/url"
 	"path/filepath"
 	"strings"
@@ -64,7 +65,7 @@ func TestSQLiteImportToMCPIntegration(t *testing.T) {
 	if err := json.NewDecoder(response.Body).Decode(&importResult); err != nil {
 		t.Fatalf("decode import response: %v", err)
 	}
-	if response.StatusCode != 201 || importResult.DatabaseID != "sqlite-fixture" || importResult.IsConnectionTested {
+	if response.StatusCode != http.StatusCreated || importResult.DatabaseID != "sqlite-fixture" || importResult.IsConnectionTested {
 		t.Fatalf("import response = %#v status=%d, want untested created source", importResult, response.StatusCode)
 	}
 
@@ -152,7 +153,7 @@ func TestSQLiteImportToMCPIntegration(t *testing.T) {
 	if replacementResponse.Body != nil {
 		_ = replacementResponse.Body.Close()
 	}
-	if replacementResponse.StatusCode != 200 {
+	if replacementResponse.StatusCode != http.StatusOK {
 		t.Fatalf("replacement import status = %d, want 200", replacementResponse.StatusCode)
 	}
 	replacementQuery := callRelationalQueryTool(t, session, map[string]any{
@@ -179,7 +180,7 @@ func TestSQLiteImportToMCPIntegration(t *testing.T) {
 	if failedResponse.Body != nil {
 		_ = failedResponse.Body.Close()
 	}
-	if failedResponse.StatusCode == 201 || failedResponse.StatusCode == 200 {
+	if failedResponse.StatusCode == http.StatusCreated || failedResponse.StatusCode == http.StatusOK {
 		t.Fatalf("failed replacement import status = %d, want failure without registration", failedResponse.StatusCode)
 	}
 	if strings.Contains(logs.String(), "SELECT missing_column FROM items") {

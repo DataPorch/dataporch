@@ -279,10 +279,8 @@ func TestIntegrationSQLiteConcurrentReadsInvalidateAndShutdown(t *testing.T) {
 
 	identities := make(chan uintptr, 50)
 	var group sync.WaitGroup
-	for index := 0; index < 50; index++ {
-		group.Add(1)
-		go func() {
-			defer group.Done()
+	for range 50 {
+		group.Go(func() {
 			client, openErr := runtime.open(t.Context(), "fixture", accessModeQuery)
 			if openErr != nil {
 				t.Errorf("Runtime.open() error = %v", openErr)
@@ -295,7 +293,7 @@ func TestIntegrationSQLiteConcurrentReadsInvalidateAndShutdown(t *testing.T) {
 			if closeErr := client.close(); closeErr != nil {
 				t.Errorf("client.close() error = %v", closeErr)
 			}
-		}()
+		})
 	}
 	group.Wait()
 	close(identities)

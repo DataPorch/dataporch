@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"unicode/utf8"
 
@@ -252,10 +253,8 @@ func resolvedPath(id connection.ID, resolved connection.ResolvedDefinition) (str
 	if !exists || len(pathBytes) == 0 || !utf8.Valid(pathBytes) {
 		return "", fmt.Errorf("%w: path secret required", errInvalidResolvedDefinition)
 	}
-	for _, byteValue := range pathBytes {
-		if byteValue == 0 {
-			return "", fmt.Errorf("%w: path secret invalid", errInvalidResolvedDefinition)
-		}
+	if slices.Contains(pathBytes, 0) {
+		return "", fmt.Errorf("%w: path secret invalid", errInvalidResolvedDefinition)
 	}
 
 	return string(pathBytes), nil

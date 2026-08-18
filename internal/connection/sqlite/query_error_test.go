@@ -44,23 +44,23 @@ func TestProjectSQLiteErrorsByCodeFamily(t *testing.T) {
 		code     string
 		extended string
 	}{
-		{name: "auth", err: sqlite3.ErrorCode(sqlite3.AUTH), category: execution.ErrorCategoryDatabasePermissionDenied, code: "SQLITE_AUTH"},
-		{name: "perm", err: sqlite3.ErrorCode(sqlite3.PERM), category: execution.ErrorCategoryDatabasePermissionDenied, code: "SQLITE_PERM"},
-		{name: "readonly", err: sqlite3.ErrorCode(sqlite3.READONLY), category: execution.ErrorCategoryReadOnlyViolation, code: "SQLITE_READONLY"},
-		{name: "busy snapshot", err: sqlite3.ExtendedErrorCode(sqlite3.BUSY_SNAPSHOT), category: execution.ErrorCategoryDatabaseConflict, retry: true, code: "SQLITE_BUSY", extended: "SQLITE_BUSY_SNAPSHOT"},
-		{name: "cantopen", err: sqlite3.ErrorCode(sqlite3.CANTOPEN), category: execution.ErrorCategoryDatabaseUnavailable, retry: true, code: "SQLITE_CANTOPEN"},
-		{name: "ioerr", err: sqlite3.ExtendedErrorCode(sqlite3.IOERR_READ), category: execution.ErrorCategoryDatabaseUnavailable, retry: true, code: "SQLITE_IOERR", extended: "SQLITE_IOERR_READ"},
-		{name: "prepare syntax", err: sqlite3.ErrorCode(sqlite3.ERROR), phase: sqliteErrorPhasePrepare, category: execution.ErrorCategoryInvalidQuery, code: "SQLITE_ERROR"},
-		{name: "step error", err: sqlite3.ErrorCode(sqlite3.ERROR), phase: sqliteErrorPhaseStep, category: execution.ErrorCategoryDatabaseError, code: "SQLITE_ERROR"},
-		{name: "range", err: sqlite3.ErrorCode(sqlite3.RANGE), phase: sqliteErrorPhasePrepare, category: execution.ErrorCategoryInvalidQuery, code: "SQLITE_RANGE"},
-		{name: "mismatch", err: sqlite3.ErrorCode(sqlite3.MISMATCH), phase: sqliteErrorPhasePrepare, category: execution.ErrorCategoryInvalidQuery, code: "SQLITE_MISMATCH"},
-		{name: "misuse", err: sqlite3.ErrorCode(sqlite3.MISUSE), phase: sqliteErrorPhasePrepare, category: execution.ErrorCategoryInvalidQuery, code: "SQLITE_MISUSE"},
-		{name: "toobig", err: sqlite3.ErrorCode(sqlite3.TOOBIG), category: execution.ErrorCategoryDatabaseResourceExhausted, code: "SQLITE_TOOBIG"},
-		{name: "nomem", err: sqlite3.ErrorCode(sqlite3.NOMEM), category: execution.ErrorCategoryDatabaseResourceExhausted, code: "SQLITE_NOMEM"},
-		{name: "full", err: sqlite3.ErrorCode(sqlite3.FULL), category: execution.ErrorCategoryDatabaseResourceExhausted, code: "SQLITE_FULL"},
-		{name: "notadb", err: sqlite3.ErrorCode(sqlite3.NOTADB), category: execution.ErrorCategoryDatabaseError, code: "SQLITE_NOTADB"},
-		{name: "corrupt", err: sqlite3.ErrorCode(sqlite3.CORRUPT), category: execution.ErrorCategoryDatabaseError, code: "SQLITE_CORRUPT"},
-		{name: "interrupt", err: sqlite3.ErrorCode(sqlite3.INTERRUPT), category: execution.ErrorCategoryQueryCancelled, code: "SQLITE_INTERRUPT"},
+		{name: "auth", err: sqlite3.AUTH, category: execution.ErrorCategoryDatabasePermissionDenied, code: "SQLITE_AUTH"},
+		{name: "perm", err: sqlite3.PERM, category: execution.ErrorCategoryDatabasePermissionDenied, code: "SQLITE_PERM"},
+		{name: "readonly", err: sqlite3.READONLY, category: execution.ErrorCategoryReadOnlyViolation, code: "SQLITE_READONLY"},
+		{name: "busy snapshot", err: sqlite3.BUSY_SNAPSHOT, category: execution.ErrorCategoryDatabaseConflict, retry: true, code: "SQLITE_BUSY", extended: "SQLITE_BUSY_SNAPSHOT"},
+		{name: "cantopen", err: sqlite3.CANTOPEN, category: execution.ErrorCategoryDatabaseUnavailable, retry: true, code: "SQLITE_CANTOPEN"},
+		{name: "ioerr", err: sqlite3.IOERR_READ, category: execution.ErrorCategoryDatabaseUnavailable, retry: true, code: "SQLITE_IOERR", extended: "SQLITE_IOERR_READ"},
+		{name: "prepare syntax", err: sqlite3.ERROR, phase: sqliteErrorPhasePrepare, category: execution.ErrorCategoryInvalidQuery, code: "SQLITE_ERROR"},
+		{name: "step error", err: sqlite3.ERROR, phase: sqliteErrorPhaseStep, category: execution.ErrorCategoryDatabaseError, code: "SQLITE_ERROR"},
+		{name: "range", err: sqlite3.RANGE, phase: sqliteErrorPhasePrepare, category: execution.ErrorCategoryInvalidQuery, code: "SQLITE_RANGE"},
+		{name: "mismatch", err: sqlite3.MISMATCH, phase: sqliteErrorPhasePrepare, category: execution.ErrorCategoryInvalidQuery, code: "SQLITE_MISMATCH"},
+		{name: "misuse", err: sqlite3.MISUSE, phase: sqliteErrorPhasePrepare, category: execution.ErrorCategoryInvalidQuery, code: "SQLITE_MISUSE"},
+		{name: "toobig", err: sqlite3.TOOBIG, category: execution.ErrorCategoryDatabaseResourceExhausted, code: "SQLITE_TOOBIG"},
+		{name: "nomem", err: sqlite3.NOMEM, category: execution.ErrorCategoryDatabaseResourceExhausted, code: "SQLITE_NOMEM"},
+		{name: "full", err: sqlite3.FULL, category: execution.ErrorCategoryDatabaseResourceExhausted, code: "SQLITE_FULL"},
+		{name: "notadb", err: sqlite3.NOTADB, category: execution.ErrorCategoryDatabaseError, code: "SQLITE_NOTADB"},
+		{name: "corrupt", err: sqlite3.CORRUPT, category: execution.ErrorCategoryDatabaseError, code: "SQLITE_CORRUPT"},
+		{name: "interrupt", err: sqlite3.INTERRUPT, category: execution.ErrorCategoryQueryCancelled, code: "SQLITE_INTERRUPT"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -81,23 +81,23 @@ func TestProjectSQLiteErrorContextPrecedenceAndIdempotence(t *testing.T) {
 
 	requestCtx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if err := projectSQLiteError(requestCtx, context.Background(), sqlite3.ErrorCode(sqlite3.AUTH), sqliteErrorPhaseStep); !errors.Is(err, execution.ErrCancelled) {
+	if err := projectSQLiteError(requestCtx, context.Background(), sqlite3.AUTH, sqliteErrorPhaseStep); !errors.Is(err, execution.ErrCancelled) {
 		t.Fatalf("cancelled request error = %v, want ErrCancelled", err)
 	}
 
 	deadlineCtx, deadlineCancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
 	defer deadlineCancel()
-	if err := projectSQLiteError(deadlineCtx, context.Background(), sqlite3.ErrorCode(sqlite3.AUTH), sqliteErrorPhaseStep); !errors.Is(err, execution.ErrQueryTimeout) {
+	if err := projectSQLiteError(deadlineCtx, context.Background(), sqlite3.AUTH, sqliteErrorPhaseStep); !errors.Is(err, execution.ErrQueryTimeout) {
 		t.Fatalf("deadline request error = %v, want ErrQueryTimeout", err)
 	}
 
 	queryCtx, queryCancel := context.WithCancel(context.Background())
 	queryCancel()
-	if err := projectSQLiteError(context.Background(), queryCtx, sqlite3.ErrorCode(sqlite3.INTERRUPT), sqliteErrorPhaseStep); !errors.Is(err, execution.ErrQueryCancelled) {
+	if err := projectSQLiteError(context.Background(), queryCtx, sqlite3.INTERRUPT, sqliteErrorPhaseStep); !errors.Is(err, execution.ErrQueryCancelled) {
 		t.Fatalf("cancelled query error = %v, want ErrQueryCancelled", err)
 	}
 
-	projected := projectSQLiteError(context.Background(), context.Background(), sqlite3.ErrorCode(sqlite3.AUTH), sqliteErrorPhaseStep)
+	projected := projectSQLiteError(context.Background(), context.Background(), sqlite3.AUTH, sqliteErrorPhaseStep)
 	if got := projectSQLiteError(context.Background(), context.Background(), projected, sqliteErrorPhaseStep); got != projected {
 		t.Fatal("already projected failure was wrapped again")
 	}

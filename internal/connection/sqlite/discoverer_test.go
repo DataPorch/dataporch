@@ -64,17 +64,17 @@ func TestDiscovererProjectsCatalogFailures(t *testing.T) {
 	}{
 		{
 			name:       "prepare",
-			prepareErr: fmt.Errorf("catalog path /private/secret.db: %w", sqlite3.ErrorCode(sqlite3.ERROR)),
+			prepareErr: fmt.Errorf("catalog path /private/secret.db: %w", sqlite3.ERROR),
 			category:   execution.ErrorCategoryDatabaseError,
 		},
 		{
 			name:     "step",
-			stepErr:  fmt.Errorf("catalog path /private/secret.db: %w", sqlite3.ErrorCode(sqlite3.ERROR)),
+			stepErr:  fmt.Errorf("catalog path /private/secret.db: %w", sqlite3.ERROR),
 			category: execution.ErrorCategoryDatabaseError,
 		},
 		{
 			name:     "close",
-			closeErr: fmt.Errorf("catalog path /private/secret.db: %w", sqlite3.ExtendedErrorCode(sqlite3.IOERR_CLOSE)),
+			closeErr: fmt.Errorf("catalog path /private/secret.db: %w", sqlite3.IOERR_CLOSE),
 			category: execution.ErrorCategoryDatabaseUnavailable,
 		},
 	}
@@ -273,7 +273,7 @@ func (s *discoveryErrorStatement) Err() error {
 func (s *discoveryErrorStatement) Step() bool {
 	if s.stepWait && s.interruptDone != nil {
 		<-s.interruptDone
-		s.stepErr = sqlite3.ErrorCode(sqlite3.INTERRUPT)
+		s.stepErr = sqlite3.INTERRUPT
 	}
 	return false
 }

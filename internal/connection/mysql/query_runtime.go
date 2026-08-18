@@ -78,7 +78,12 @@ func (t *mysqlQueryTransaction) QueryContext(
 		return nil, sql.ErrTxDone
 	}
 
-	return t.transaction.QueryContext(ctx, query, args...) //nolint:rowserrcheck // queryResultReader consumes Rows.Err.
+	rows, err := t.transaction.QueryContext(ctx, query, args...) //nolint:rowserrcheck // queryResultReader consumes Rows.Err.
+	if rows == nil {
+		return nil, err
+	}
+
+	return rows, err
 }
 
 func (t *mysqlQueryTransaction) Rollback() error {

@@ -67,10 +67,16 @@ jobs:
       - name: Test
         run: go test -race -shuffle=on -coverprofile=coverage.out ./...
 
-      - name: Test Postgres integration
+      - name: Test relational integration
         env:
           DATAPORCH_TEST_POSTGRES_DSN: postgres://dataporch:dataporch-test@127.0.0.1:5432/dataporch?sslmode=disable
-        run: go test -race -count=1 -tags=integration ./internal/connection/postgres ./internal/app
+        run: go test -race -count=1 -tags=integration ./internal/connection/postgres ./internal/connection/sqlite ./internal/app
+
+      - name: Test with CGO disabled
+        run: make test-cgo-disabled
+
+      - name: Build with CGO disabled
+        run: make build-cgo-disabled
 
       - name: Build
         run: go build -trimpath ./cmd/dataporch

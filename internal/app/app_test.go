@@ -12,11 +12,14 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
 	"github.com/adamraziv/dataporch/internal/config"
 	"github.com/adamraziv/dataporch/internal/connection"
+	"github.com/adamraziv/dataporch/internal/connection/postgres"
+	"github.com/adamraziv/dataporch/internal/connection/sqlite"
 	"github.com/adamraziv/dataporch/internal/execution"
 	"github.com/adamraziv/dataporch/internal/secret/local"
 )
@@ -57,6 +60,31 @@ func TestNewStartsWithoutInitializedSecretStore(t *testing.T) {
 
 	if application.manager == nil {
 		t.Fatal("manager = nil")
+	}
+}
+
+func TestNewComposesPostgresThenSQLiteRuntimes(t *testing.T) {
+	t.Parallel()
+
+	application, err := New(testConfigFor(t), slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	if len(application.runtimes) != 2 {
+		t.Fatalf("application runtimes = %d, want 2", len(application.runtimes))
+	}
+
+	if _, ok := application.runtimes[0].(*postgres.Opener); !ok {
+		t.Fatalf("first runtime type = %T, want *postgres.Opener", application.runtimes[0])
+	}
+
+	if _, ok := application.runtimes[1].(*sqlite.Runtime); !ok {
+		t.Fatalf("second runtime type = %T, want *sqlite.Runtime", application.runtimes[1])
+	}
+
+	if err := application.closeRuntimes(t.Context()); err != nil {
+		t.Fatalf("closeRuntimes() error = %v", err)
 	}
 }
 
@@ -411,6 +439,103 @@ func newAppWithRelationalModules(
 	}
 
 	return application
+}
+
+func assertRelationalModule(
+	t *testing.T,
+	module relationalModule,
+	wantKind connection.Kind,
+	runtimeMatches func(any) bool,
+	wantRuntime string,
+) {
+	t.Helper()
+
+	if module.adapter.Kind() != wantKind {
+		t.Fatalf("adapter kind = %q, want %q", module.adapter.Kind(), wantKind)
+	}
+
+	if module.discoverer.Kind() != wantKind || module.queryExecutor.Kind() != wantKind {
+		t.Fatal("execution components disagree with adapter kind")
+	}
+
+	if !runtimeMatches(module.runtime) {
+		t.Fatalf("runtime type = %T, want %s", module.runtime, wantRuntime)
+	}
+}
+
+func testRelationalModuleRejectsInvalidInputs(
+	t *testing.T,
+	manager *connection.Manager,
+	newModule relationalModuleFactory,
+) {
+	t.Helper()
+
+	tests := []struct {
+		name    string
+		manager *connection.Manager
+		policy  queryPolicy
+	}{
+		{name: "nil manager", manager: nil, policy: validQueryPolicy()},
+		{name: "missing timeout", manager: manager, policy: queryPolicy{
+			responseByteLimit: 1024,
+			truncationEnabled: true,
+			rowLimit:          100,
+		}},
+		{name: "missing response byte limit", manager: manager, policy: queryPolicy{
+			timeout:           time.Second,
+			truncationEnabled: true,
+			rowLimit:          100,
+		}},
+		{name: "missing truncation row limit", manager: manager, policy: queryPolicy{
+			timeout:           time.Second,
+			responseByteLimit: 1024,
+			truncationEnabled: true,
+		}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			module, err := newModule(test.manager, test.policy)
+			if err == nil {
+				t.Fatal("module constructor error = nil, want error")
+			}
+
+			if !reflect.DeepEqual(module, relationalModule{}) {
+				t.Fatalf("module = %#v, want zero module", module)
+			}
+		})
+	}
+}
+
+func testNewConstructsRelationalRuntimeWithoutOpening(
+	t *testing.T,
+	factory relationalModuleFactory,
+	runtimeMatches func(any) bool,
+	wantRuntime string,
+) {
+	t.Helper()
+
+	application, err := newWithDependencies(
+		testConfigFor(t),
+		slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)),
+		appDependencies{
+			relationalModuleFactories: []relationalModuleFactory{factory},
+			newExecutionService:       execution.New,
+		},
+	)
+	if err != nil {
+		t.Fatalf("newWithDependencies() error = %v", err)
+	}
+
+	if len(application.runtimes) != 1 {
+		t.Fatalf("application runtimes = %d, want 1", len(application.runtimes))
+	}
+
+	if !runtimeMatches(application.runtimes[0]) {
+		t.Fatalf("application runtime type = %T, want %s", application.runtimes[0], wantRuntime)
+	}
 }
 
 func testConfig() config.Config {

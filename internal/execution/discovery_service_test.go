@@ -531,6 +531,42 @@ func TestServiceRoutesPostgreSQLControlIdentifiers(t *testing.T) {
 	}
 }
 
+func TestServiceAcceptsVirtualTableRelationKind(t *testing.T) {
+	t.Parallel()
+
+	discoverer := &recordingDiscoverer{
+		kind: "sqlite",
+		columnsPage: ColumnDiscoveryPage{
+			RelationKind: RelationKindVirtualTable,
+		},
+	}
+
+	service, err := New(Dependencies{
+		Sources: &sourceRegistryStub{definitions: []connection.Definition{
+			{ID: "catalog", Kind: "sqlite"},
+		}},
+		Authorizer:            &recordingAuthorizer{},
+		MaxLimit:              10,
+		RelationalDiscoverers: []RelationalDiscoverer{discoverer},
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	_, err = service.ListRelationalColumns(t.Context(), ListRelationalColumnsRequest{
+		SourceID: "catalog",
+		Schema:   "main",
+		Table:    "search_index",
+	})
+	if err != nil {
+		t.Fatalf("ListRelationalColumns() error = %v", err)
+	}
+
+	if err := validateRelationKind(RelationKind("unknown")); !errors.Is(err, ErrUnsupportedRelationKind) {
+		t.Fatalf("validateRelationKind(unknown) = %v, want ErrUnsupportedRelationKind", err)
+	}
+}
+
 func TestClassify(t *testing.T) {
 	t.Parallel()
 

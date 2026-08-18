@@ -6,7 +6,6 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -27,17 +26,10 @@ func TestNewPostgresModule(t *testing.T) {
 		t.Fatalf("newPostgresModule() error = %v", err)
 	}
 
-	if module.adapter.Kind() != postgres.Kind {
-		t.Fatalf("adapter kind = %q, want %q", module.adapter.Kind(), postgres.Kind)
-	}
-
-	if module.discoverer.Kind() != postgres.Kind || module.queryExecutor.Kind() != postgres.Kind {
-		t.Fatal("PostgreSQL execution components disagree with adapter kind")
-	}
-
-	if _, ok := module.runtime.(*postgres.Opener); !ok {
-		t.Fatalf("runtime type = %T, want *postgres.Opener", module.runtime)
-	}
+	assertRelationalModule(t, module, postgres.Kind, func(runtime any) bool {
+		_, ok := runtime.(*postgres.Opener)
+		return ok
+	}, "*postgres.Opener")
 
 	if err := module.runtime.Close(t.Context()); err != nil {
 		t.Fatalf("runtime.Close() error = %v", err)
@@ -48,67 +40,16 @@ func TestNewPostgresModuleRejectsInvalidInputs(t *testing.T) {
 	t.Parallel()
 
 	manager := newRelationalTestManager(t)
-	tests := []struct {
-		name    string
-		manager *connection.Manager
-		policy  queryPolicy
-	}{
-		{name: "nil manager", manager: nil, policy: validQueryPolicy()},
-		{name: "missing timeout", manager: manager, policy: queryPolicy{
-			responseByteLimit: 1024,
-			truncationEnabled: true,
-			rowLimit:          100,
-		}},
-		{name: "missing response byte limit", manager: manager, policy: queryPolicy{
-			timeout:           time.Second,
-			truncationEnabled: true,
-			rowLimit:          100,
-		}},
-		{name: "missing truncation row limit", manager: manager, policy: queryPolicy{
-			timeout:           time.Second,
-			responseByteLimit: 1024,
-			truncationEnabled: true,
-		}},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-
-			module, err := newPostgresModule(test.manager, test.policy)
-			if err == nil {
-				t.Fatal("newPostgresModule() error = nil, want error")
-			}
-
-			if !reflect.DeepEqual(module, relationalModule{}) {
-				t.Fatalf("newPostgresModule() module = %#v, want zero module", module)
-			}
-		})
-	}
+	testRelationalModuleRejectsInvalidInputs(t, manager, newPostgresModule)
 }
 
 func TestNewConstructsPostgresRuntimeWithoutOpening(t *testing.T) {
 	t.Parallel()
 
-	application, err := newWithDependencies(
-		testConfigFor(t),
-		slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)),
-		appDependencies{
-			relationalModuleFactories: []relationalModuleFactory{newPostgresModule},
-			newExecutionService:       execution.New,
-		},
-	)
-	if err != nil {
-		t.Fatalf("newWithDependencies() error = %v", err)
-	}
-
-	if len(application.runtimes) != 1 {
-		t.Fatalf("application runtimes = %d, want 1", len(application.runtimes))
-	}
-
-	if _, ok := application.runtimes[0].(*postgres.Opener); !ok {
-		t.Fatalf("application runtime type = %T, want *postgres.Opener", application.runtimes[0])
-	}
+	testNewConstructsRelationalRuntimeWithoutOpening(t, newPostgresModule, func(runtime any) bool {
+		_, ok := runtime.(*postgres.Opener)
+		return ok
+	}, "*postgres.Opener")
 }
 
 func TestAppSuccessfulImportInvalidatesPostgresRuntime(t *testing.T) {

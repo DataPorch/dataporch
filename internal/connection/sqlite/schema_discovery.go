@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/adamraziv/dataporch/internal/execution"
@@ -12,7 +13,14 @@ func (d *Discoverer) ListSchemas(
 	ctx context.Context,
 	request execution.SchemaDiscoveryRequest,
 ) (page execution.SchemaDiscoveryPage, retErr error) {
-	client, err := d.open(ctx, request.SourceID)
+	if ctx == nil {
+		return page, fmt.Errorf("%w: context is required", execution.ErrCancelled)
+	}
+
+	queryCtx, cancel := d.queryContext(ctx)
+	defer cancel()
+
+	client, err := d.open(queryCtx, request.SourceID)
 	if err != nil {
 		return execution.SchemaDiscoveryPage{}, err
 	}

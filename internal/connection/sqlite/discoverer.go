@@ -5,27 +5,41 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"time"
 
 	"github.com/adamraziv/dataporch/internal/connection"
 	"github.com/adamraziv/dataporch/internal/execution"
 )
 
-var errDiscoveryRuntimeRequired = errors.New("sqlite: discovery runtime is required")
+const metadataQueryTimeout = 20 * time.Second
+
+var (
+	errDiscoveryRuntimeRequired     = errors.New("sqlite: discovery runtime is required")
+	errMetadataQueryTimeoutRequired = errors.New("sqlite: metadata query timeout is required")
+)
 
 type discoveryOpener interface {
 	open(context.Context, connection.ID, accessMode) (*client, error)
 }
 
 type Discoverer struct {
-	runtime discoveryOpener
+	runtime      discoveryOpener
+	queryTimeout time.Duration
 }
 
 func NewDiscoverer(runtime discoveryOpener) (*Discoverer, error) {
+	return newDiscoverer(runtime, metadataQueryTimeout)
+}
+
+func newDiscoverer(runtime discoveryOpener, queryTimeout time.Duration) (*Discoverer, error) {
 	if isNilInterface(runtime) {
 		return nil, errDiscoveryRuntimeRequired
 	}
+	if queryTimeout <= 0 {
+		return nil, errMetadataQueryTimeoutRequired
+	}
 
-	return &Discoverer{runtime: runtime}, nil
+	return &Discoverer{runtime: runtime, queryTimeout: queryTimeout}, nil
 }
 
 func (*Discoverer) Kind() connection.Kind {
@@ -68,4 +82,8 @@ func (d *Discoverer) open(ctx context.Context, sourceID connection.ID) (*client,
 	}
 
 	return client, nil
+}
+
+func (d *Discoverer) queryContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeoutCause(ctx, d.queryTimeout, execution.ErrQueryTimeout)
 }

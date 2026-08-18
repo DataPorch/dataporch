@@ -54,7 +54,14 @@ func (d *Discoverer) ListColumns(
 	ctx context.Context,
 	request execution.ColumnDiscoveryRequest,
 ) (page execution.ColumnDiscoveryPage, retErr error) {
-	client, err := d.open(ctx, request.SourceID)
+	if ctx == nil {
+		return page, fmt.Errorf("%w: context is required", execution.ErrCancelled)
+	}
+
+	queryCtx, cancel := d.queryContext(ctx)
+	defer cancel()
+
+	client, err := d.open(queryCtx, request.SourceID)
 	if err != nil {
 		return execution.ColumnDiscoveryPage{}, err
 	}

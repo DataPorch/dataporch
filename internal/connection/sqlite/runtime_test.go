@@ -148,9 +148,6 @@ func TestRuntimeInvalidationDetachesOnlyCurrentEntry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("replacement Runtime.open() error = %v", err)
 	}
-	if runtime.generationByID["source"] != 1 {
-		t.Fatalf("source generation = %d, want 1 after invalidation", runtime.generationByID["source"])
-	}
 
 	for _, client := range []*client{first, other, replacement} {
 		if err := client.close(); err != nil {

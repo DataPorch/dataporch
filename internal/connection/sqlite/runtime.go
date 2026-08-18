@@ -67,19 +67,17 @@ type Runtime struct {
 	preparer       DefinitionPreparer
 	physicalOpener physicalOpener
 
-	mu             sync.Mutex
-	isClosed       bool
-	active         int
-	entries        map[connection.ID]*logicalEntry
-	generationByID map[connection.ID]uint64
-	drain          chan struct{}
-	drainClosed    bool
+	mu          sync.Mutex
+	isClosed    bool
+	active      int
+	entries     map[connection.ID]*logicalEntry
+	drain       chan struct{}
+	drainClosed bool
 }
 
 type logicalEntry struct {
-	generation uint64
-	active     int
-	detached   bool
+	active   int
+	detached bool
 }
 
 func NewRuntime(preparer DefinitionPreparer) (*Runtime, error) {
@@ -98,7 +96,6 @@ func newRuntime(preparer DefinitionPreparer, opener physicalOpener) (*Runtime, e
 		preparer:       preparer,
 		physicalOpener: opener,
 		entries:        make(map[connection.ID]*logicalEntry),
-		generationByID: make(map[connection.ID]uint64),
 		drain:          make(chan struct{}),
 	}, nil
 }
@@ -165,7 +162,7 @@ func (r *Runtime) acquire(id connection.ID) (func(), error) {
 
 	entry := r.entries[id]
 	if entry == nil || entry.detached {
-		entry = &logicalEntry{generation: r.generationByID[id]}
+		entry = &logicalEntry{}
 		r.entries[id] = entry
 	}
 	entry.active++
@@ -197,7 +194,6 @@ func (r *Runtime) Invalidate(id connection.ID) {
 		return
 	}
 
-	r.generationByID[id]++
 	if entry, exists := r.entries[id]; exists {
 		entry.detached = true
 		delete(r.entries, id)

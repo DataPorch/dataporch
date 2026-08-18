@@ -132,6 +132,42 @@ jobs:
       - name: Test SQLite integration
         run: make test-integration-sqlite
 
+  mysql-integration:
+    name: MySQL integration (8.4)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_DATABASE: dataporch
+          MYSQL_ROOT_PASSWORD: dataporch-root-test
+          MYSQL_ROOT_HOST: "%"
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -uroot -pdataporch-root-test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: "1.25"
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Test MySQL integration
+        env:
+          DATAPORCH_TEST_MYSQL_DSN: mysql://root:dataporch-root-test@127.0.0.1:3306/dataporch?sslmode=disable
+        run: make test-integration-mysql
+
   portable:
     name: Portable (CGO disabled)
     runs-on: ubuntu-latest

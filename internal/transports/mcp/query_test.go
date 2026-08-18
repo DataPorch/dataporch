@@ -50,6 +50,7 @@ func TestQueryToolHasExactInputSchemaAndAnnotations(t *testing.T) {
 
 	if queryTool == nil {
 		t.Fatal("query tool is not registered")
+		return
 	}
 
 	if queryTool.Annotations == nil || !queryTool.Annotations.ReadOnlyHint ||

@@ -59,12 +59,14 @@ func isNilInterface(value any) bool {
 	}
 
 	reflected := reflect.ValueOf(value)
-	switch reflected.Kind() { //nolint:exhaustive // Only nil-able kinds can contain typed nil values.
-	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+	kind := reflected.Kind()
+
+	if kind == reflect.Chan || kind == reflect.Func || kind == reflect.Interface ||
+		kind == reflect.Map || kind == reflect.Pointer || kind == reflect.Slice {
 		return reflected.IsNil()
-	default:
-		return false
 	}
+
+	return false
 }
 
 func (d *Discoverer) open(ctx context.Context, sourceID connection.ID) (*client, error) {

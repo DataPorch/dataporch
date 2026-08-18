@@ -12,6 +12,7 @@ import (
 	"github.com/adamraziv/dataporch/internal/execution"
 )
 
+//nolint:dupl // PostgreSQL and SQLite module tests intentionally mirror the shared app contract.
 func TestNewSQLiteModule(t *testing.T) {
 	t.Parallel()
 

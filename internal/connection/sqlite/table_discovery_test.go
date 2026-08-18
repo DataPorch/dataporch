@@ -62,6 +62,7 @@ func TestDiscovererListSchemas(t *testing.T) {
 	}
 }
 
+//nolint:gocyclo // Assertion-heavy test covers relation mapping, search, and pagination together.
 func TestDiscovererListTablesMapsRelationsAndPaginates(t *testing.T) {
 	t.Parallel()
 

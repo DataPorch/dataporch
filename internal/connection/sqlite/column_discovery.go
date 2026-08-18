@@ -51,6 +51,7 @@ func typeAffinity(declared string) execution.TypeAffinity {
 	}
 }
 
+//nolint:gocyclo // Catalog execution keeps validation, binding, pagination, and cleanup in one ordered lifecycle.
 func (d *Discoverer) ListColumns(
 	ctx context.Context,
 	request execution.ColumnDiscoveryRequest,

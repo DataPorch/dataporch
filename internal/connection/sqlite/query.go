@@ -68,24 +68,36 @@ func (e *QueryExecutor) Kind() connection.Kind {
 	return Kind
 }
 
+func validateQueryRequest(
+	requestContext context.Context,
+	request execution.RelationalQueryExecutionRequest,
+) error {
+	if requestContext == nil {
+		return execution.ErrCancelled
+	}
+
+	if err := requestContext.Err(); err != nil {
+		return projectSQLiteError(requestContext, nil, err, sqliteErrorPhasePrepare)
+	}
+
+	if request.Source.ID == "" || request.Source.Kind != Kind {
+		return execution.ErrInvalidRequest
+	}
+
+	if strings.TrimSpace(request.Query) == "" {
+		return execution.ErrInvalidQuery
+	}
+
+	return nil
+}
+
+//nolint:gocyclo // Query execution keeps request validation, resource ownership, and error projection in one lifecycle.
 func (e *QueryExecutor) Query(
 	requestContext context.Context,
 	request execution.RelationalQueryExecutionRequest,
 ) (result execution.RelationalQueryResult, returnErr error) {
-	if requestContext == nil {
-		return result, execution.ErrCancelled
-	}
-
-	if err := requestContext.Err(); err != nil {
-		return result, projectSQLiteError(requestContext, nil, err, sqliteErrorPhasePrepare)
-	}
-
-	if request.Source.ID == "" || request.Source.Kind != Kind {
-		return result, execution.ErrInvalidRequest
-	}
-
-	if strings.TrimSpace(request.Query) == "" {
-		return result, execution.ErrInvalidQuery
+	if err := validateQueryRequest(requestContext, request); err != nil {
+		return result, err
 	}
 
 	queryContext, cancel := context.WithTimeoutCause(requestContext, e.timeout, execution.ErrQueryTimeout)

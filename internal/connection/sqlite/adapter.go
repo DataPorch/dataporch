@@ -44,6 +44,7 @@ func (*Adapter) ParseConnectionString(input []byte) (connection.ParsedConnection
 	}, nil
 }
 
+//nolint:gocyclo // Ordered URI validation preserves precise, sanitized rejection categories.
 func parseConnectionURI(input []byte) (string, error) {
 	if !bytes.HasPrefix(input, []byte("sqlite:///")) {
 		return "", invalidConnectionString("unsupported scheme")

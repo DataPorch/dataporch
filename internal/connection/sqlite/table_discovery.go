@@ -20,6 +20,7 @@ WHERE schema = 'main'
 ORDER BY name COLLATE BINARY
 LIMIT ?3`
 
+//nolint:gocyclo // Catalog execution keeps validation, binding, pagination, and cleanup in one ordered lifecycle.
 func (d *Discoverer) ListTables(
 	ctx context.Context,
 	request execution.TableDiscoveryRequest,

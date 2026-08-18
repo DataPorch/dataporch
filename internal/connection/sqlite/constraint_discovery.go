@@ -194,6 +194,7 @@ func listSQLiteIndexColumns(conn rawConnection, indexName string) (columns []str
 	return columns, true, nil
 }
 
+//nolint:gocyclo // Foreign-key catalog rows form an ordered state machine that validates each transition.
 func listSQLiteForeignConstraints(conn rawConnection, table string) (constraints []execution.Constraint, retErr error) {
 	constraints = make([]execution.Constraint, 0)
 

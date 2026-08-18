@@ -45,6 +45,7 @@ func TestTypeAffinity(t *testing.T) {
 	}
 }
 
+//nolint:gocyclo // Assertion-heavy test covers the complete column metadata contract.
 func TestDiscovererListColumnsMapsMetadataAndPaginatesByOrdinal(t *testing.T) {
 	t.Parallel()
 

@@ -20,6 +20,7 @@ import (
 	"github.com/ncruces/go-sqlite3/ext/fts5"
 )
 
+//nolint:gocyclo,funlen // This end-to-end scenario covers import, query, replacement, and redaction together.
 func TestSQLiteImportToMCPIntegration(t *testing.T) {
 	t.Parallel()
 

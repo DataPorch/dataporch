@@ -195,6 +195,43 @@ func extractSQLiteError(err error) (extractedSQLiteError, bool) {
 	return extractedSQLiteError{}, false
 }
 
+func projectSQLiteContextError(
+	requestContext context.Context,
+	queryContext context.Context,
+	err error,
+) error {
+	if requestContext != nil {
+		switch requestContext.Err() {
+		case context.Canceled:
+			return fmt.Errorf("%w: %w", execution.ErrCancelled, context.Canceled)
+		case context.DeadlineExceeded:
+			return fmt.Errorf("%w: %w", execution.ErrQueryTimeout, context.DeadlineExceeded)
+		}
+	}
+
+	if queryContext == nil {
+		return nil
+	}
+
+	if cause := context.Cause(queryContext); cause != nil {
+		switch {
+		case errors.Is(cause, execution.ErrQueryTimeout):
+			return fmt.Errorf("%w: %w", execution.ErrQueryTimeout, err)
+		case errors.Is(cause, context.Canceled):
+			return fmt.Errorf("%w: %w", execution.ErrQueryCancelled, err)
+		}
+	}
+
+	switch queryContext.Err() {
+	case context.DeadlineExceeded:
+		return fmt.Errorf("%w: %w", execution.ErrQueryTimeout, err)
+	case context.Canceled:
+		return fmt.Errorf("%w: %w", execution.ErrQueryCancelled, err)
+	default:
+		return nil
+	}
+}
+
 func projectSQLiteError(
 	requestContext context.Context,
 	queryContext context.Context,
@@ -205,31 +242,8 @@ func projectSQLiteError(
 		return nil
 	}
 
-	if requestContext != nil {
-		switch requestContext.Err() {
-		case context.Canceled:
-			return fmt.Errorf("%w: %w", execution.ErrCancelled, context.Canceled)
-		case context.DeadlineExceeded:
-			return fmt.Errorf("%w: %w", execution.ErrQueryTimeout, context.DeadlineExceeded)
-		}
-	}
-
-	if queryContext != nil {
-		if cause := context.Cause(queryContext); cause != nil {
-			switch {
-			case errors.Is(cause, execution.ErrQueryTimeout):
-				return fmt.Errorf("%w: %w", execution.ErrQueryTimeout, err)
-			case errors.Is(cause, context.Canceled):
-				return fmt.Errorf("%w: %w", execution.ErrQueryCancelled, err)
-			}
-		}
-
-		switch queryContext.Err() {
-		case context.DeadlineExceeded:
-			return fmt.Errorf("%w: %w", execution.ErrQueryTimeout, err)
-		case context.Canceled:
-			return fmt.Errorf("%w: %w", execution.ErrQueryCancelled, err)
-		}
+	if projected := projectSQLiteContextError(requestContext, queryContext, err); projected != nil {
+		return projected
 	}
 
 	if (isProjectedSQLiteError(err) || isKnownQueryError(err)) && !hasSQLiteError(err) {
@@ -253,6 +267,10 @@ func projectSQLiteError(
 		)
 	}
 
+	return classifySQLiteError(extracted, phase)
+}
+
+func classifySQLiteError(extracted extractedSQLiteError, phase sqliteErrorPhase) error {
 	code := extracted.code
 	extendedSymbol := extendedCodeSymbol(extracted.extended)
 	primarySymbol := primaryCodeSymbol(code)
@@ -271,23 +289,42 @@ func projectSQLiteError(
 		databaseError.ExtendedCode = extendedSymbol
 	}
 
-	switch {
-	case code == sqlite3.AUTH || code == sqlite3.PERM:
-		return execution.NewDatabaseFailure(execution.ErrorCategoryDatabasePermissionDenied, false, databaseError)
-	case code == sqlite3.READONLY:
-		return execution.NewDatabaseFailure(execution.ErrorCategoryReadOnlyViolation, false, databaseError)
-	case code == sqlite3.BUSY || code == sqlite3.LOCKED:
-		return execution.NewDatabaseFailure(execution.ErrorCategoryDatabaseConflict, true, databaseError)
-	case code == sqlite3.INTERRUPT:
-		return execution.NewDatabaseFailure(execution.ErrorCategoryQueryCancelled, false, databaseError)
-	case code == sqlite3.CANTOPEN || code == sqlite3.IOERR:
-		return execution.NewDatabaseFailure(execution.ErrorCategoryDatabaseUnavailable, true, databaseError)
-	case (code == sqlite3.ERROR || code == sqlite3.RANGE || code == sqlite3.MISMATCH || code == sqlite3.MISUSE) && phase == sqliteErrorPhasePrepare:
-		return execution.NewDatabaseFailure(execution.ErrorCategoryInvalidQuery, false, databaseError)
-	case code == sqlite3.TOOBIG || code == sqlite3.NOMEM || code == sqlite3.FULL:
-		return execution.NewDatabaseFailure(execution.ErrorCategoryDatabaseResourceExhausted, false, databaseError)
+	category, retryable := sqliteErrorCategory(code, phase)
+
+	return execution.NewDatabaseFailure(category, retryable, databaseError)
+}
+
+func sqliteErrorCategory(code sqlite3.ErrorCode, phase sqliteErrorPhase) (execution.ErrorCategory, bool) {
+	if phase == sqliteErrorPhasePrepare && isSQLiteInvalidQueryCode(code) {
+		return execution.ErrorCategoryInvalidQuery, false
+	}
+
+	//nolint:exhaustive // Unknown SQLite codes use the database-error fallback below.
+	switch code {
+	case sqlite3.AUTH, sqlite3.PERM:
+		return execution.ErrorCategoryDatabasePermissionDenied, false
+	case sqlite3.READONLY:
+		return execution.ErrorCategoryReadOnlyViolation, false
+	case sqlite3.BUSY, sqlite3.LOCKED:
+		return execution.ErrorCategoryDatabaseConflict, true
+	case sqlite3.INTERRUPT:
+		return execution.ErrorCategoryQueryCancelled, false
+	case sqlite3.CANTOPEN, sqlite3.IOERR:
+		return execution.ErrorCategoryDatabaseUnavailable, true
+	case sqlite3.TOOBIG, sqlite3.NOMEM, sqlite3.FULL:
+		return execution.ErrorCategoryDatabaseResourceExhausted, false
 	default:
-		return execution.NewDatabaseFailure(execution.ErrorCategoryDatabaseError, false, databaseError)
+		return execution.ErrorCategoryDatabaseError, false
+	}
+}
+
+func isSQLiteInvalidQueryCode(code sqlite3.ErrorCode) bool {
+	//nolint:exhaustive // Only the documented invalid-query codes are special.
+	switch code {
+	case sqlite3.ERROR, sqlite3.RANGE, sqlite3.MISMATCH, sqlite3.MISUSE:
+		return true
+	default:
+		return false
 	}
 }
 

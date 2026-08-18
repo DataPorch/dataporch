@@ -38,9 +38,24 @@ func (e *QueryExecutor) readResult(
 		return execution.RelationalQueryResult{}, err
 	}
 
+	if err := e.readRows(queryContext, stmt, &result, &budget); err != nil {
+		return execution.RelationalQueryResult{}, err
+	}
+
+	result.RowCount = len(result.Rows)
+
+	return result, nil
+}
+
+func (e *QueryExecutor) readRows(
+	queryContext context.Context,
+	stmt statement,
+	result *execution.RelationalQueryResult,
+	budget *queryResultBudget,
+) error {
 	for stmt.Step() {
 		if err := queryContext.Err(); err != nil {
-			return execution.RelationalQueryResult{}, err
+			return err
 		}
 
 		if e.truncate && len(result.Rows) == e.rowLimit {
@@ -50,16 +65,16 @@ func (e *QueryExecutor) readResult(
 
 		row, err := e.readRow(stmt, len(result.Columns))
 		if err != nil {
-			return execution.RelationalQueryResult{}, err
+			return err
 		}
 
 		rowSize, rowFits, err := encodedRowSize(row, e.byteLimit)
 		if err != nil {
-			return execution.RelationalQueryResult{}, err
+			return err
 		}
 
 		if !rowFits || !budget.FitsAdditionalRow(rowSize) {
-			return execution.RelationalQueryResult{}, execution.ErrResultTooLarge
+			return execution.ErrResultTooLarge
 		}
 
 		result.Rows = append(result.Rows, row)
@@ -68,16 +83,14 @@ func (e *QueryExecutor) readResult(
 	}
 
 	if err := stmt.Err(); err != nil {
-		return execution.RelationalQueryResult{}, err
+		return err
 	}
 
 	if err := queryContext.Err(); err != nil {
-		return execution.RelationalQueryResult{}, err
+		return err
 	}
 
-	result.RowCount = len(result.Rows)
-
-	return result, nil
+	return nil
 }
 
 func (e *QueryExecutor) readRow(stmt statement, columnCount int) ([]*string, error) {

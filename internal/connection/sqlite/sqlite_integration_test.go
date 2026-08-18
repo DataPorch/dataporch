@@ -19,6 +19,7 @@ import (
 	sqlite3 "github.com/ncruces/go-sqlite3"
 )
 
+//nolint:gocyclo // The table-driven scenario covers every filesystem verification boundary.
 func TestIntegrationSQLiteFirstUseFileVerification(t *testing.T) {
 	t.Parallel()
 
@@ -140,6 +141,7 @@ func TestIntegrationSQLiteFirstUseFileVerification(t *testing.T) {
 	}
 }
 
+//nolint:gocyclo // This integration scenario exercises live replacement and cleanup as one workflow.
 func TestIntegrationSQLiteLiveUpdateAndAtomicReplacement(t *testing.T) {
 	t.Parallel()
 
@@ -226,6 +228,7 @@ func TestIntegrationSQLiteLiveUpdateAndAtomicReplacement(t *testing.T) {
 	}
 }
 
+//nolint:gocyclo // This integration scenario checks WAL sidecars across the complete lifecycle.
 func TestIntegrationSQLiteWALDoesNotMutateSidecars(t *testing.T) {
 	t.Parallel()
 
@@ -322,6 +325,7 @@ func TestIntegrationSQLiteWALDoesNotMutateSidecars(t *testing.T) {
 	}
 }
 
+//nolint:gocyclo // This integration scenario combines concurrent reads, invalidation, and shutdown.
 func TestIntegrationSQLiteConcurrentReadsInvalidateAndShutdown(t *testing.T) {
 	t.Parallel()
 

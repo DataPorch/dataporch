@@ -12,6 +12,7 @@ import (
 	statementext "github.com/ncruces/go-sqlite3/ext/statement"
 )
 
+//nolint:gocyclo // Assertion-heavy test covers structural and foreign-key metadata together.
 func TestDiscovererListConstraintsMapsStructuralMetadata(t *testing.T) {
 	t.Parallel()
 

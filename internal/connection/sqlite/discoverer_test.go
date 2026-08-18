@@ -43,9 +43,9 @@ func TestDiscovererUsesBoundedMetadataContext(t *testing.T) {
 		t.Fatalf("ListSchemas() = %#v, want main schema", page)
 	}
 
-	deadline, ok := runtime.context.Deadline()
+	deadline := runtime.deadline
 	remaining := time.Until(deadline)
-	if !ok || remaining <= 0 || remaining > timeout {
+	if deadline.IsZero() || remaining <= 0 || remaining > timeout {
 		t.Fatalf("metadata deadline = %v, remaining %s; want within %s", deadline, remaining, timeout)
 	}
 }
@@ -130,11 +130,11 @@ func TestDiscovererClassifiesMetadataTimeout(t *testing.T) {
 }
 
 type deadlineDiscoveryRuntime struct {
-	context context.Context
+	deadline time.Time
 }
 
 func (r *deadlineDiscoveryRuntime) open(ctx context.Context, _ connection.ID, _ accessMode) (*client, error) {
-	r.context = ctx
+	r.deadline, _ = ctx.Deadline()
 	return &client{
 		conn:    &runtimeRawConnection{},
 		release: func() {},
@@ -154,11 +154,11 @@ func (r *discoveryErrorRuntime) open(ctx context.Context, _ connection.ID, _ acc
 }
 
 type discoveryErrorRawConnection struct {
-	interrupt  context.Context
-	prepareErr error
-	stepErr    error
-	closeErr   error
-	stepWait   bool
+	interruptDone <-chan struct{}
+	prepareErr    error
+	stepErr       error
+	closeErr      error
+	stepWait      bool
 }
 
 func (c *discoveryErrorRawConnection) Close() error {
@@ -178,10 +178,10 @@ func (c *discoveryErrorRawConnection) Prepare(string) (statement, string, error)
 		return nil, "", c.prepareErr
 	}
 	return &discoveryErrorStatement{
-		interrupt: c.interrupt,
-		stepErr:   c.stepErr,
-		closeErr:  c.closeErr,
-		stepWait:  c.stepWait,
+		interruptDone: c.interruptDone,
+		stepErr:       c.stepErr,
+		closeErr:      c.closeErr,
+		stepWait:      c.stepWait,
 	}, "", nil
 }
 
@@ -190,16 +190,15 @@ func (*discoveryErrorRawConnection) SetAuthorizer(func(sqlite3.AuthorizerActionC
 }
 
 func (c *discoveryErrorRawConnection) SetInterrupt(ctx context.Context) context.Context {
-	previous := c.interrupt
-	c.interrupt = ctx
-	return previous
+	c.interruptDone = ctx.Done()
+	return nil
 }
 
 type discoveryErrorStatement struct {
-	interrupt context.Context
-	stepErr   error
-	closeErr  error
-	stepWait  bool
+	interruptDone <-chan struct{}
+	stepErr       error
+	closeErr      error
+	stepWait      bool
 }
 
 func (*discoveryErrorStatement) BindCount() int {
@@ -259,8 +258,8 @@ func (s *discoveryErrorStatement) Err() error {
 }
 
 func (s *discoveryErrorStatement) Step() bool {
-	if s.stepWait && s.interrupt != nil {
-		<-s.interrupt.Done()
+	if s.stepWait && s.interruptDone != nil {
+		<-s.interruptDone
 		s.stepErr = sqlite3.ErrorCode(sqlite3.INTERRUPT)
 	}
 	return false

@@ -22,7 +22,7 @@ func authorize(
 	case sqlite3.AUTH_SELECT, sqlite3.AUTH_RECURSIVE:
 		return sqlite3.AUTH_OK
 	case sqlite3.AUTH_READ:
-		if schema == sqliteMainSchema {
+		if schema == "" || schema == sqliteMainSchema {
 			return sqlite3.AUTH_OK
 		}
 	case sqlite3.AUTH_FUNCTION:

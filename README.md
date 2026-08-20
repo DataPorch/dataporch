@@ -1,395 +1,275 @@
 # DataPorch
 
-DataPorch gives AI agents a standard interface to enterprise data. It supports MCP and HTTP APIs.
+[![CI](https://github.com/adamraziv/dataporch/actions/workflows/ci.yml/badge.svg)](https://github.com/adamraziv/dataporch/actions/workflows/ci.yml)
+[![License](https://img.shields.io/github/license/adamraziv/dataporch)](LICENSE)
 
-DataPorch does not control AI reasoning, plans, conversations, or model selection.
 
-This repository contains the first functional data-discovery path. It includes:
+DataPorch is an open-source data access layer that lets AI agents discover and query relational databases through MCP without exposing database credentials directly to the agent.
 
-- Validated configuration
-- A controlled process lifecycle
-- Live connection definitions with lazy relational-database opening
-- Progressive relational metadata discovery
-- HTTP and MCP transports that use the same execution service
+PostgreSQL · SQLite · MySQL · MCP · Codex · Claude Code
 
-## Architecture
+---
 
-DataPorch uses one Go module. The module contains separate internal packages.
+## Give agents data access, not database access
+
+Giving an AI agent a database connection also gives its tool layer the credentials and privileges behind that connection.
+
+**Without DataPorch**
 
 ```text
-HTTP / MCP -> execution service -> connector interfaces
-                                <- connector implementations
+AI Agent
+    │
+    │ database credentials
+    ▼
+Your Database
 ```
 
-The transport packages call the execution service. The execution service calls connector interfaces. Connector packages implement these interfaces.
+**With DataPorch**
 
-The code uses manual constructor injection. It does not use a dependency injection framework.
-
-The `cmd/dataporch` directory contains the program entry point. Private application code is in the `internal` directory.
-
-The workspace stores architecture decision records outside this repository.
-
-## Requirements
-
-Install these tools:
-
-- Go 1.25.12 or a later version
-- golangci-lint v2.13.0 for `make lint`
-- govulncheck for `make audit`
-
-The Makefile does not install these tools. Go can download modules that are not in the local module cache.
-
-## Start DataPorch
-
-Run this command:
-
-```bash
-make run
+```text
+AI Agent
+    │
+    │ MCP
+    ▼
+┌─────────────────────┐
+│      DataPorch      │
+│                     │
+│  Discover schema    │
+│  Keep secrets local │
+│  Enforce read-only  │
+│  Bound execution    │
+└─────────────────────┘
+    │
+    ▼
+Your Database
 ```
 
-By default, DataPorch listens on `127.0.0.1:8080`.
+The agent only works with source IDs and database metadata. Credentials, DSNs, and secret references stay inside DataPorch.
 
-DataPorch supplies these endpoints:
+---
 
-- `GET /healthz`
-- `POST /mcp` for Streamable HTTP MCP
+## Protecting your database from hallucinations
 
-### MCP compatibility and transport security
+An agent investigating an issue decides to change production data.
 
-DataPorch v0.1 guarantees MCP revision `2026-07-28` over stateless Streamable
-HTTP. Each JSON-RPC request uses a separate `POST /mcp` request with its protocol
-version and client metadata attached. DataPorch does not depend on the legacy
-`initialize`/`notifications/initialized` handshake, GET streams, or
-`Mcp-Session-Id`.
+**❌ Direct database access**
 
-Older MCP revisions that the pinned Go SDK happens to accept are not part of the
-DataPorch v0.1 compatibility guarantee. Supporting another revision requires an
-explicit compatibility decision and DataPorch-level conformance tests.
+```sql
+UPDATE invoices
+SET status = 'paid'
+WHERE customer_id = 42
+RETURNING id, status;
+```
 
-The server binds to `127.0.0.1:8080` by default. The MCP endpoint rejects invalid
-Origin and localhost Host headers before tool execution. Changing
-`DATAPORCH_HTTP_ADDRESS` does not disable those protections. `/mcp` also requires
-one `Authorization: Bearer ...` header; missing, malformed, duplicate, and
-invalid credentials are rejected before MCP execution. `/healthz` remains
-unauthenticated.
+The database executes the write if the supplied credentials allow it.
 
-Manage the one local MCP token through the Unix admin socket after starting the
-runtime:
+**✅ Through DataPorch**
+
+```text
+> relational_database.query
+
+UPDATE invoices
+SET status = 'paid'
+WHERE customer_id = 42
+RETURNING id, status;
+
+Result: rejected by the database read-only boundary
+```
+
+DataPorch executes queries through read-only database sessions. The agent cannot turn the query tool into a general-purpose write connection.
+
+---
+
+An agent asks for far more data than it actually needs.
+
+**❌ Direct database access**
+
+```sql
+SELECT * FROM events;
+```
+
+The query can continue returning rows until the database, client, network, or agent gives up.
+
+**✅ Through DataPorch**
+
+```text
+> relational_database.query
+
+SELECT * FROM events;
+
+1,000 rows returned
+truncated: true
+```
+
+DataPorch applies mandatory execution limits, including query time and encoded response size, with a bounded row limit enabled by default.
+
+Guardrails live between the agent and the database instead of depending on the agent to remember them.
+
+---
+
+## How it works
+
+DataPorch gives agents a small set of typed MCP tools.
+
+```text
+data_source.list
+        ↓
+relational_database.list_schemas
+        ↓
+relational_database.list_tables
+        ↓
+relational_database.list_columns
+        ↓
+relational_database.query
+```
+
+The agent starts with configured source IDs. It can then inspect schemas, tables, and columns before it sends a query.
+
+Each database adapter implements the same discovery and query contract. DataPorch does not manage prompts, models, conversations, or agent reasoning. Your agent decides what to ask. DataPorch controls the data access path.
+
+---
+
+## Quick start
+
+DataPorch currently builds from source. You need Go 1.25 or later.
 
 ```bash
-dataporch mcp-token create
+git clone https://github.com/adamraziv/dataporch.git
+cd dataporch
+make build
+```
+
+Keep source-build state in the repository directory:
+
+```bash
+mkdir -p .dataporch
+
+export DATAPORCH_ADMIN_SOCKET_PATH="$PWD/.dataporch/admin.sock"
+export DATAPORCH_MASTER_KEY_PATH="$PWD/.dataporch/master.key"
+export DATAPORCH_SECRETS_STORE_PATH="$PWD/.dataporch/secrets.store"
+export DATAPORCH_CONNECTIONS_STORE_PATH="$PWD/.dataporch/connections.store"
+export DATAPORCH_MCP_TOKEN_STORE_PATH="$PWD/.dataporch/mcp-token.json"
+```
+
+Initialize the local secret store:
+
+```bash
+./bin/dataporch secrets init
+```
+
+Start DataPorch:
+
+```bash
+./bin/dataporch
+```
+
+DataPorch listens on `127.0.0.1:8080` by default.
+
+### Connect a database
+
+Import a connection through the local administration socket:
+
+| Database   | Connection format                               |
+| ---------- | ----------------------------------------------- |
+| PostgreSQL | `postgres://user:password@host[:port]/database` |
+| MySQL      | `mysql://user:password@host[:port]/database`    |
+| SQLite     | `sqlite:///absolute/path/database.db`           |
+
+```bash
+./bin/dataporch connections import --id finance --kind postgres
+```
+
+DataPorch reads the connection string from a hidden terminal prompt. The MCP interface does not receive the connection string.
+Change `--kind` and enter the matching connection format for MySQL or SQLite.
+
+### Create an MCP token
+
+```bash
+./bin/dataporch mcp-token create
+```
+
+Export the token in the environment that starts your MCP client:
+
+```bash
 export DATAPORCH_MCP_TOKEN='dp-...'
-dataporch mcp-token list
-dataporch mcp-token rotate
-dataporch mcp-token revoke
 ```
 
-The plaintext token is shown only by `create` and `rotate`. The server keeps the
-active verifier in memory and persists only its SHA-256 digest and timestamps.
-`DATAPORCH_MCP_TOKEN` is client-side configuration; the server-side verifier
-path is `DATAPORCH_MCP_TOKEN_STORE_PATH`. This is local Bearer access control,
-not OAuth authorization. Keep the default loopback boundary; exposing cleartext
-Bearer tokens remotely is unsupported.
+DataPorch shows the plaintext token only when you create or rotate it.
 
-The MCP endpoint exposes exactly five typed tools. Call them in this order when
-an agent needs to inspect a relational source and run a bounded query:
+---
 
-1. `data_source.list` — list configured source IDs and capability families. This
-   is a local snapshot and does not check connectivity.
-2. `relational_database.list_schemas` — list schemas exposed by the configured
-   relational adapter.
-3. `relational_database.list_tables` — list readable tables and adapter-supported
-   relation kinds for an exact schema.
-4. `relational_database.list_columns` — list columns, adapter type details,
-   defaults, generated metadata, and representable constraints for an exact
-   schema and relation.
-5. `relational_database.query` — execute one complete row-producing statement
-   against a configured relational source within the adapter's read-only
-   policy.
+## Connect an agent
 
-The query tool requires exactly these fields:
+DataPorch includes plugins for Codex and Claude Code. Both plugins connect to the same local MCP service.
 
-```json
-{
-  "kind": "postgres",
-  "source_id": "finance",
-  "query": "SELECT id, total FROM invoices ORDER BY id"
-}
-```
-
-The caller supplies one opaque SQL statement. PostgreSQL parses it; DataPorch
-does not parse or rewrite the statement. PostgreSQL's extended protocol rejects
-multiple commands, and DataPorch does not add an HTTP query endpoint.
-
-The three relational tools reuse the `source_id` returned by the first tool.
-Schema and relation names are case-sensitive identifiers; pass the exact value
-returned by the parent listing. Each operation supports a literal,
-case-insensitive `search`, bounded `limit`, and an opaque stateless `cursor`.
-Descriptions and comments are omitted unless `include_descriptions` is true.
-Each adapter applies its own visibility and safety policy. PostgreSQL privilege
-predicates filter schemas, relations, columns, and referenced constraints, while
-SQLite exposes its `main` catalog and readable objects only.
-
-The former MCP `list_resources` tool and HTTP `GET /v1/resources` route were
-removed in favor of these typed capabilities.
-
-## Configuration
-
-Use environment variables to configure DataPorch.
-
-| Variable | Default | Function |
-| --- | --- | --- |
-| `DATAPORCH_HTTP_ADDRESS` | `127.0.0.1:8080` | Sets the HTTP listen address. |
-| `DATAPORCH_RESOURCE_LIMIT` | `100` | Sets the maximum number of items returned by one discovery page. |
-| `DATAPORCH_ADMIN_SOCKET_PATH` | `/run/dataporch/admin.sock` | Sets the local Unix socket for connection administration. |
-| `DATAPORCH_MASTER_KEY_PATH` | `/etc/dataporch/master.key` | Sets the local secret-store master key path. |
-| `DATAPORCH_SECRETS_STORE_PATH` | `/var/lib/dataporch/secrets.store` | Sets the encrypted local secret-store path. |
-| `DATAPORCH_CONNECTIONS_STORE_PATH` | `/var/lib/dataporch/connections.store` | Sets the normalized connection-definition store path. |
-| `DATAPORCH_MCP_TOKEN_STORE_PATH` | `/var/lib/dataporch/mcp-token.json` | Sets the server-side MCP token verifier path. |
-| `DATAPORCH_QUERY_TIMEOUT` | `20s` | Bounds each query call; accepts `1s` through `20s` and cannot be disabled. |
-| `DATAPORCH_QUERY_RESPONSE_BYTE_LIMIT` | `10485760` | Bounds the encoded MCP tool result; accepts `65536` through `10485760` and cannot be disabled. |
-| `DATAPORCH_QUERY_TRUNCATION_ENABLED` | `true` | Reads one extra row to report whether the configured row limit truncated the result. |
-| `DATAPORCH_QUERY_ROW_LIMIT` | `1000` | Sets the positive returned-row limit while truncation is enabled; ignored when truncation is disabled. |
-
-## Local secrets and connection imports
-
-Initialize the local secret store once before adding connections:
+### Codex
 
 ```bash
-dataporch secrets init
+codex plugin marketplace add /absolute/path/to/dataporch
+codex plugin add dataporch@dataporch
 ```
 
-Start DataPorch normally. Add a database connection through its local admin socket:
+### Claude Code
 
 ```bash
-dataporch connections import --id finance --kind postgres
+claude plugin marketplace add /absolute/path/to/dataporch
+claude plugin install dataporch@dataporch
 ```
 
-The command reads the connection string from a hidden terminal prompt. It saves
-normalized non-secret settings and encrypted local secret references; it does
-not save the complete connection string. A successful import does not test,
-open, ping, or authenticate to the database. The new definition becomes
-available to the running process without a restart.
+See [`plugins/dataporch/README.md`](plugins/dataporch/README.md) for installation, authentication, updates, removal, and troubleshooting.
 
-The local admin path uses a Unix socket. It is not exposed through public TCP
-HTTP or MCP. Losing the master key makes locally stored secrets unrecoverable.
-Root or compromise of the DataPorch process is outside the protection provided
-by the local store.
+---
 
-MCP access tokens use the same local admin boundary:
+## Compatibility
 
-```bash
-dataporch mcp-token create
-dataporch mcp-token list
-dataporch mcp-token rotate
-dataporch mcp-token revoke
-dataporch mcp-token revoke --yes
-```
+| Component     | Support                          |
+| ------------- | -------------------------------- |
+| PostgreSQL    | Tested with PostgreSQL 14 and 18 |
+| SQLite        | Supported                        |
+| MySQL         | MySQL 8.4 LTS                    |
+| MCP           | `2026-07-28`                     |
+| Agent clients | Codex and Claude Code            |
+| Go            | 1.25+                            |
 
-`create` and `rotate` display the plaintext once; set it as
-`DATAPORCH_MCP_TOKEN` in the environment of the MCP client. `list` exposes only
-state and timestamps. `revoke --yes` is also the recovery operation for a
-corrupt or unsafe verifier file when removing that configured file is safe.
+---
 
-Postgres imports accept `postgres://` and `postgresql://` URIs with a username,
-password, one TCP host, a database, an optional explicit port, and an optional
-`sslmode` value of `disable`, `allow`, `prefer`, `require`, `verify-ca`, or
-`verify-full`. An omitted port stays omitted; DataPorch does not insert a
-default port.
+## Security
 
-Import parses and stores the normalized definition only. DataPorch uses an
-internal lazy Postgres runtime opener: the first open authenticates within ten
-seconds, later opens reuse one pgx pool per source ID, and pgx may retire idle
-physical connections while DataPorch retains the reusable pool object.
+DataPorch keeps the database access boundary outside the agent.
 
-### MySQL adapter
+* **Local by default:** The MCP service listens on `127.0.0.1:8080`.
+* **Authenticated MCP:** MCP requests require a Bearer token.
+* **Local credentials:** Agents receive source IDs instead of credentials, DSNs, or secret references.
+* **Encrypted secrets:** DataPorch encrypts stored connector credentials.
+* **Read-only queries:** Database adapters execute queries through read-only paths.
+* **Bounded execution:** DataPorch limits query time and encoded response size. It limits returned rows by default.
 
-The MySQL adapter supports MySQL 8.4 LTS. Imports use this URI form:
+Database permissions still define what the configured database identity can read. Read-only SQL does not make arbitrary database functions free of external side effects.
 
-```text
-mysql://username:password@host[:port]/database[?sslmode=<mode>]
-```
+**Keep the default local network boundary unless you add secure transport and authorization for remote access.**
 
-Supported `sslmode` values are `disable`, `prefer`, `require`, and
-`verify-full`. An omitted port uses runtime port `3306`; an omitted `sslmode`
-uses `prefer`. Import is offline and reports `connectionTested: false`. Each
-source addresses exactly one database, so multiple MySQL databases require
-multiple source definitions. Discovery exposes only the imported database.
-
-The adapter returns typed table, view, column, and representable constraint
-metadata. MySQL native type metadata is preserved and does not use SQLite
-affinity. Constraints are returned with the first paginated column page.
-
-Queries are one opaque, parameter-free, row-producing statement. Read-only
-transactions enforce MySQL's database-level read-only behavior, and
-multi-statements are disabled. Binary cells use deterministic uppercase
-literals such as `X'00FF'`. The existing DataPorch time, row, and encoded-byte
-limits apply; object restrictions belong in MySQL grants.
-
-Query sessions are isolated and physically discarded after each query, so
-session-local state is not reused by a later query.
-
-### SQLite adapter
-
-SQLite imports use an exact, offline-only URI with an absolute path:
-
-```text
-sqlite:///absolute/path/database.db
-```
-
-Import validates only the URI syntax. It does not open the file, create a
-database, check connectivity, or run a query, and the import response reports
-`connectionTested: false`. The normalized path is stored through the encrypted
-local secret store; connection errors and operational logs redact the path.
-
-On first use, the adapter requires an existing, non-empty regular file. It
-rejects missing, empty, directory, final-symlink, malformed, corrupt, and
-inaccessible files without creating a database or sidecar. Every operation
-opens a fresh physical connection with read-only, URI, and no-follow flags,
-defensive settings, trusted-schema disabled, query-only mode, and no idle
-connection pool. Memory, temporary, attached, encrypted, extension-loading,
-DDL, and SQL-text parsing workflows are unsupported.
-
-SQLite exposes only the `main` schema. Ordinary tables, views, and virtual
-tables map to the corresponding relation kinds. Declared column text is
-preserved while the dynamic type metadata reports SQLite affinity (`integer`,
-`text`, `blob`, `real`, or `numeric`); generated columns identify virtual or
-stored generation. Primary keys, representable unique indexes, and foreign
-keys are exposed as structural constraints. Constraint names, partial or
-expression indexes, unsupported deferrability details, and other SQLite
-metadata that has no safe representation are omitted.
-
-The query contract is one opaque, parameter-free, row-producing statement.
-Cells are returned as strings or JSON `null`; BLOB cells use uppercase SQLite
-literals such as `X'00FF'`. Committed updates are visible on the next
-operation, and atomic file replacement is observed without retaining a session
-or physical connection. WAL reads do not use immutable mode and do not modify
-the database or WAL payload; SQLite may update `-shm` lock/read-mark
-bookkeeping while a live writer is present. Filesystem permission failures are
-reported as safe unavailable errors.
-
-SQLite query logs contain operation, adapter kind, source identity, size,
-duration, row count, and outcome metadata. They never include raw SQL, paths,
-DSNs, secrets, result cells, or stack traces.
-
-Discovery catalog queries have a separate twenty-second bound. Query calls have
-the timeout and encoded-response ceilings above. Disabling row truncation does
-not disable either mandatory ceiling. Callers should add an `ORDER BY` when
-stable truncation order matters.
-
-Query results use ordered columns and positional rows. Values are text, SQL
-`NULL` remains `null`, and `row_count` reports the returned rows:
-
-```json
-{
-  "kind": "postgres",
-  "source_id": "finance",
-  "columns": [
-    {"name": "id", "database_type": "int8"},
-    {"name": "note", "database_type": "text"}
-  ],
-  "rows": [["101", null]],
-  "row_count": 1,
-  "truncated": false
-}
-```
-
-Query failures may include every PostgreSQL server field in the approved
-`database_error` object:
-
-```json
-{
-  "category": "database_conflict",
-  "message": "serialization failure",
-  "retryable": true,
-  "database_error": {
-    "kind": "postgres",
-    "code": "40001",
-    "severity": "ERROR",
-    "message": "serialization failure"
-  }
-}
-```
-
-Every query attempt logs operation, kind, source ID, duration, query size, and
-result or failure metadata at INFO or WARN. Raw SQL, result cells, credentials,
-DSNs, resolved settings, secret references, and filesystem paths are not log
-fields.
-
-`AllowAll` initially permits any MCP caller to query any configured PostgreSQL
-source. MCP network reachability and the PostgreSQL identity stored for each
-source are the initial boundaries. PostgreSQL grants, ownership, row-level
-security, security-definer functions, external functions, extensions, and
-foreign wrappers remain operator responsibilities. `READ ONLY` does not
-guarantee that arbitrary functions have no external side effects. Use separate
-source IDs and credentials for separate access levels.
-
-Query endpoints require direct connections or session pooling. Transaction and
-statement pooling are unsupported and are not auto-detected because rollback
-cleanup must target the same backend session. A connection is reused only after
-rollback, `DEALLOCATE ALL`, and `DISCARD ALL`; uncertain sessions are removed
-from the pool and physically closed.
-
-The public HTTP server has a thirty-five-second write bound so a single request
-can safely cover opening plus one metadata query. Startup, health checks,
-`data_source.list`, and connection import do not contact PostgreSQL. The
-allow-all policy remains a development default; replace it before production
-deployment.
-
-## Agent plugins
-
-The repository includes plugins for Codex and Claude Code that connect to the separately installed local DataPorch runtime. Both clients reuse the same source-discovery and bounded-query skills; neither plugin installs or launches the runtime.
-
-See [the agent plugin guide](plugins/dataporch/README.md) for prerequisites, authentication, installation, updates, removal, and troubleshooting for each client.
+---
 
 ## Development
 
-Use these commands:
+Run the local quality gate:
 
 ```bash
-make build
-make test
-make test-race
-make test-integration-sqlite
-DATAPORCH_TEST_POSTGRES_DSN='postgres://user:password@127.0.0.1:5432/database?sslmode=disable' \
-  make test-integration-postgres
-DATAPORCH_TEST_MYSQL_DSN='mysql://user:password@127.0.0.1:3306/database?sslmode=disable' \
-  make test-integration-mysql
-DATAPORCH_TEST_POSTGRES_DSN='postgres://user:password@127.0.0.1:5432/database?sslmode=disable' \
-  make test-integration
-make test-cgo-disabled
-make build-cgo-disabled
-make vet
-make lint
-make audit
 make check
 ```
 
-CI keeps adapter-neutral Go checks separate from database integration jobs. Each
-external database adapter owns a focused integration target and CI job; supported
-database versions belong inside that adapter's job rather than in the core Go
-matrix. App-level adapter integration tests must keep the adapter name in the
-parent test name and end in `Integration` so the focused Make targets can select
-them without adding adapter-specific build tags.
+Run database integration tests:
 
-The `make check` command checks formatting and module files. It also runs tests, lint checks, and a production build.
-
-## Project layout
-
-```text
-cmd/dataporch/                 Program entry point
-internal/app/                  Dependency setup and process lifecycle
-internal/config/               Environment configuration
-internal/connection/           Built-in database adapter resolution
-internal/connection/mysql/     MySQL URI import, discovery, and read-only runtime
-internal/connection/postgres/  PostgreSQL URI import and runtime opener
-internal/connection/sqlite/    SQLite URI import, discovery, and read-only runtime
-internal/execution/            Validated application operations
-internal/access/               Access policy implementations
-internal/transports/httpapi/   HTTP adapter
-internal/transports/mcp/       MCP adapter
+```bash
+make test-integration-postgres
+make test-integration-sqlite
+make test-integration-mysql
 ```
+
+PostgreSQL and MySQL integration tests require their corresponding test connection strings.
+
+---
 
 ## License
 
-DataPorch uses the Apache License, Version 2.0. See [LICENSE](LICENSE).
+DataPorch is licensed under [Apache-2.0](LICENSE).

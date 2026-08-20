@@ -9,14 +9,13 @@ import (
 	"testing"
 
 	"github.com/adamraziv/dataporch/internal/connection"
+	"github.com/adamraziv/dataporch/internal/connection/mysql"
 	"github.com/adamraziv/dataporch/internal/execution"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-//nolint:funlen,gocyclo,wsl_v5 // The acceptance flow intentionally sequences imported-source mutations and log assertions.
+//nolint:funlen,gocyclo,wsl_v5,paralleltest // The acceptance flow is long; PostgreSQL role grants share one catalog row.
 func TestQueryImportToMCPPostgresIntegration(t *testing.T) {
-	t.Parallel()
-
 	harness := newIntegrationHarness(t)
 	table := integrationIdentifier(harness.names.accessibleSchema) + "." +
 		integrationIdentifier(harness.names.ordinaryTable)
@@ -162,6 +161,33 @@ func callRelationalQueryTool(
 	}
 
 	return result
+}
+
+func TestQueryImportToMCPMySQLIntegration(t *testing.T) {
+	t.Parallel()
+
+	session, sourceID, _ := newMySQLAppIntegrationSession(t)
+
+	result := callRelationalQueryTool(t, session, map[string]any{
+		"kind": string(mysql.Kind), "source_id": sourceID, "query": "SELECT 1 AS value",
+	})
+	if result.IsError {
+		t.Fatalf("query result = %#v, want success", result)
+	}
+
+	encoded, err := json.Marshal(result.StructuredContent)
+	if err != nil {
+		t.Fatalf("Marshal(query structured content) error = %v", err)
+	}
+
+	var output execution.RelationalQueryResult
+	if err := json.Unmarshal(encoded, &output); err != nil {
+		t.Fatalf("Unmarshal(query result) error = %v", err)
+	}
+
+	if output.Kind != mysql.Kind || output.SourceID != sourceID || output.RowCount != 1 || len(output.Rows) != 1 {
+		t.Fatalf("query output = %#v", output)
+	}
 }
 
 func callRelationalQueryFailureTool(

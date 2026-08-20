@@ -18,6 +18,7 @@ import (
 
 	"github.com/adamraziv/dataporch/internal/config"
 	"github.com/adamraziv/dataporch/internal/connection"
+	"github.com/adamraziv/dataporch/internal/connection/mysql"
 	"github.com/adamraziv/dataporch/internal/connection/postgres"
 	"github.com/adamraziv/dataporch/internal/connection/sqlite"
 	"github.com/adamraziv/dataporch/internal/execution"
@@ -63,7 +64,7 @@ func TestNewStartsWithoutInitializedSecretStore(t *testing.T) {
 	}
 }
 
-func TestNewComposesPostgresThenSQLiteRuntimes(t *testing.T) {
+func TestNewComposesPostgresThenSQLiteThenMySQLRuntimes(t *testing.T) {
 	t.Parallel()
 
 	application, err := New(testConfigFor(t), slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)))
@@ -71,8 +72,8 @@ func TestNewComposesPostgresThenSQLiteRuntimes(t *testing.T) {
 		t.Fatalf("New() error = %v", err)
 	}
 
-	if len(application.runtimes) != 2 {
-		t.Fatalf("application runtimes = %d, want 2", len(application.runtimes))
+	if len(application.runtimes) != 3 {
+		t.Fatalf("application runtimes = %d, want 3", len(application.runtimes))
 	}
 
 	if _, ok := application.runtimes[0].(*postgres.Opener); !ok {
@@ -81,6 +82,10 @@ func TestNewComposesPostgresThenSQLiteRuntimes(t *testing.T) {
 
 	if _, ok := application.runtimes[1].(*sqlite.Runtime); !ok {
 		t.Fatalf("second runtime type = %T, want *sqlite.Runtime", application.runtimes[1])
+	}
+
+	if _, ok := application.runtimes[2].(*mysql.Opener); !ok {
+		t.Fatalf("third runtime type = %T, want *mysql.Opener", application.runtimes[2])
 	}
 
 	if err := application.closeRuntimes(t.Context()); err != nil {

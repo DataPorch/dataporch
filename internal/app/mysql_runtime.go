@@ -7,10 +7,10 @@ import (
 	"fmt"
 
 	"github.com/adamraziv/dataporch/internal/connection"
-	"github.com/adamraziv/dataporch/internal/connection/postgres"
+	"github.com/adamraziv/dataporch/internal/connection/mysql"
 )
 
-func newPostgresModule(
+func newMySQLModule(
 	manager *connection.Manager,
 	policy queryPolicy,
 ) (relationalModule, error) {
@@ -18,22 +18,22 @@ func newPostgresModule(
 		return relationalModule{}, errRelationalManagerRequired
 	}
 
-	adapter := postgres.New()
+	adapter := mysql.New()
 
-	runtime, err := postgres.NewOpener(manager)
+	runtime, err := mysql.NewOpener(manager)
 	if err != nil {
-		return relationalModule{}, fmt.Errorf("creating postgres runtime: %w", err)
+		return relationalModule{}, fmt.Errorf("creating mysql runtime: %w", err)
 	}
 
-	discoverer, err := postgres.NewDiscoverer(runtime)
+	discoverer, err := mysql.NewDiscoverer(runtime)
 	if err != nil {
 		return relationalModule{}, errors.Join(
-			fmt.Errorf("creating postgres discoverer: %w", err),
+			fmt.Errorf("creating mysql discoverer: %w", err),
 			runtime.Close(context.Background()),
 		)
 	}
 
-	queryExecutor, err := postgres.NewQueryExecutor(runtime, postgres.QueryOptions{
+	queryExecutor, err := mysql.NewQueryExecutor(runtime, mysql.QueryOptions{
 		Timeout:           policy.timeout,
 		ResponseByteLimit: policy.responseByteLimit,
 		TruncationEnabled: policy.truncationEnabled,
@@ -41,7 +41,7 @@ func newPostgresModule(
 	})
 	if err != nil {
 		return relationalModule{}, errors.Join(
-			fmt.Errorf("creating postgres query executor: %w", err),
+			fmt.Errorf("creating mysql query executor: %w", err),
 			runtime.Close(context.Background()),
 		)
 	}

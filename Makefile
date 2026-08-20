@@ -6,7 +6,7 @@ GOVULNCHECK ?= govulncheck
 
 .DEFAULT_GOAL := help
 
-.PHONY: audit build build-cgo-disabled check clean fmt fmt-check help lint lint-fix lint-integration run test test-cgo-disabled test-integration test-integration-postgres test-integration-sqlite test-race tidy tidy-check vet
+.PHONY: audit build build-cgo-disabled check clean fmt fmt-check help lint lint-fix lint-integration run test test-cgo-disabled test-integration test-integration-mysql test-integration-postgres test-integration-sqlite test-race tidy tidy-check vet
 
 build:
 	@mkdir -p $(BUILD_DIR)
@@ -24,7 +24,11 @@ test-cgo-disabled:
 test-race:
 	$(GO) test -race -shuffle=on ./...
 
-test-integration: test-integration-postgres test-integration-sqlite
+test-integration: test-integration-postgres test-integration-sqlite test-integration-mysql
+
+test-integration-mysql:
+	$(GO) test -race -count=1 -tags=integration ./internal/connection/mysql
+	$(GO) test -race -count=1 -tags=integration -run '^Test.*MySQL.*Integration$$' ./internal/app
 
 test-integration-postgres:
 	$(GO) test -race -count=1 -tags=integration ./internal/connection/postgres
@@ -95,7 +99,8 @@ help:
 		'  run          Run DataPorch locally.' \
 		'  test-cgo-disabled  Run tests with CGO disabled.' \
 		'  test         Run unit tests.' \
-		'  test-integration  Run all relational integration tests; PostgreSQL requires DATAPORCH_TEST_POSTGRES_DSN.' \
+		'  test-integration  Run all relational integration tests; PostgreSQL requires DATAPORCH_TEST_POSTGRES_DSN and MySQL requires DATAPORCH_TEST_MYSQL_DSN.' \
+		'  test-integration-mysql  Run MySQL 8.4 adapter and app integration tests; requires DATAPORCH_TEST_MYSQL_DSN.' \
 		'  test-integration-postgres  Run PostgreSQL adapter and PostgreSQL app integration tests.' \
 		'  test-integration-sqlite  Run SQLite adapter and SQLite app integration tests.' \
 		'  test-race    Run unit tests with the race detector.' \

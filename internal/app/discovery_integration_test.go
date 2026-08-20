@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/adamraziv/dataporch/internal/connection"
+	"github.com/adamraziv/dataporch/internal/connection/mysql"
 	"github.com/adamraziv/dataporch/internal/connection/postgres"
 	"github.com/adamraziv/dataporch/internal/execution"
 	"github.com/adamraziv/dataporch/internal/mcptoken"
@@ -50,9 +51,8 @@ type integrationSnapshot struct {
 	Constraints []execution.Constraint
 }
 
+//nolint:paralleltest // PostgreSQL role grants share one database catalog row.
 func TestDiscoveryImportToMCPPostgresIntegration(t *testing.T) {
-	t.Parallel()
-
 	harness := newIntegrationHarness(t)
 	sources := harness.assertDataSources()
 
@@ -294,6 +294,91 @@ func connectIntegrationMCP(t *testing.T, address, token string) *mcpsdk.ClientSe
 	})
 
 	return session
+}
+
+func newMySQLAppIntegrationSession(
+	t *testing.T,
+) (*mcpsdk.ClientSession, connection.ID, string) {
+	t.Helper()
+
+	dsn := os.Getenv("DATAPORCH_TEST_MYSQL_DSN")
+	if dsn == "" {
+		t.Skip("DATAPORCH_TEST_MYSQL_DSN is not set")
+	}
+
+	parsed, err := mysql.New().ParseConnectionString([]byte(dsn))
+	if err != nil {
+		t.Fatalf("mysql ParseConnectionString() error = %v", err)
+	}
+
+	database := parsed.Settings["database"]
+	for _, value := range parsed.Secrets {
+		clear(value)
+	}
+
+	cfg := testConfigFor(t)
+
+	cfg.HTTPAddress = freeTCPAddress(t)
+	if err := InitializeSecrets(cfg); err != nil {
+		t.Fatalf("InitializeSecrets() error = %v", err)
+	}
+
+	tokenStore, err := mcpTokenLocal.New(cfg.MCPTokenStorePath)
+	if err != nil {
+		t.Fatalf("mcpTokenLocal.New() error = %v", err)
+	}
+
+	tokenService, err := mcptoken.New(tokenStore, time.Now)
+	if err != nil {
+		t.Fatalf("mcptoken.New() error = %v", err)
+	}
+
+	token, _, err := tokenService.Create(t.Context())
+	if err != nil {
+		t.Fatalf("token Create() error = %v", err)
+	}
+
+	application, err := New(cfg, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	startIntegrationApplication(t, application, cfg.AdminSocketPath, cfg.HTTPAddress)
+
+	sourceID := connection.ID("mysql_app")
+
+	response, err := importOverSocket(
+		cfg.AdminSocketPath, string(sourceID), string(mysql.Kind), dsn,
+	)
+	if err != nil {
+		t.Fatalf("importOverSocket() error = %v", err)
+	}
+
+	if response.Body != nil {
+		_ = response.Body.Close()
+	}
+
+	if response.StatusCode != http.StatusCreated {
+		t.Fatalf("import status = %d, want %d", response.StatusCode, http.StatusCreated)
+	}
+
+	return connectIntegrationMCP(t, cfg.HTTPAddress, token), sourceID, database
+}
+
+func TestDiscoveryImportToMCPMySQLIntegration(t *testing.T) {
+	t.Parallel()
+
+	session, sourceID, database := newMySQLAppIntegrationSession(t)
+
+	page := callDiscoveryTool[execution.ListRelationalSchemasResult](
+		t,
+		session,
+		"relational_database.list_schemas",
+		map[string]any{"source_id": sourceID},
+	)
+	if len(page.Schemas) != 1 || page.Schemas[0].Name != database {
+		t.Fatalf("schemas = %#v, want only %q", page.Schemas, database)
+	}
 }
 
 type integrationBearerTransport struct {

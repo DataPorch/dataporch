@@ -56,6 +56,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		relationalModuleFactories: []relationalModuleFactory{
 			newPostgresModule,
 			newSQLiteModule,
+			newMySQLModule,
 		},
 		newExecutionService: execution.New,
 	})

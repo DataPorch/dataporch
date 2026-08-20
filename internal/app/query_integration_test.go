@@ -14,10 +14,8 @@ import (
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-//nolint:funlen,gocyclo,wsl_v5 // The acceptance flow intentionally sequences imported-source mutations and log assertions.
+//nolint:funlen,gocyclo,wsl_v5,paralleltest // The acceptance flow is long; PostgreSQL role grants share one catalog row.
 func TestQueryImportToMCPPostgresIntegration(t *testing.T) {
-	t.Parallel()
-
 	harness := newIntegrationHarness(t)
 	table := integrationIdentifier(harness.names.accessibleSchema) + "." +
 		integrationIdentifier(harness.names.ordinaryTable)

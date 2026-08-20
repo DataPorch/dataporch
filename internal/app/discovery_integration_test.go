@@ -51,9 +51,8 @@ type integrationSnapshot struct {
 	Constraints []execution.Constraint
 }
 
+//nolint:paralleltest // PostgreSQL role grants share one database catalog row.
 func TestDiscoveryImportToMCPPostgresIntegration(t *testing.T) {
-	t.Parallel()
-
 	harness := newIntegrationHarness(t)
 	sources := harness.assertDataSources()
 

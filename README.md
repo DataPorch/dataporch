@@ -34,7 +34,7 @@ The workspace stores architecture decision records outside this repository.
 Install these tools:
 
 - Go 1.25.12 or a later version
-- golangci-lint v2.12.0 for `make lint`
+- golangci-lint v2.13.0 for `make lint`
 - govulncheck for `make audit`
 
 The Makefile does not install these tools. Go can download modules that are not in the local module cache.

@@ -419,6 +419,7 @@ func (c *queryRawConnection) Prepare(sql string) (statement, string, error) {
 func (*queryRawConnection) SetAuthorizer(func(sqlite3.AuthorizerActionCode, string, string, string, string) sqlite3.AuthorizerReturnCode) error {
 	return nil
 }
+
 func (*queryRawConnection) SetInterrupt(context.Context) context.Context { return context.Background() }
 
 type queryRow struct {
@@ -472,8 +473,11 @@ func (s *queryStatement) ColumnDeclType(index int) string {
 
 	return ""
 }
+
 func (s *queryStatement) ColumnFloat(index int) float64 { return s.rows[s.current].cells[index].float }
-func (s *queryStatement) ColumnInt64(index int) int64   { return s.rows[s.current].cells[index].integer }
+
+func (s *queryStatement) ColumnInt64(index int) int64 { return s.rows[s.current].cells[index].integer }
+
 func (s *queryStatement) ColumnName(index int) string {
 	if index < len(s.columnNames) && s.columnNames[index] != "" {
 		return s.columnNames[index]
@@ -481,7 +485,9 @@ func (s *queryStatement) ColumnName(index int) string {
 
 	return "column"
 }
+
 func (s *queryStatement) ColumnRawBlob(index int) []byte { return s.rows[s.current].cells[index].blob }
+
 func (s *queryStatement) ColumnRawText(index int) []byte {
 	return []byte(s.rows[s.current].cells[index].text)
 }

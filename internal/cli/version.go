@@ -22,7 +22,7 @@ func resolvedVersion(release string, readBuildInfo func() (*debug.BuildInfo, boo
 
 func normalizeVersion(value string) string {
 	value = strings.TrimPrefix(strings.TrimSpace(value), "v")
-	if value == "" || value == "(devel)" || value == developmentVersion || strings.Contains(value, "+dirty") {
+	if value == "" || value == "(devel)" || value == developmentVersion || strings.HasPrefix(value, "0.0.0-") || strings.Contains(value, "+dirty") {
 		return developmentVersion
 	}
 	return value

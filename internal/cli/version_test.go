@@ -22,6 +22,7 @@ func TestResolvedVersionPrecedenceAndDevelopmentFallback(t *testing.T) {
 		{name: "local build", main: "(devel)", ok: true, want: "devel"},
 		{name: "missing build info", want: "devel"},
 		{name: "dirty build", main: "v0.1.0+dirty", ok: true, want: "devel"},
+		{name: "local pseudo version", main: "v0.0.0-20260823141624-fff7016a0ab9", ok: true, want: "devel"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

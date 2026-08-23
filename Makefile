@@ -113,13 +113,17 @@ help:
 		'  clean        Remove generated local artifacts.' \
 		'  fmt          Format Go source files.' \
 		'  fmt-check    Check Go source formatting.' \
+		'  install      Install dataporch with go install.' \
+		'  install-check Verify a temporary global installation.' \
 		'  lint         Run configured lint checks.' \
 		'  lint-fix     Apply safe lint fixes.' \
 		'  lint-integration  Lint ordinary and integration-tagged Go files.' \
+		'  release-snapshot  Build local release archives with GoReleaser.' \
 		'  run          Run DataPorch locally.' \
 		'  test-cgo-disabled  Run tests with CGO disabled.' \
 		'  test         Run unit tests.' \
 		'  test-integration  Run all relational integration tests; PostgreSQL requires DATAPORCH_TEST_POSTGRES_DSN and MySQL requires DATAPORCH_TEST_MYSQL_DSN.' \
+		'  test-integration-lifecycle  Run native user-service lifecycle acceptance.' \
 		'  test-integration-mysql  Run MySQL 8.4 adapter and app integration tests; requires DATAPORCH_TEST_MYSQL_DSN.' \
 		'  test-integration-postgres  Run PostgreSQL adapter and PostgreSQL app integration tests.' \
 		'  test-integration-sqlite  Run SQLite adapter and SQLite app integration tests.' \

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"maps"
 	"strings"
 	"testing"
 	"time"
@@ -230,9 +231,7 @@ func TestLoadRejectsInvalidMCPTokenStorePath(t *testing.T) {
 				"DATAPORCH_SECRETS_STORE_PATH":     "/var/lib/dataporch/secrets.store",
 				"DATAPORCH_CONNECTIONS_STORE_PATH": "/var/lib/dataporch/connections.store",
 			}
-			for key, value := range tt.values {
-				values[key] = value
-			}
+			maps.Copy(values, tt.values)
 			_, err := Load(func(key string) (string, bool) {
 				value, exists := values[key]
 				return value, exists

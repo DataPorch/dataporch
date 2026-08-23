@@ -15,7 +15,7 @@ func TestRootHelpVariantsAreIdentical(t *testing.T) {
 
 	const wantFooter = "dataporch@0.1.0 /opt/homebrew/bin/dataporch\n"
 	var want string
-	for _, args := range [][]string{nil, []string{"-h"}, []string{"--help"}} {
+	for _, args := range [][]string{nil, {"-h"}, {"--help"}} {
 		stdout := &bytes.Buffer{}
 		stderr := &bytes.Buffer{}
 		runner := testRunner(t, stdout, stderr)
@@ -49,7 +49,6 @@ func TestExecuteClassifiesUsageAndForeground(t *testing.T) {
 		{args: []string{"run", "--foreground"}, wantCode: exitUsage, wantStderr: "dataporch: unknown flag --foreground; run dataporch run -h\n"},
 	}
 	for _, test := range tests {
-		test := test
 		t.Run(strings.Join(test.args, " "), func(t *testing.T) {
 			t.Parallel()
 			stdout := &bytes.Buffer{}

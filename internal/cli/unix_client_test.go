@@ -205,6 +205,7 @@ func startSocketHTTPServer(t *testing.T, handler http.Handler) string {
 
 func shortSocketDir(t *testing.T) string {
 	t.Helper()
+	//nolint:usetesting // Socket paths must remain short on macOS.
 	directory, err := os.MkdirTemp("/tmp", "dp-")
 	if err != nil {
 		t.Fatalf("MkdirTemp() error = %v", err)

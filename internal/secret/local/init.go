@@ -111,7 +111,7 @@ func ensurePrivateDirectory(path string) error {
 	clean := filepath.Clean(path)
 	root := string(filepath.Separator)
 	current := root
-	for _, component := range strings.Split(strings.TrimPrefix(clean, root), string(filepath.Separator)) {
+	for component := range strings.SplitSeq(strings.TrimPrefix(clean, root), string(filepath.Separator)) {
 		if component == "" {
 			continue
 		}

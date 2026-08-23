@@ -27,8 +27,10 @@ const (
 
 var errLookupRequired = errors.New("config: environment lookup is required")
 
-type LookupEnv func(string) (string, bool)
-type UserHomeDir func() (string, error)
+type (
+	LookupEnv   func(string) (string, bool)
+	UserHomeDir func() (string, error)
+)
 
 // Config errors retain uppercase environment variable names so diagnostics match operator-facing keys.
 type Config struct {
@@ -46,7 +48,7 @@ type Config struct {
 	QueryRowLimit          int
 }
 
-//nolint:gocyclo // Explicit environment parsing preserves operator-facing keys and error context.
+//nolint:funlen,gocyclo // Explicit environment parsing preserves operator-facing keys and error context.
 func Load(lookup LookupEnv, homes ...UserHomeDir) (Config, error) {
 	if lookup == nil {
 		return Config{}, errLookupRequired
@@ -108,6 +110,7 @@ func Load(lookup LookupEnv, homes ...UserHomeDir) (Config, error) {
 		cfg.MCPTokenStorePath = value
 	}
 
+	//nolint:nestif // Path defaults are resolved together only when at least one override is absent.
 	if cfg.AdminSocketPath == "" || cfg.MasterKeyPath == "" || cfg.SecretsStorePath == "" || cfg.ConnectionsStorePath == "" || cfg.MCPTokenStorePath == "" {
 		resolvedHome, err := home()
 		if err != nil {

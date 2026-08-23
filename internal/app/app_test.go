@@ -571,6 +571,7 @@ func testConfigFor(t *testing.T) config.Config {
 	if err := os.Mkdir(stateRoot, 0o700); err != nil {
 		t.Fatalf("Mkdir(%q) error = %v", stateRoot, err)
 	}
+	//nolint:usetesting // Socket paths must remain short on macOS.
 	socketRoot, err := os.MkdirTemp("/tmp", "dp-")
 	if err != nil {
 		t.Fatalf("MkdirTemp() error = %v", err)

@@ -48,6 +48,8 @@ func TestInstalledBinaryNativeLifecycle(t *testing.T) {
 
 	address := freeTCPAddress(t)
 	environment := lifecycleEnvironment(t, homeRoot, stateRoot, address)
+	definitionPath := nativeDefinitionPath(homeRoot)
+	linkSystemdDefinition(t, definitionPath)
 	stopBinary := func() {
 		_, _, _ = invokeBinary(t, binaryPath, environment, "stop")
 	}
@@ -69,7 +71,6 @@ func TestInstalledBinaryNativeLifecycle(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("run exit=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
-	definitionPath := nativeDefinitionPath(homeRoot)
 	if _, err := os.Stat(definitionPath); err != nil {
 		t.Fatalf("native definition stat: %v", err)
 	}
@@ -267,6 +268,35 @@ func nativeDefinitionPath(home string) string {
 		return filepath.Join(home, "Library", "LaunchAgents", "com.dataporch.dataporch.plist")
 	}
 	return filepath.Join(home, ".config", "systemd", "user", "dataporch.service")
+}
+
+func linkSystemdDefinition(t *testing.T, definitionPath string) {
+	t.Helper()
+	if runtime.GOOS != "linux" {
+		return
+	}
+
+	managerHome, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("resolve systemd manager home: %v", err)
+	}
+	managerDefinitionPath := filepath.Join(managerHome, ".config", "systemd", "user", filepath.Base(definitionPath))
+	if _, err := os.Lstat(managerDefinitionPath); err == nil {
+		t.Fatalf("systemd unit path already exists: %q", managerDefinitionPath)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("inspect systemd unit path %q: %v", managerDefinitionPath, err)
+	}
+	if err := os.MkdirAll(filepath.Dir(managerDefinitionPath), 0o700); err != nil {
+		t.Fatalf("create systemd unit directory: %v", err)
+	}
+	if err := os.Symlink(definitionPath, managerDefinitionPath); err != nil {
+		t.Fatalf("link systemd unit: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := os.Remove(managerDefinitionPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("remove systemd unit link %q: %v", managerDefinitionPath, err)
+		}
+	})
 }
 
 func assertSystemdUnitIsNotEnabled(t *testing.T, definitionPath string, environment []string) {

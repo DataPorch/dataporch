@@ -26,7 +26,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
-          go-version: "1.25"
+          go-version: "1.25.14"
           cache: true
           cache-dependency-path: go.sum
 
@@ -52,7 +52,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        go: ["1.25", "stable"]
+        go: ["1.25.14", "stable"]
 
     steps:
       - uses: actions/checkout@v7
@@ -149,7 +149,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
-          go-version: "1.25"
+          go-version: "1.25.14"
           cache: true
           cache-dependency-path: go.sum
 
@@ -171,7 +171,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
-          go-version: "1.25"
+          go-version: "1.25.14"
           cache: true
           cache-dependency-path: go.sum
 
@@ -205,7 +205,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
-          go-version: "1.25"
+          go-version: "1.25.14"
           cache: true
           cache-dependency-path: go.sum
 
@@ -227,7 +227,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
-          go-version: "1.25"
+          go-version: "1.25.14"
           cache: true
           cache-dependency-path: go.sum
 

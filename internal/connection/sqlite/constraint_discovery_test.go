@@ -186,7 +186,7 @@ func openConstraintFixtureConnection(ctx context.Context, path string, mode acce
 func createConstraintFixture(t *testing.T) string {
 	t.Helper()
 
-	path := t.TempDir() + "/constraints.db"
+	path := sqliteTestTempDir(t) + "/constraints.db"
 
 	conn, err := sqlite3.OpenFlags(path, sqlite3.OPEN_READWRITE|sqlite3.OPEN_CREATE|sqlite3.OPEN_URI)
 	if err != nil {

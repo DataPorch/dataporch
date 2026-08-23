@@ -279,7 +279,7 @@ func openColumnFixtureConnection(ctx context.Context, path string, mode accessMo
 func createColumnFixture(t *testing.T) string {
 	t.Helper()
 
-	path := t.TempDir() + "/columns.db"
+	path := sqliteTestTempDir(t) + "/columns.db"
 
 	conn, err := sqlite3.OpenFlags(path, sqlite3.OPEN_READWRITE|sqlite3.OPEN_CREATE|sqlite3.OPEN_URI)
 	if err != nil {

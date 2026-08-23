@@ -131,39 +131,84 @@ Each database adapter implements the same discovery and query contract. DataPorc
 
 ## Quick start
 
-DataPorch currently builds from source. You need Go 1.25 or later.
+DataPorch requires Go 1.25 or later when installed with Go. The preferred
+Homebrew installation is documented after the formula is accepted into
+`homebrew/core`; until then, install the published command with Go:
 
 ```bash
-git clone https://github.com/adamraziv/dataporch.git
-cd dataporch
-make build
+go install github.com/adamraziv/dataporch/cmd/dataporch@latest
 ```
 
-Keep source-build state in the repository directory:
+The exact-version, reproducible installation becomes available when `v0.1.0`
+is published:
 
 ```bash
-mkdir -p .dataporch
-
-export DATAPORCH_ADMIN_SOCKET_PATH="$PWD/.dataporch/admin.sock"
-export DATAPORCH_MASTER_KEY_PATH="$PWD/.dataporch/master.key"
-export DATAPORCH_SECRETS_STORE_PATH="$PWD/.dataporch/secrets.store"
-export DATAPORCH_CONNECTIONS_STORE_PATH="$PWD/.dataporch/connections.store"
-export DATAPORCH_MCP_TOKEN_STORE_PATH="$PWD/.dataporch/mcp-token.json"
+go install github.com/adamraziv/dataporch/cmd/dataporch@v0.1.0
 ```
 
-Initialize the local secret store:
+Contributors working from a checkout can use `make install`. Go installs the
+binary into `GOBIN`, or the default Go bin directory, which must be on `PATH`.
+Installation does not initialize DataPorch, create keys, register a service,
+or start a process.
+
+Initialize the per-user local state and start the native background service:
 
 ```bash
-./bin/dataporch secrets init
+dataporch secrets init
+dataporch run
+dataporch status
 ```
 
-Start DataPorch:
+Bare `dataporch`, `dataporch -h`, and `dataporch --help` display the command
+overview. Use `dataporch run -f` for the foreground process in a terminal,
+container, CI job, or external supervisor. Bare invocation no longer starts a
+long-running process.
+
+The background service uses `launchd` on macOS and `systemd --user` on Linux.
+`dataporch status` reports the PID, configured address, and the applicable log
+location. It returns exit code `3` when the service is stopped. DataPorch does
+not enable login startup; `restart` refreshes the service definition after an
+upgrade, while `stop` unregisters only the generated service definition.
+
+The default state is kept under `~/.dataporch`:
+
+```text
+~/.dataporch/admin.sock
+~/.dataporch/master.key
+~/.dataporch/secrets.store
+~/.dataporch/connections.store
+~/.dataporch/mcp-token.json
+~/.dataporch/logs/
+```
+
+For containers, system services, or an explicitly managed deployment, set the
+individual `DATAPORCH_*_PATH` overrides and use foreground mode. Existing
+state is never removed by `stop`, upgrades, rollback, or binary removal.
 
 ```bash
-./bin/dataporch
+export DATAPORCH_ADMIN_SOCKET_PATH=/run/dataporch/admin.sock
+export DATAPORCH_MASTER_KEY_PATH=/etc/dataporch/master.key
+export DATAPORCH_SECRETS_STORE_PATH=/var/lib/dataporch/secrets.store
+export DATAPORCH_CONNECTIONS_STORE_PATH=/var/lib/dataporch/connections.store
+export DATAPORCH_MCP_TOKEN_STORE_PATH=/var/lib/dataporch/mcp-token.json
+dataporch run -f
 ```
 
 DataPorch listens on `127.0.0.1:8080` by default.
+
+Upgrade or roll back an exact Go installation, then refresh the running
+service:
+
+```bash
+go install github.com/adamraziv/dataporch/cmd/dataporch@v0.1.1
+dataporch restart
+
+dataporch stop
+```
+
+There is no `dataporch start` command and no `dataporch run --foreground`
+alias. Use `dataporch run` for the native user service and `dataporch run -f`
+for foreground execution.
 
 ### Connect a database
 
@@ -176,7 +221,7 @@ Import a connection through the local administration socket:
 | SQLite     | `sqlite:///absolute/path/database.db`           |
 
 ```bash
-./bin/dataporch connections import --id finance --kind postgres
+dataporch connections import --id finance --kind postgres
 ```
 
 DataPorch reads the connection string from a hidden terminal prompt. The MCP interface does not receive the connection string.
@@ -185,7 +230,7 @@ Change `--kind` and enter the matching connection format for MySQL or SQLite.
 ### Create an MCP token
 
 ```bash
-./bin/dataporch mcp-token create
+dataporch mcp-token create
 ```
 
 Export the token in the environment that starts your MCP client:

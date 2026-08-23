@@ -72,6 +72,52 @@ jobs:
       - name: Build
         run: go build -trimpath ./cmd/dataporch
 
+      - name: Verify global Go installation
+        shell: bash
+        run: |
+          install_root="$(mktemp -d)"
+          test_home="$(mktemp -d)"
+          trap 'rm -rf -- "$install_root" "$test_home"' EXIT
+          GOBIN="$install_root" go install -trimpath ./cmd/dataporch
+          PATH="$install_root:$PATH" HOME="$test_home" dataporch >"$install_root/bare-help.txt"
+          PATH="$install_root:$PATH" HOME="$test_home" dataporch --help >"$install_root/flag-help.txt"
+          cmp "$install_root/bare-help.txt" "$install_root/flag-help.txt"
+          test "$(PATH="$install_root:$PATH" HOME="$test_home" dataporch --version)" = "dataporch devel"
+          test ! -e "$test_home/.dataporch"
+
+  container:
+    name: Container validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Verify immutable Docker bases
+        shell: bash
+        run: |
+          test "$(grep -Ec '^FROM .+@sha256:[0-9a-f]{64}' Dockerfile)" -eq 2
+
+      - name: Build local image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: false
+          load: true
+          tags: dataporch:ci
+
+      - name: Scan local image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: dataporch:ci
+          severity: CRITICAL,HIGH
+          ignore-unfixed: false
+          exit-code: "1"
+
   postgres-integration:
     name: PostgreSQL integration (${{ matrix.postgres }})
     runs-on: ubuntu-latest

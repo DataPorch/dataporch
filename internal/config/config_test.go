@@ -10,10 +10,10 @@ func TestLoadSecurityPaths(t *testing.T) {
 	t.Parallel()
 
 	const (
-		wantAdminSocket     = "/run/dataporch/admin.sock"
-		wantMasterKey       = "/etc/dataporch/master.key"
-		wantSecretsStore    = "/var/lib/dataporch/secrets.store"
-		wantConnectionsFile = "/var/lib/dataporch/connections.store"
+		wantAdminSocket     = "/Users/alice/.dataporch/admin.sock"
+		wantMasterKey       = "/Users/alice/.dataporch/master.key"
+		wantSecretsStore    = "/Users/alice/.dataporch/secrets.store"
+		wantConnectionsFile = "/Users/alice/.dataporch/connections.store"
 	)
 
 	tests := []struct {
@@ -32,7 +32,7 @@ func TestLoadSecurityPaths(t *testing.T) {
 			wantMasterKey:       wantMasterKey,
 			wantSecretsStore:    wantSecretsStore,
 			wantConnectionsFile: wantConnectionsFile,
-			wantTokenStore:      "/var/lib/dataporch/mcp-token.json",
+			wantTokenStore:      "/Users/alice/.dataporch/mcp-token.json",
 		},
 		{
 			name: "overrides",
@@ -58,7 +58,7 @@ func TestLoadSecurityPaths(t *testing.T) {
 			cfg, err := Load(func(key string) (string, bool) {
 				value, exists := tt.values[key]
 				return value, exists
-			})
+			}, func() (string, error) { return "/Users/alice", nil })
 			if err != nil {
 				t.Fatalf("Load() error = %v", err)
 			}
@@ -224,10 +224,19 @@ func TestLoadRejectsInvalidMCPTokenStorePath(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
+			values := map[string]string{
+				"DATAPORCH_ADMIN_SOCKET_PATH":      "/run/dataporch/admin.sock",
+				"DATAPORCH_MASTER_KEY_PATH":        "/etc/dataporch/master.key",
+				"DATAPORCH_SECRETS_STORE_PATH":     "/var/lib/dataporch/secrets.store",
+				"DATAPORCH_CONNECTIONS_STORE_PATH": "/var/lib/dataporch/connections.store",
+			}
+			for key, value := range tt.values {
+				values[key] = value
+			}
 			_, err := Load(func(key string) (string, bool) {
-				value, exists := tt.values[key]
+				value, exists := values[key]
 				return value, exists
-			})
+			}, func() (string, error) { return "/Users/alice", nil })
 			if err == nil {
 				t.Fatal("Load() error = nil, want non-nil")
 			}

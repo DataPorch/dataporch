@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"bytes"
@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -20,7 +21,7 @@ import (
 func TestUnixClientImportsThroughLocalAdminSocket(t *testing.T) {
 	t.Parallel()
 
-	path := filepath.Join(t.TempDir(), "admin.sock")
+	path := filepath.Join(shortSocketDir(t), "admin.sock")
 	importer := &socketImporter{result: connection.ImportResult{ID: "finance", IsUpdated: true}}
 
 	handler, err := localadmin.NewHandler(importer, &testMCPTokenManager{}, slog.New(slog.DiscardHandler))
@@ -179,7 +180,7 @@ func waitForSocket(t *testing.T, path string) {
 
 func startSocketHTTPServer(t *testing.T, handler http.Handler) string {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "admin.sock")
+	path := filepath.Join(shortSocketDir(t), "admin.sock")
 
 	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "unix", path)
 	if err != nil {
@@ -200,6 +201,20 @@ func startSocketHTTPServer(t *testing.T, handler http.Handler) string {
 	})
 
 	return path
+}
+
+func shortSocketDir(t *testing.T) string {
+	t.Helper()
+	directory, err := os.MkdirTemp("/tmp", "dp-")
+	if err != nil {
+		t.Fatalf("MkdirTemp() error = %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(directory) })
+	resolved, err := filepath.EvalSymlinks(directory)
+	if err != nil {
+		t.Fatalf("EvalSymlinks() error = %v", err)
+	}
+	return resolved
 }
 
 type socketImporter struct {

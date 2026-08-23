@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"bufio"
@@ -24,14 +24,16 @@ const (
 
 var errMCPTokenConfirmationRequired = errors.New("mcp token revoke requires an interactive terminal")
 
-type mcpTokenClient interface {
+type MCPTokenClient interface {
 	CreateMCPToken(context.Context) (string, mcptoken.Metadata, error)
 	MCPTokenStatus(context.Context) (mcptoken.Status, error)
 	RotateMCPToken(context.Context) (string, mcptoken.Metadata, error)
 	RevokeMCPToken(context.Context) error
 }
 
-func mcpTokenCommandRun(args []string, dependencies commandDependencies) error {
+type mcpTokenClient = MCPTokenClient
+
+func mcpTokenCommandRun(ctx context.Context, args []string, dependencies commandDependencies) error {
 	if len(args) == 0 {
 		return errUnknownCommand
 	}
@@ -42,27 +44,27 @@ func mcpTokenCommandRun(args []string, dependencies commandDependencies) error {
 			return errUnexpectedArguments
 		}
 
-		return createMCPToken(dependencies)
+		return createMCPToken(ctx, dependencies)
 	case mcpTokenListCommand:
 		if len(args) != 1 {
 			return errUnexpectedArguments
 		}
 
-		return listMCPToken(dependencies)
+		return listMCPToken(ctx, dependencies)
 	case mcpTokenRotateCommand:
 		if len(args) != 1 {
 			return errUnexpectedArguments
 		}
 
-		return rotateMCPToken(dependencies)
+		return rotateMCPToken(ctx, dependencies)
 	case mcpTokenRevokeCommand:
-		return revokeMCPToken(args[1:], dependencies)
+		return revokeMCPToken(ctx, args[1:], dependencies)
 	default:
 		return errUnknownCommand
 	}
 }
 
-func createMCPToken(dependencies commandDependencies) error {
+func createMCPToken(ctx context.Context, dependencies commandDependencies) error {
 	if err := requireCommandOutput(dependencies.stdout); err != nil {
 		return err
 	}
@@ -72,7 +74,7 @@ func createMCPToken(dependencies commandDependencies) error {
 		return err
 	}
 
-	token, metadata, err := client.CreateMCPToken(context.Background())
+	token, metadata, err := client.CreateMCPToken(ctx)
 	if err != nil {
 		return errors.New("creating MCP token: request failed")
 	}
@@ -92,13 +94,13 @@ func createMCPToken(dependencies commandDependencies) error {
 	return nil
 }
 
-func listMCPToken(dependencies commandDependencies) error {
+func listMCPToken(ctx context.Context, dependencies commandDependencies) error {
 	client, err := newMCPTokenClient(dependencies)
 	if err != nil {
 		return err
 	}
 
-	status, err := client.MCPTokenStatus(context.Background())
+	status, err := client.MCPTokenStatus(ctx)
 	if err != nil {
 		return errors.New("listing MCP token: request failed")
 	}
@@ -109,13 +111,20 @@ func listMCPToken(dependencies commandDependencies) error {
 
 	switch status.State {
 	case mcptoken.StateNone:
-		_, _ = fmt.Fprintln(dependencies.stdout, "No MCP token is configured.")
+		if err := writeString(dependencies.stdout, "No MCP token is configured.\n"); err != nil {
+			return err
+		}
 	case mcptoken.StateActive:
-		_, _ = fmt.Fprintln(dependencies.stdout, "MCP token is active.")
-		writeMCPTokenMetadata(dependencies.stdout, status.Metadata)
+		if err := writeString(dependencies.stdout, "MCP token is active.\n"); err != nil {
+			return err
+		}
+		if err := writeMCPTokenMetadata(dependencies.stdout, status.Metadata); err != nil {
+			return err
+		}
 	case mcptoken.StateDegraded:
-		_, _ = fmt.Fprintln(dependencies.stdout, "MCP token state is degraded.")
-		_, _ = fmt.Fprintln(dependencies.stdout, "Use dataporch mcp-token revoke --yes to attempt recovery.")
+		if err := writeString(dependencies.stdout, "MCP token state is degraded.\nUse dataporch mcp-token revoke --yes to attempt recovery.\n"); err != nil {
+			return err
+		}
 	default:
 		return errors.New("received invalid MCP token state")
 	}
@@ -123,7 +132,7 @@ func listMCPToken(dependencies commandDependencies) error {
 	return nil
 }
 
-func rotateMCPToken(dependencies commandDependencies) error {
+func rotateMCPToken(ctx context.Context, dependencies commandDependencies) error {
 	if err := requireCommandOutput(dependencies.stdout); err != nil {
 		return err
 	}
@@ -133,7 +142,7 @@ func rotateMCPToken(dependencies commandDependencies) error {
 		return err
 	}
 
-	token, metadata, err := client.RotateMCPToken(context.Background())
+	token, metadata, err := client.RotateMCPToken(ctx)
 	if err != nil {
 		return errors.New("rotating MCP token: request failed")
 	}
@@ -153,7 +162,7 @@ func rotateMCPToken(dependencies commandDependencies) error {
 	return nil
 }
 
-func revokeMCPToken(args []string, dependencies commandDependencies) error {
+func revokeMCPToken(ctx context.Context, args []string, dependencies commandDependencies) error {
 	revoke, err := parseMCPTokenRevokeArguments(args)
 	if err != nil {
 		return err
@@ -175,7 +184,7 @@ func revokeMCPToken(args []string, dependencies commandDependencies) error {
 		}
 	}
 
-	if err := client.RevokeMCPToken(context.Background()); err != nil {
+	if err := client.RevokeMCPToken(ctx); err != nil {
 		return errors.New("revoking MCP token: request failed")
 	}
 
@@ -183,9 +192,7 @@ func revokeMCPToken(args []string, dependencies commandDependencies) error {
 		return err
 	}
 
-	_, _ = fmt.Fprintln(dependencies.stdout, "MCP token revoked successfully.")
-
-	return nil
+	return writeString(dependencies.stdout, "MCP token revoked successfully.\n")
 }
 
 type mcpTokenRevokeArguments struct {
@@ -243,7 +250,9 @@ func confirmMCPTokenRevoke(dependencies commandDependencies) (bool, error) {
 		return false, err
 	}
 
-	_, _ = fmt.Fprint(dependencies.stdout, "Revoke the MCP token? [y/N] ")
+	if err := writeString(dependencies.stdout, "Revoke the MCP token? [y/N] "); err != nil {
+		return false, err
+	}
 
 	answer, err := dependencies.readConfirmation(dependencies.stdin)
 	if err != nil {
@@ -252,7 +261,9 @@ func confirmMCPTokenRevoke(dependencies commandDependencies) (bool, error) {
 
 	if !strings.EqualFold(strings.TrimSpace(answer), "y") &&
 		!strings.EqualFold(strings.TrimSpace(answer), "yes") {
-		_, _ = fmt.Fprintln(dependencies.stdout, "MCP token revocation canceled.")
+		if err := writeString(dependencies.stdout, "MCP token revocation canceled.\n"); err != nil {
+			return false, err
+		}
 		return false, nil
 	}
 
@@ -296,16 +307,18 @@ func writeCommandOutput(writer io.Writer, output string) error {
 	return nil
 }
 
-func writeMCPTokenMetadata(writer io.Writer, metadata mcptoken.Metadata) {
+func writeMCPTokenMetadata(writer io.Writer, metadata mcptoken.Metadata) error {
 	if !metadata.CreatedAt.IsZero() {
-		_, _ = fmt.Fprintf(writer, "Created: %s\n", metadata.CreatedAt.UTC().Format(time.RFC3339Nano))
+		if err := writeString(writer, fmt.Sprintf("Created: %s\n", metadata.CreatedAt.UTC().Format(time.RFC3339Nano))); err != nil {
+			return err
+		}
 	}
 
 	if metadata.RotatedAt == nil {
-		return
+		return nil
 	}
 
-	_, _ = fmt.Fprintf(writer, "Rotated: %s\n", metadata.RotatedAt.UTC().Format(time.RFC3339Nano))
+	return writeString(writer, fmt.Sprintf("Rotated: %s\n", metadata.RotatedAt.UTC().Format(time.RFC3339Nano)))
 }
 
 func requireCommandOutput(writer io.Writer) error {

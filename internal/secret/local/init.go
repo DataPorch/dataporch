@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/adamraziv/dataporch/internal/atomicfile"
 )
@@ -48,11 +49,11 @@ func initStore(paths Paths, random io.Reader, create createFileFunc) error {
 		return errors.New("secret local: file creator is required")
 	}
 
-	if err := os.MkdirAll(filepath.Dir(paths.KeyPath), 0o700); err != nil {
+	if err := ensurePrivateDirectory(filepath.Dir(paths.KeyPath)); err != nil {
 		return fmt.Errorf("creating master key directory: %w", err)
 	}
 
-	if err := os.MkdirAll(filepath.Dir(paths.StorePath), 0o700); err != nil {
+	if err := ensurePrivateDirectory(filepath.Dir(paths.StorePath)); err != nil {
 		return fmt.Errorf("creating secret store directory: %w", err)
 	}
 
@@ -101,6 +102,42 @@ func initializedError(err error) error {
 	}
 
 	return err
+}
+
+func ensurePrivateDirectory(path string) error {
+	if !filepath.IsAbs(path) {
+		return errors.New("secret local: private directory must be absolute")
+	}
+	clean := filepath.Clean(path)
+	root := string(filepath.Separator)
+	current := root
+	for _, component := range strings.Split(strings.TrimPrefix(clean, root), string(filepath.Separator)) {
+		if component == "" {
+			continue
+		}
+		current = filepath.Join(current, component)
+		info, err := os.Lstat(current)
+		if errors.Is(err, fs.ErrNotExist) {
+			if err := os.Mkdir(current, 0o700); err != nil {
+				return fmt.Errorf("creating private directory %q: %w", current, err)
+			}
+			info, err = os.Lstat(current)
+		}
+		if err != nil {
+			return fmt.Errorf("inspecting private directory %q: %w", current, err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+			return fmt.Errorf("secret local: unsafe directory component %q", current)
+		}
+	}
+	info, err := os.Lstat(clean)
+	if err != nil {
+		return fmt.Errorf("inspecting private directory %q: %w", clean, err)
+	}
+	if info.Mode().Perm()&0o077 != 0 {
+		return fmt.Errorf("secret local: private directory %q must be owner-only", clean)
+	}
+	return nil
 }
 
 func zeroBytes(value []byte) {

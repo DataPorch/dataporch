@@ -1,5 +1,6 @@
 /bin/
 /dist/
+/dist/
 *.exe
 *.test
 

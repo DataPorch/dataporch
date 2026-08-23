@@ -1,0 +1,20 @@
+version: 2
+project_name: dataporch
+builds:
+  - id: dataporch
+    main: ./cmd/dataporch
+    binary: dataporch
+    env: [CGO_ENABLED=0]
+    goos: [darwin, linux]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w -X github.com/adamraziv/dataporch/internal/app.releaseVersion={{ .Version }}
+archives:
+  - formats: [tar.gz]
+    name_template: '{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}'
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+changelog:
+  use: git

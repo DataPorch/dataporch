@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"bytes"
@@ -31,6 +31,14 @@ func newUnixClient(socketPath string) (*unixClient, error) {
 	}
 
 	return &unixClient{client: &http.Client{Transport: transport, Timeout: importClientTimeout}}, nil
+}
+
+func NewUnixClient(socketPath string) (ImportClient, error) {
+	return newUnixClient(socketPath)
+}
+
+func NewMCPTokenClient(socketPath string) (MCPTokenClient, error) {
+	return newUnixClient(socketPath)
 }
 
 func (c *unixClient) Import(ctx context.Context, request connection.ImportRequest) (connection.ImportResult, error) {

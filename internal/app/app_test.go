@@ -563,16 +563,33 @@ func testConfig() config.Config {
 func testConfigFor(t *testing.T) config.Config {
 	t.Helper()
 	base := t.TempDir()
+	resolvedBase, err := filepath.EvalSymlinks(base)
+	if err != nil {
+		t.Fatalf("EvalSymlinks(%q) error = %v", base, err)
+	}
+	stateRoot := filepath.Join(resolvedBase, "state")
+	if err := os.Mkdir(stateRoot, 0o700); err != nil {
+		t.Fatalf("Mkdir(%q) error = %v", stateRoot, err)
+	}
+	socketRoot, err := os.MkdirTemp("/tmp", "dp-")
+	if err != nil {
+		t.Fatalf("MkdirTemp() error = %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(socketRoot) })
+	socketRoot, err = filepath.EvalSymlinks(socketRoot)
+	if err != nil {
+		t.Fatalf("EvalSymlinks(%q) error = %v", socketRoot, err)
+	}
 
 	return config.Config{
 		HTTPAddress:            "127.0.0.1:0",
 		ResourceLimit:          10,
 		ShutdownPeriod:         time.Second,
-		AdminSocketPath:        filepath.Join(base, "admin.sock"),
-		MasterKeyPath:          filepath.Join(base, "master.key"),
-		SecretsStorePath:       filepath.Join(base, "secrets.store"),
-		ConnectionsStorePath:   filepath.Join(base, "connections.store"),
-		MCPTokenStorePath:      filepath.Join(base, "mcp-token.json"),
+		AdminSocketPath:        filepath.Join(socketRoot, "admin.sock"),
+		MasterKeyPath:          filepath.Join(stateRoot, "master.key"),
+		SecretsStorePath:       filepath.Join(stateRoot, "secrets.store"),
+		ConnectionsStorePath:   filepath.Join(stateRoot, "connections.store"),
+		MCPTokenStorePath:      filepath.Join(stateRoot, "mcp-token.json"),
 		QueryTimeout:           20 * time.Second,
 		QueryResponseByteLimit: 10_485_760,
 		QueryTruncationEnabled: true,

@@ -133,7 +133,7 @@ func waitForSocket(t *testing.T, path string) {
 
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
-		if _, err := os.Stat(path); err == nil {
+		if info, err := os.Stat(path); err == nil && info.Mode().Perm() == 0o660 {
 			return
 		}
 
@@ -145,6 +145,7 @@ func waitForSocket(t *testing.T, path string) {
 
 func shortSocketDir(t *testing.T) string {
 	t.Helper()
+	//nolint:usetesting // Socket paths must remain short on macOS.
 	directory, err := os.MkdirTemp("/tmp", "dp-")
 	if err != nil {
 		t.Fatalf("MkdirTemp() error = %v", err)

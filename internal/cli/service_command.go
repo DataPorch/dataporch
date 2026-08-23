@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"os/exec"
-	"runtime"
 )
 
 type CommandRunner interface {
@@ -20,9 +19,11 @@ func NewCommandRunner(command func(context.Context, string, ...string) *exec.Cmd
 	}
 	return commandRunner{command: command}
 }
+
 func (r commandRunner) Run(ctx context.Context, name string, args ...string) ([]byte, error) {
 	return r.command(ctx, name, args...).CombinedOutput()
 }
+
 func NewNativeServiceManager(goos, home string, uid int, runner CommandRunner) (ServiceManager, error) {
 	switch goos {
 	case "darwin":
@@ -32,7 +33,4 @@ func NewNativeServiceManager(goos, home string, uid int, runner CommandRunner) (
 	default:
 		return nil, errors.New("native services are unsupported; use dataporch run -f")
 	}
-}
-func newNativeServiceManager(home string, uid int, runner CommandRunner) (ServiceManager, error) {
-	return NewNativeServiceManager(runtime.GOOS, home, uid, runner)
 }

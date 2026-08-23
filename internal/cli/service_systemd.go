@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -26,6 +27,7 @@ func newSystemdManager(home string, runner CommandRunner) (*systemdManager, erro
 	}
 	return &systemdManager{home: home, runner: runner}, nil
 }
+
 func (m *systemdManager) DefinitionPath() string {
 	return filepath.Join(m.home, ".config", "systemd", "user", systemdUnit)
 }
@@ -35,6 +37,7 @@ func (m *systemdManager) command(ctx context.Context, args ...string) ([]byte, e
 	defer cancel()
 	return m.runner.Run(child, "systemctl", append([]string{"--user"}, args...)...)
 }
+
 func (m *systemdManager) Register(ctx context.Context, definition ServiceDefinition) error {
 	if err := validateDefinition(definition); err != nil {
 		return err
@@ -52,10 +55,12 @@ func (m *systemdManager) Register(ctx context.Context, definition ServiceDefinit
 	_, err = m.command(ctx, "daemon-reload")
 	return err
 }
+
 func (m *systemdManager) Start(ctx context.Context) error {
 	_, err := m.command(ctx, "start", systemdUnit)
 	return err
 }
+
 func (m *systemdManager) Restart(ctx context.Context) error {
 	if _, err := m.command(ctx, "daemon-reload"); err != nil {
 		return err
@@ -63,10 +68,15 @@ func (m *systemdManager) Restart(ctx context.Context) error {
 	_, err := m.command(ctx, "restart", systemdUnit)
 	return err
 }
+
 func (m *systemdManager) Stop(ctx context.Context) error {
-	_, err := m.command(ctx, "stop", systemdUnit)
+	output, err := m.command(ctx, "stop", systemdUnit)
+	if serviceAbsent(output, err) {
+		return nil
+	}
 	return err
 }
+
 func (m *systemdManager) Unregister(ctx context.Context) error {
 	if err := os.Remove(m.DefinitionPath()); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
@@ -74,20 +84,22 @@ func (m *systemdManager) Unregister(ctx context.Context) error {
 	_, err := m.command(ctx, "daemon-reload")
 	return err
 }
+
 func (m *systemdManager) Status(ctx context.Context) (NativeStatus, error) {
 	output, err := m.command(ctx, "show", systemdUnit, "--property=LoadState", "--property=ActiveState", "--property=SubState", "--property=MainPID")
 	if err != nil {
-		return NativeStatus{}, err
+		return NativeStatus{Registered: true, State: NativeFailed}, fmt.Errorf("systemctl status: %w", err)
 	}
 	return parseSystemdStatus(output)
 }
+
 func renderSystemdUnit(definition ServiceDefinition) ([]byte, error) {
 	if err := validateDefinition(definition); err != nil {
 		return nil, err
 	}
 	quote := func(value string) (string, error) {
-		if strings.ContainsAny(value, "\x00\n") {
-			return "", errors.New("systemd value contains NUL or newline")
+		if err := validateServiceValue("systemd value", value); err != nil {
+			return "", err
 		}
 		return strconv.Quote(strings.ReplaceAll(value, "%", "%%")), nil
 	}
@@ -101,17 +113,18 @@ func renderSystemdUnit(definition ServiceDefinition) ([]byte, error) {
 	}
 	lines := []string{"[Service]", "Type=simple", "ExecStart=" + strings.Join(parts, " "), "Restart=no"}
 	for _, variable := range definition.Environment {
-		value, err := quote(variable.Value)
+		value, err := quote(variable.Name + "=" + variable.Value)
 		if err != nil {
 			return nil, err
 		}
-		lines = append(lines, "Environment=\""+strings.ReplaceAll(variable.Name, "%", "%%")+"="+strings.Trim(value, "\"")+"\"")
+		lines = append(lines, "Environment="+value)
 	}
 	return []byte(strings.Join(lines, "\n") + "\n"), nil
 }
+
 func parseSystemdStatus(output []byte) (NativeStatus, error) {
 	values := map[string]string{}
-	for _, line := range strings.Split(string(output), "\n") {
+	for line := range strings.SplitSeq(string(output), "\n") {
 		key, value, ok := strings.Cut(line, "=")
 		if ok {
 			values[key] = value
@@ -125,7 +138,10 @@ func parseSystemdStatus(output []byte) (NativeStatus, error) {
 	}
 	pid, err := strconv.Atoi(values["MainPID"])
 	if err != nil || pid <= 0 {
-		return NativeStatus{Registered: true, State: NativeFailed}, nil
+		if err != nil {
+			return NativeStatus{Registered: true, State: NativeFailed}, fmt.Errorf("parsing systemd status: %w", err)
+		}
+		return NativeStatus{Registered: true, State: NativeFailed}, errors.New("systemd status has invalid main PID")
 	}
 	return NativeStatus{Registered: true, State: NativeRunning, PID: pid}, nil
 }

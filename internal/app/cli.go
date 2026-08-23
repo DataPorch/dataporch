@@ -3,6 +3,7 @@ package app
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -52,7 +53,7 @@ func ExecuteCLI(ctx context.Context, args []string) int {
 
 func readConfirmationLine(stdin *os.File) (string, error) {
 	if stdin == nil {
-		return "", fmt.Errorf("confirmation input is required")
+		return "", errors.New("confirmation input is required")
 	}
 	line, err := bufio.NewReader(stdin).ReadString('\n')
 	if err != nil && err != io.EOF {

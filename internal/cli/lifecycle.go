@@ -20,6 +20,7 @@ func (r *Runner) managerFor(cfg config.Config) (ServiceManager, error) {
 	}
 	return manager, nil
 }
+
 func (r *Runner) validateInitialized(cfg config.Config) error {
 	if r.dependencies.protectedFileValidator == nil {
 		return errors.New("protected file validator is required")
@@ -34,13 +35,15 @@ func (r *Runner) validateInitialized(cfg config.Config) error {
 	}
 	return nil
 }
+
 func (r *Runner) definition(cfg config.Config) (ServiceDefinition, error) {
 	if err := r.validateInitialized(cfg); err != nil {
 		return ServiceDefinition{}, err
 	}
-	definition := ServiceDefinition{Executable: r.dependencies.invocationPath, Arguments: []string{"run", "-f"}, Environment: serviceEnvironment(cfg), StdoutPath: filepath.Join(filepath.Dir(cfg.SecretsStorePath), "logs", "dataporch.log"), StderrPath: filepath.Join(filepath.Dir(cfg.SecretsStorePath), "logs", "dataporch.err.log")}
+	definition := ServiceDefinition{Executable: r.dependencies.invocationPath, Arguments: []string{runCommand, foregroundFlag}, Environment: serviceEnvironment(cfg), StdoutPath: filepath.Join(filepath.Dir(cfg.SecretsStorePath), "logs", "dataporch.log"), StderrPath: filepath.Join(filepath.Dir(cfg.SecretsStorePath), "logs", "dataporch.err.log")}
 	return definition, validateDefinition(definition)
 }
+
 func (r *Runner) runBackground(ctx context.Context) error {
 	cfg, err := loadConfig(r.dependencies)
 	if err != nil {
@@ -68,7 +71,11 @@ func (r *Runner) runBackground(ctx context.Context) error {
 		return fmt.Errorf("registering service: %w", err)
 	}
 	if err := manager.Start(ctx); err != nil {
-		return fmt.Errorf("starting service: %w", err)
+		return errors.Join(
+			fmt.Errorf("starting service: %w", err),
+			manager.Stop(ctx),
+			manager.Unregister(ctx),
+		)
 	}
 	if r.dependencies.healthChecker == nil {
 		return errors.New("health checker is required")
@@ -78,6 +85,7 @@ func (r *Runner) runBackground(ctx context.Context) error {
 	}
 	return nil
 }
+
 func (r *Runner) restartBackground(ctx context.Context) error {
 	cfg, err := loadConfig(r.dependencies)
 	if err != nil {
@@ -109,6 +117,7 @@ func (r *Runner) restartBackground(ctx context.Context) error {
 	}
 	return r.dependencies.healthChecker.Wait(ctx, cfg.HTTPAddress)
 }
+
 func (r *Runner) stopBackground(ctx context.Context) error {
 	cfg, err := loadConfig(r.dependencies)
 	if err != nil {
@@ -126,6 +135,7 @@ func (r *Runner) stopBackground(ctx context.Context) error {
 	}
 	return nil
 }
+
 func (r *Runner) statusBackground(ctx context.Context) error {
 	cfg, err := loadConfig(r.dependencies)
 	if err != nil {
@@ -137,6 +147,9 @@ func (r *Runner) statusBackground(ctx context.Context) error {
 	}
 	status, err := manager.Status(ctx)
 	if err != nil {
+		if status.State == NativeFailed {
+			return r.failedStatus(err)
+		}
 		return fmt.Errorf("checking service status: %w", err)
 	}
 	if !status.Registered || status.State == NativeStopped {
@@ -146,13 +159,23 @@ func (r *Runner) statusBackground(ctx context.Context) error {
 		return stoppedResult()
 	}
 	if status.State != NativeRunning {
-		return errors.New("service is failed")
+		return r.failedStatus(nil)
 	}
 	if r.dependencies.healthChecker == nil {
 		return errors.New("health checker is required")
 	}
 	if err := r.dependencies.healthChecker.Check(ctx, cfg.HTTPAddress); err != nil {
-		return fmt.Errorf("service is failed: %w", err)
+		return r.failedStatus(err)
 	}
 	return writeString(r.dependencies.stdout, fmt.Sprintf("running\npid: %d\naddress: %s\nlogs: %s\n", status.PID, cfg.HTTPAddress, manager.LogLocation()))
+}
+
+func (r *Runner) failedStatus(cause error) error {
+	if err := writeString(r.dependencies.stdout, "failed\n"); err != nil {
+		return err
+	}
+	if cause == nil {
+		return errors.New("service is failed")
+	}
+	return fmt.Errorf("service is failed: %w", cause)
 }

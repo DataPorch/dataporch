@@ -29,6 +29,9 @@ func usageError(message string, cause error) error {
 func stoppedResult() error { return &cliError{code: exitStopped, silent: true} }
 
 func exitCode(err error) int {
+	if err == nil {
+		return exitSuccess
+	}
 	var commandErr *cliError
 	if errors.As(err, &commandErr) {
 		return commandErr.code

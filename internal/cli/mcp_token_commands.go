@@ -1,13 +1,11 @@
 package cli
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 	"time"
 
@@ -327,17 +325,4 @@ func requireCommandOutput(writer io.Writer) error {
 	}
 
 	return nil
-}
-
-func readConfirmationLine(stdin *os.File) (string, error) {
-	if stdin == nil {
-		return "", errMCPTokenConfirmationRequired
-	}
-
-	line, err := bufio.NewReader(stdin).ReadString('\n')
-	if err != nil && !errors.Is(err, io.EOF) {
-		return "", err
-	}
-
-	return strings.TrimSpace(line), nil
 }

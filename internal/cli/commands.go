@@ -26,13 +26,17 @@ var (
 const (
 	connectionsCommand = "connections"
 	importCommand      = "import"
+	foregroundFlag     = "-f"
+	runCommand         = "run"
 )
 
 type ImportClient interface {
 	Import(context.Context, connection.ImportRequest) (connection.ImportResult, error)
 }
-type importClient = ImportClient
-type importClientFunc func(context.Context, connection.ImportRequest) (connection.ImportResult, error)
+type (
+	importClient     = ImportClient
+	importClientFunc func(context.Context, connection.ImportRequest) (connection.ImportResult, error)
+)
 
 func (f importClientFunc) Import(ctx context.Context, request connection.ImportRequest) (connection.ImportResult, error) {
 	return f(ctx, request)
@@ -144,11 +148,12 @@ func run(args []string, dependencies commandDependencies) error {
 	return runWithContext(context.TODO(), args, dependencies)
 }
 
+//nolint:gocyclo // Explicit command grammar remains centralized to preserve exact usage errors.
 func runWithContext(ctx context.Context, args []string, dependencies commandDependencies) error {
 	switch {
-	case len(args) == 2 && args[0] == "run" && args[1] == "-f":
+	case len(args) == 2 && args[0] == runCommand && args[1] == foregroundFlag:
 		return serve(ctx, dependencies)
-	case len(args) == 1 && args[0] == "run":
+	case len(args) == 1 && args[0] == runCommand:
 		return (&Runner{dependencies: dependencies}).runBackground(ctx)
 	case len(args) == 1 && args[0] == "restart":
 		return (&Runner{dependencies: dependencies}).restartBackground(ctx)
@@ -162,7 +167,7 @@ func runWithContext(ctx context.Context, args []string, dependencies commandDepe
 		return importConnection(ctx, args[2:], dependencies)
 	case len(args) >= 2 && args[0] == mcpTokenCommand:
 		return mcpTokenCommandRun(ctx, args[1:], dependencies)
-	case len(args) > 0 && args[0] == "run" && len(args) > 1 && args[1] == "--foreground":
+	case len(args) > 0 && args[0] == runCommand && len(args) > 1 && args[1] == "--foreground":
 		return usageError("unknown flag --foreground; run dataporch run -h", nil)
 	case len(args) > 0:
 		return usageError(fmt.Sprintf("unknown command %q; run dataporch --help", args[0]), errUnknownCommand)
@@ -184,6 +189,7 @@ func serve(ctx context.Context, dependencies commandDependencies) error {
 	}
 	return nil
 }
+
 func initializeSecrets(dependencies commandDependencies) error {
 	cfg, err := loadConfig(dependencies)
 	if err != nil {
@@ -197,6 +203,7 @@ func initializeSecrets(dependencies commandDependencies) error {
 	}
 	return nil
 }
+
 func importConnection(ctx context.Context, args []string, dependencies commandDependencies) error {
 	arguments, err := parseImportArguments(args)
 	if err != nil {
@@ -253,6 +260,7 @@ func parseImportArguments(args []string) (importArguments, error) {
 	}
 	return importArguments{databaseID: connection.ID(*databaseID), kind: connection.Kind(*kind)}, nil
 }
+
 func readConnectionString(dependencies commandDependencies) ([]byte, error) {
 	if dependencies.stdin == nil || dependencies.isTerminal == nil || dependencies.readPassword == nil || !dependencies.isTerminal(int(dependencies.stdin.Fd())) {
 		return nil, errTerminalRequired
@@ -269,6 +277,7 @@ func readConnectionString(dependencies commandDependencies) ([]byte, error) {
 	}
 	return value, nil
 }
+
 func loadConfig(dependencies commandDependencies) (config.Config, error) {
 	if dependencies.lookupEnv == nil {
 		return config.Config{}, errors.New("configuration lookup is required")
@@ -285,6 +294,7 @@ func loadConfig(dependencies commandDependencies) (config.Config, error) {
 	}
 	return cfg, nil
 }
+
 func zeroBytes(value []byte) {
 	for index := range value {
 		value[index] = 0

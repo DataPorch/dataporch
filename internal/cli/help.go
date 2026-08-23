@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -9,13 +10,16 @@ import (
 type commandSpec struct{ path, summary, detail string }
 
 var commandHelp = []commandSpec{
-	{"run", "start the background user service", "Usage: dataporch run\n\nRegister and start the native user service."},
+	{runCommand, "start the background user service", "Usage: dataporch run\n\nRegister and start the native user service."},
 	{"run -f", "run DataPorch in the current terminal", "Usage: dataporch run -f\n\nRun DataPorch in the foreground."},
 	{"restart", "restart the background user service", "Usage: dataporch restart\n\nRefresh and restart the native user service."},
 	{"stop", "stop the background user service", "Usage: dataporch stop\n\nStop and unregister the native user service."},
 	{"status", "display runtime status", "Usage: dataporch status\n\nDisplay native service and health status."},
+	{"secrets", "manage local secrets", "Usage: dataporch secrets <command>\n\nManage the local encrypted secret store."},
 	{"secrets init", "initialize the local secret store", "Usage: dataporch secrets init"},
+	{"connections", "manage database connections", "Usage: dataporch connections <command>\n\nManage configured database connections."},
 	{"connections import", "import a database connection", "Usage: dataporch connections import --id <id> --kind <postgres|mysql|sqlite>"},
+	{"mcp-token", "manage the local MCP token", "Usage: dataporch mcp-token <command>\n\nManage the local MCP authentication token."},
 	{"mcp-token create", "create the local MCP token", "Usage: dataporch mcp-token create"},
 	{"mcp-token list", "display local MCP token status", "Usage: dataporch mcp-token list"},
 	{"mcp-token rotate", "rotate the local MCP token", "Usage: dataporch mcp-token rotate"},
@@ -23,6 +27,7 @@ var commandHelp = []commandSpec{
 }
 
 func writeRootHelp(writer io.Writer, version, path string) error {
+	//nolint:dupword // Exact public help text intentionally repeats command names.
 	lines := []string{
 		"dataporch <command>", "", "Usage:", "",
 		"dataporch run                 start the background user service",
@@ -85,7 +90,7 @@ func helpRequest(args []string) (target []string, handled bool, err error) {
 
 func writeString(writer io.Writer, value string) error {
 	if writer == nil {
-		return fmt.Errorf("standard output is required")
+		return errors.New("standard output is required")
 	}
 	written, err := io.WriteString(writer, value)
 	if err != nil {

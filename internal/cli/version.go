@@ -6,8 +6,10 @@ import (
 	"strings"
 )
 
+const developmentVersion = "devel"
+
 func resolvedVersion(release string, readBuildInfo func() (*debug.BuildInfo, bool)) string {
-	if normalized := normalizeVersion(release); normalized != "devel" {
+	if normalized := normalizeVersion(release); normalized != developmentVersion {
 		return normalized
 	}
 	if readBuildInfo != nil {
@@ -15,25 +17,25 @@ func resolvedVersion(release string, readBuildInfo func() (*debug.BuildInfo, boo
 			return normalizeVersion(info.Main.Version)
 		}
 	}
-	return "devel"
+	return developmentVersion
 }
 
 func normalizeVersion(value string) string {
 	value = strings.TrimPrefix(strings.TrimSpace(value), "v")
-	if value == "" || value == "(devel)" || value == "devel" || strings.Contains(value, "+dirty") {
-		return "devel"
+	if value == "" || value == "(devel)" || value == developmentVersion || strings.Contains(value, "+dirty") {
+		return developmentVersion
 	}
 	return value
 }
 
 func versionOutput(version string) string {
-	if version == "devel" {
+	if version == developmentVersion {
 		return "dataporch devel\n"
 	}
 	return "dataporch v" + version + "\n"
 }
 
-func invocationPath(argument string, lookPath func(string) (string, error), abs func(string) (string, error)) (string, error) {
+func invocationPath(argument string, lookPath, abs func(string) (string, error)) (string, error) {
 	path := argument
 	if !strings.ContainsRune(path, filepath.Separator) && lookPath != nil {
 		resolved, err := lookPath(path)

@@ -29,6 +29,7 @@ type healthChecker struct {
 func NewHealthChecker() HealthChecker {
 	return &healthChecker{client: &http.Client{Timeout: healthRequestTimeout}, requestTimeout: healthRequestTimeout, startupTimeout: healthStartupTimeout, pollInterval: healthPollInterval}
 }
+
 func healthURL(address string) (string, error) {
 	host, port, err := net.SplitHostPort(address)
 	if err != nil {
@@ -39,6 +40,7 @@ func healthURL(address string) (string, error) {
 	}
 	return "http://" + net.JoinHostPort(host, port) + "/healthz", nil
 }
+
 func (h *healthChecker) Check(ctx context.Context, address string) error {
 	if ctx == nil {
 		return errors.New("health context is required")
@@ -57,7 +59,7 @@ func (h *healthChecker) Check(ctx context.Context, address string) error {
 	if err != nil {
 		return fmt.Errorf("checking health: %w", err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusOK {
 		return fmt.Errorf("checking health: unexpected status %d", response.StatusCode)
 	}
@@ -75,6 +77,7 @@ func (h *healthChecker) Check(ctx context.Context, address string) error {
 	}
 	return nil
 }
+
 func (h *healthChecker) Wait(ctx context.Context, address string) error {
 	if ctx == nil {
 		return errors.New("health context is required")

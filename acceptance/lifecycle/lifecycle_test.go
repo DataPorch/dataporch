@@ -22,7 +22,7 @@ import (
 
 const lifecycleTimeout = 45 * time.Second
 
-//nolint:funlen,gocyclo // The acceptance test intentionally sequences the complete installed-binary lifecycle.
+//nolint:funlen,gocyclo,paralleltest // The native service fixture must be serialized to protect the per-user manager namespace.
 func TestInstalledBinaryNativeLifecycle(t *testing.T) {
 	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
 		t.Fatalf("unsupported acceptance host %q", runtime.GOOS)

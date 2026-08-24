@@ -14,9 +14,13 @@ func TestInitializeSecretsUsesConfiguredPaths(t *testing.T) {
 	t.Parallel()
 
 	base := t.TempDir()
+	resolvedBase, err := filepath.EvalSymlinks(base)
+	if err != nil {
+		t.Fatalf("EvalSymlinks(%q) error = %v", base, err)
+	}
 	cfg := config.Config{
-		MasterKeyPath:    filepath.Join(base, "key", "master.key"),
-		SecretsStorePath: filepath.Join(base, "store", "secrets.store"),
+		MasterKeyPath:    filepath.Join(resolvedBase, "key", "master.key"),
+		SecretsStorePath: filepath.Join(resolvedBase, "store", "secrets.store"),
 	}
 
 	if err := InitializeSecrets(cfg); err != nil {

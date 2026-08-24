@@ -108,10 +108,14 @@ func testPaths(t *testing.T) Paths {
 	t.Helper()
 
 	base := t.TempDir()
+	resolvedBase, err := filepath.EvalSymlinks(base)
+	if err != nil {
+		t.Fatalf("EvalSymlinks(%q) error = %v", base, err)
+	}
 
 	return Paths{
-		KeyPath:   filepath.Join(base, "key", "master.key"),
-		StorePath: filepath.Join(base, "store", "secrets.store"),
+		KeyPath:   filepath.Join(resolvedBase, "key", "master.key"),
+		StorePath: filepath.Join(resolvedBase, "store", "secrets.store"),
 	}
 }
 

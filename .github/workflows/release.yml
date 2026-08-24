@@ -1,0 +1,121 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  binaries:
+    name: Release archives
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.25.14"
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Attest release archives
+        uses: actions/attest@v4
+        with:
+          subject-checksums: dist/checksums.txt
+
+  image:
+    name: Release container
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Resolve release version
+        id: version
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          minor="${version%.*}"
+          major="${version%%.*}"
+          printf 'version=%s\nminor=%s\nmajor=%s\n' "$version" "$minor" "$major" >> "$GITHUB_OUTPUT"
+
+      - name: Login to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build and push image
+        id: push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: VERSION=${{ steps.version.outputs.version }}
+          tags: ghcr.io/adamraziv/dataporch:candidate-${{ github.sha }}
+          provenance: mode=max
+          sbom: true
+
+      - name: Scan candidate image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ghcr.io/adamraziv/dataporch@${{ steps.push.outputs.digest }}
+          severity: CRITICAL,HIGH
+          ignore-unfixed: false
+          exit-code: "1"
+
+      - name: Promote verified digest
+        shell: bash
+        run: |
+          docker buildx imagetools create \
+            --tag "ghcr.io/adamraziv/dataporch:${{ steps.version.outputs.version }}" \
+            --tag "ghcr.io/adamraziv/dataporch:${{ steps.version.outputs.minor }}" \
+            --tag "ghcr.io/adamraziv/dataporch:${{ steps.version.outputs.major }}" \
+            "ghcr.io/adamraziv/dataporch@${{ steps.push.outputs.digest }}"
+
+      - name: Attest image
+        uses: actions/attest@v4
+        with:
+          subject-name: ghcr.io/adamraziv/dataporch
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true

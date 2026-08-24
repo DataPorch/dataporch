@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
 	"path/filepath"
 	"strconv"
 	"time"
@@ -13,12 +14,7 @@ const (
 	defaultHTTPAddress            = "127.0.0.1:8080"
 	defaultResourceLimit          = 100
 	maxResourceLimit              = 1000
-	defaultAdminSocketPath        = "/run/dataporch/admin.sock"
-	defaultMasterKeyPath          = "/etc/dataporch/master.key"
-	defaultSecretsStorePath       = "/var/lib/dataporch/secrets.store" //nolint:gosec // This is a path, not a credential.
-	defaultConnectionsStorePath   = "/var/lib/dataporch/connections.store"
-	defaultMCPTokenStorePath      = "/var/lib/dataporch/mcp-token.json" //nolint:gosec // This is a path, not a credential.
-	mcpTokenStorePathEnv          = "DATAPORCH_MCP_TOKEN_STORE_PATH"    //nolint:gosec // This is an environment variable name, not a credential.
+	mcpTokenStorePathEnv          = "DATAPORCH_MCP_TOKEN_STORE_PATH" //nolint:gosec // This is an environment variable name, not a credential.
 	defaultQueryTimeout           = 20 * time.Second
 	minQueryTimeout               = time.Second
 	maxQueryTimeout               = 20 * time.Second
@@ -31,7 +27,10 @@ const (
 
 var errLookupRequired = errors.New("config: environment lookup is required")
 
-type LookupEnv func(string) (string, bool)
+type (
+	LookupEnv   func(string) (string, bool)
+	UserHomeDir func() (string, error)
+)
 
 // Config errors retain uppercase environment variable names so diagnostics match operator-facing keys.
 type Config struct {
@@ -49,21 +48,26 @@ type Config struct {
 	QueryRowLimit          int
 }
 
-//nolint:gocyclo // Explicit environment parsing preserves operator-facing keys and error context.
-func Load(lookup LookupEnv) (Config, error) {
+//nolint:funlen,gocyclo // Explicit environment parsing preserves operator-facing keys and error context.
+func Load(lookup LookupEnv, homes ...UserHomeDir) (Config, error) {
 	if lookup == nil {
 		return Config{}, errLookupRequired
+	}
+	home := os.UserHomeDir
+	if len(homes) > 1 {
+		return Config{}, errors.New("config: too many home directory resolvers")
+	}
+	if len(homes) == 1 {
+		if homes[0] == nil {
+			return Config{}, errors.New("config: home directory resolver is required")
+		}
+		home = homes[0]
 	}
 
 	cfg := Config{
 		HTTPAddress:            defaultHTTPAddress,
 		ResourceLimit:          defaultResourceLimit,
 		ShutdownPeriod:         10 * time.Second,
-		AdminSocketPath:        defaultAdminSocketPath,
-		MasterKeyPath:          defaultMasterKeyPath,
-		SecretsStorePath:       defaultSecretsStorePath,
-		ConnectionsStorePath:   defaultConnectionsStorePath,
-		MCPTokenStorePath:      defaultMCPTokenStorePath,
 		QueryTimeout:           defaultQueryTimeout,
 		QueryResponseByteLimit: defaultQueryResponseByteLimit,
 		QueryTruncationEnabled: defaultQueryTruncationEnabled,
@@ -100,7 +104,37 @@ func Load(lookup LookupEnv) (Config, error) {
 	}
 
 	if value, exists := lookup(mcpTokenStorePathEnv); exists {
+		if value == "" {
+			return Config{}, fmt.Errorf("validating %s: must not be empty", mcpTokenStorePathEnv)
+		}
 		cfg.MCPTokenStorePath = value
+	}
+
+	//nolint:nestif // Path defaults are resolved together only when at least one override is absent.
+	if cfg.AdminSocketPath == "" || cfg.MasterKeyPath == "" || cfg.SecretsStorePath == "" || cfg.ConnectionsStorePath == "" || cfg.MCPTokenStorePath == "" {
+		resolvedHome, err := home()
+		if err != nil {
+			return Config{}, fmt.Errorf("resolving user home directory: %w", err)
+		}
+		if resolvedHome == "" || !filepath.IsAbs(resolvedHome) {
+			return Config{}, errors.New("resolving user home directory: must be an absolute path")
+		}
+		base := filepath.Join(resolvedHome, ".dataporch")
+		if cfg.AdminSocketPath == "" {
+			cfg.AdminSocketPath = filepath.Join(base, "admin.sock")
+		}
+		if cfg.MasterKeyPath == "" {
+			cfg.MasterKeyPath = filepath.Join(base, "master.key")
+		}
+		if cfg.SecretsStorePath == "" {
+			cfg.SecretsStorePath = filepath.Join(base, "secrets.store")
+		}
+		if cfg.ConnectionsStorePath == "" {
+			cfg.ConnectionsStorePath = filepath.Join(base, "connections.store")
+		}
+		if cfg.MCPTokenStorePath == "" {
+			cfg.MCPTokenStorePath = filepath.Join(base, "mcp-token.json")
+		}
 	}
 
 	if value, exists := lookup("DATAPORCH_QUERY_TIMEOUT"); exists {

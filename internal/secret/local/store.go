@@ -205,17 +205,8 @@ func localID(ref secret.Reference) (string, error) {
 }
 
 func readProtectedFile(path string) ([]byte, error) {
-	info, err := os.Lstat(path)
-	if err != nil {
+	if err := ValidateProtectedFile(path); err != nil {
 		return nil, err
-	}
-
-	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-		return nil, fmt.Errorf("%w: not a regular file", ErrStoreCorrupt)
-	}
-
-	if info.Mode().Perm()&0o077 != 0 {
-		return nil, fmt.Errorf("%w: %s", ErrInvalidPermissions, path)
 	}
 
 	data, err := os.ReadFile(path) //nolint:gosec // The path was verified as a protected regular file.
@@ -224,6 +215,20 @@ func readProtectedFile(path string) ([]byte, error) {
 	}
 
 	return data, nil
+}
+
+func ValidateProtectedFile(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return fmt.Errorf("%w: not a regular file", ErrStoreCorrupt)
+	}
+	if info.Mode().Perm()&0o077 != 0 {
+		return fmt.Errorf("%w: %s", ErrInvalidPermissions, path)
+	}
+	return nil
 }
 
 func writeSnapshot(path string, entries map[string][]byte) error {

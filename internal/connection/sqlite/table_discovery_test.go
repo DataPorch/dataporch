@@ -196,7 +196,7 @@ func newFixtureDiscoverer(t *testing.T) *Discoverer {
 func createDiscoveryFixture(t *testing.T) string {
 	t.Helper()
 
-	path := t.TempDir() + "/fixture.db"
+	path := sqliteTestTempDir(t) + "/fixture.db"
 
 	conn, err := sqlite3.OpenFlags(path, sqlite3.OPEN_READWRITE|sqlite3.OPEN_CREATE|sqlite3.OPEN_URI)
 	if err != nil {

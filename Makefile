@@ -6,14 +6,31 @@ GOVULNCHECK ?= govulncheck
 
 .DEFAULT_GOAL := help
 
-.PHONY: audit build build-cgo-disabled check clean fmt fmt-check help lint lint-fix lint-integration run test test-cgo-disabled test-integration test-integration-mysql test-integration-postgres test-integration-sqlite test-race tidy tidy-check vet
+.PHONY: audit build build-cgo-disabled check clean fmt fmt-check help install install-check lint lint-fix lint-integration release-snapshot run test test-cgo-disabled test-integration test-integration-lifecycle test-integration-mysql test-integration-postgres test-integration-sqlite test-race tidy tidy-check vet
 
 build:
 	@mkdir -p $(BUILD_DIR)
 	$(GO) build -trimpath -o $(BUILD_DIR)/$(BINARY) ./cmd/dataporch
 
 run:
-	$(GO) run ./cmd/dataporch
+	$(GO) run ./cmd/dataporch run -f
+
+install:
+	$(GO) install -trimpath ./cmd/dataporch
+	@destination="$$(if [ -n "$$GOBIN" ]; then printf '%s' "$$GOBIN"; else $(GO) env GOBIN; fi)"; \
+	if [ -z "$$destination" ]; then destination="$$($(GO) env GOPATH)/bin"; fi; \
+	printf 'Installed dataporch to %s/dataporch\n' "$$destination"; \
+	case ":$$PATH:" in *":$$destination:"*) ;; *) printf 'Add %s to PATH.\n' "$$destination" ;; esac
+
+install-check:
+	@destination="$$(mktemp -d)"; \
+	trap 'rm -rf -- "$$destination"' EXIT; \
+	GOBIN="$$destination" $(GO) install -trimpath ./cmd/dataporch; \
+	PATH="$$destination:$$PATH" dataporch --help >/dev/null; \
+	PATH="$$destination:$$PATH" dataporch --version
+
+release-snapshot:
+	goreleaser release --snapshot --clean
 
 test:
 	$(GO) test -shuffle=on ./...
@@ -25,6 +42,9 @@ test-race:
 	$(GO) test -race -shuffle=on ./...
 
 test-integration: test-integration-postgres test-integration-sqlite test-integration-mysql
+
+test-integration-lifecycle:
+	$(GO) test -race -count=1 -tags=integration ./acceptance/lifecycle
 
 test-integration-mysql:
 	$(GO) test -race -count=1 -tags=integration ./internal/connection/mysql
@@ -93,13 +113,17 @@ help:
 		'  clean        Remove generated local artifacts.' \
 		'  fmt          Format Go source files.' \
 		'  fmt-check    Check Go source formatting.' \
+		'  install      Install dataporch with go install.' \
+		'  install-check Verify a temporary global installation.' \
 		'  lint         Run configured lint checks.' \
 		'  lint-fix     Apply safe lint fixes.' \
 		'  lint-integration  Lint ordinary and integration-tagged Go files.' \
+		'  release-snapshot  Build local release archives with GoReleaser.' \
 		'  run          Run DataPorch locally.' \
 		'  test-cgo-disabled  Run tests with CGO disabled.' \
 		'  test         Run unit tests.' \
 		'  test-integration  Run all relational integration tests; PostgreSQL requires DATAPORCH_TEST_POSTGRES_DSN and MySQL requires DATAPORCH_TEST_MYSQL_DSN.' \
+		'  test-integration-lifecycle  Run native user-service lifecycle acceptance.' \
 		'  test-integration-mysql  Run MySQL 8.4 adapter and app integration tests; requires DATAPORCH_TEST_MYSQL_DSN.' \
 		'  test-integration-postgres  Run PostgreSQL adapter and PostgreSQL app integration tests.' \
 		'  test-integration-sqlite  Run SQLite adapter and SQLite app integration tests.' \

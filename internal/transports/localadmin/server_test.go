@@ -16,7 +16,7 @@ import (
 func TestServerCreatesRestrictedSocket(t *testing.T) {
 	t.Parallel()
 
-	path := filepath.Join(t.TempDir(), "admin.sock")
+	path := filepath.Join(shortSocketDir(t), "admin.sock")
 
 	server, err := NewServer(
 		path,
@@ -53,7 +53,7 @@ func TestServerCreatesRestrictedSocket(t *testing.T) {
 func TestServerServesHTTPOverUnixSocket(t *testing.T) {
 	t.Parallel()
 
-	path := filepath.Join(t.TempDir(), "admin.sock")
+	path := filepath.Join(shortSocketDir(t), "admin.sock")
 
 	server, err := NewServer(
 		path,
@@ -104,7 +104,7 @@ func TestServerServesHTTPOverUnixSocket(t *testing.T) {
 
 func TestServerRemovesSocketOnShutdown(t *testing.T) {
 	t.Parallel()
-	path := filepath.Join(t.TempDir(), "admin.sock")
+	path := filepath.Join(shortSocketDir(t), "admin.sock")
 
 	server, err := NewServer(path, http.NotFoundHandler(), slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)))
 	if err != nil {
@@ -133,7 +133,7 @@ func waitForSocket(t *testing.T, path string) {
 
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
-		if _, err := os.Stat(path); err == nil {
+		if info, err := os.Stat(path); err == nil && info.Mode().Perm() == 0o660 {
 			return
 		}
 
@@ -141,4 +141,19 @@ func waitForSocket(t *testing.T, path string) {
 	}
 
 	t.Fatalf("socket %s was not created", path)
+}
+
+func shortSocketDir(t *testing.T) string {
+	t.Helper()
+	//nolint:usetesting // Socket paths must remain short on macOS.
+	directory, err := os.MkdirTemp("/tmp", "dp-")
+	if err != nil {
+		t.Fatalf("MkdirTemp() error = %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(directory) })
+	resolved, err := filepath.EvalSymlinks(directory)
+	if err != nil {
+		t.Fatalf("EvalSymlinks() error = %v", err)
+	}
+	return resolved
 }

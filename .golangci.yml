@@ -56,7 +56,6 @@ linters:
     - usestdlibvars
     - usetesting
     - whitespace
-    - wsl_v5
 
   disable:
     - cyclop
@@ -117,10 +116,6 @@ linters:
     nolintlint:
       require-explanation: true
       require-specific: true
-    wsl_v5:
-      allow-first-in-block: true
-      allow-whole-block: false
-      branch-max-lines: 2
 
 formatters:
   enable:

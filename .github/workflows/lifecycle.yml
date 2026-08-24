@@ -1,0 +1,46 @@
+name: Native lifecycle
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lifecycle:
+    name: Lifecycle (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm, macos-15-intel, macos-15]
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.25.14"
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Verify native user manager
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            systemctl --user show-environment >/dev/null
+          else
+            launchctl print "gui/$(id -u)" >/dev/null
+          fi
+
+      - name: Test native lifecycle
+        run: make test-integration-lifecycle

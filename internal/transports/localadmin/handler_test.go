@@ -391,9 +391,14 @@ func newSecretIsolationFixture(t *testing.T, canary string) secretIsolationFixtu
 	t.Helper()
 
 	base := t.TempDir()
-	keyPath := filepath.Join(base, "master.key")
-	secretsPath := filepath.Join(base, "secrets.store")
-	connectionsPath := filepath.Join(base, "connections.store")
+	resolvedBase, err := filepath.EvalSymlinks(base)
+	if err != nil {
+		t.Fatalf("EvalSymlinks(%q) error = %v", base, err)
+	}
+	stateRoot := filepath.Join(resolvedBase, "state")
+	keyPath := filepath.Join(stateRoot, "master.key")
+	secretsPath := filepath.Join(stateRoot, "secrets.store")
+	connectionsPath := filepath.Join(stateRoot, "connections.store")
 
 	if err := local.Init(local.Paths{KeyPath: keyPath, StorePath: secretsPath}); err != nil {
 		t.Fatalf("Init() error = %v", err)

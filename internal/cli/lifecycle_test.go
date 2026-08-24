@@ -99,6 +99,7 @@ func TestRunBackgroundLifecycle(t *testing.T) {
 		wantHealth  []string
 	}{
 		{name: "stopped", status: NativeStatus{State: NativeStopped}, wantManager: []string{"Status", "Register", "Start"}, wantHealth: []string{"Wait"}},
+		{name: "registered stopped", status: NativeStatus{Registered: true, State: NativeStopped}, wantManager: []string{"Status", "Register", "Restart"}, wantHealth: []string{"Wait"}},
 		{name: "healthy", status: NativeStatus{Registered: true, State: NativeRunning}, wantManager: []string{"Status"}, wantHealth: []string{"Check"}},
 	}
 	for _, test := range tests {

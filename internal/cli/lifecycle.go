@@ -70,7 +70,11 @@ func (r *Runner) runBackground(ctx context.Context) error {
 	if err := manager.Register(ctx, definition); err != nil {
 		return fmt.Errorf("registering service: %w", err)
 	}
-	if err := manager.Start(ctx); err != nil {
+	startService := manager.Start
+	if status.Registered {
+		startService = manager.Restart
+	}
+	if err := startService(ctx); err != nil {
 		return errors.Join(
 			fmt.Errorf("starting service: %w", err),
 			manager.Stop(ctx),

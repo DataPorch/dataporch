@@ -132,6 +132,7 @@ func TestInstalledBinaryNativeLifecycle(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("stop exit=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
+	serviceStarted = false
 	if _, err := os.Stat(definitionPath); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("definition after stop error=%v, want not exist", err)
 	}

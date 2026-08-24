@@ -33,32 +33,32 @@ type mcpTokenClient = MCPTokenClient
 
 func mcpTokenCommandRun(ctx context.Context, args []string, dependencies commandDependencies) error {
 	if len(args) == 0 {
-		return errUnknownCommand
+		return usageError(errUnknownCommand.Error(), errUnknownCommand)
 	}
 
 	switch args[0] {
 	case mcpTokenCreateCommand:
 		if len(args) != 1 {
-			return errUnexpectedArguments
+			return usageError(errUnexpectedArguments.Error(), errUnexpectedArguments)
 		}
 
 		return createMCPToken(ctx, dependencies)
 	case mcpTokenListCommand:
 		if len(args) != 1 {
-			return errUnexpectedArguments
+			return usageError(errUnexpectedArguments.Error(), errUnexpectedArguments)
 		}
 
 		return listMCPToken(ctx, dependencies)
 	case mcpTokenRotateCommand:
 		if len(args) != 1 {
-			return errUnexpectedArguments
+			return usageError(errUnexpectedArguments.Error(), errUnexpectedArguments)
 		}
 
 		return rotateMCPToken(ctx, dependencies)
 	case mcpTokenRevokeCommand:
 		return revokeMCPToken(ctx, args[1:], dependencies)
 	default:
-		return errUnknownCommand
+		return usageError(errUnknownCommand.Error(), errUnknownCommand)
 	}
 }
 
@@ -163,7 +163,7 @@ func rotateMCPToken(ctx context.Context, dependencies commandDependencies) error
 func revokeMCPToken(ctx context.Context, args []string, dependencies commandDependencies) error {
 	revoke, err := parseMCPTokenRevokeArguments(args)
 	if err != nil {
-		return err
+		return usageError(err.Error(), err)
 	}
 
 	client, err := newMCPTokenClient(dependencies)

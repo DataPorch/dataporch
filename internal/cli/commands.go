@@ -207,7 +207,7 @@ func initializeSecrets(dependencies commandDependencies) error {
 func importConnection(ctx context.Context, args []string, dependencies commandDependencies) error {
 	arguments, err := parseImportArguments(args)
 	if err != nil {
-		return err
+		return usageError(err.Error(), err)
 	}
 	connectionString, err := readConnectionString(dependencies)
 	if err != nil {

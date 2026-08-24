@@ -47,6 +47,9 @@ func TestExecuteClassifiesUsageAndForeground(t *testing.T) {
 	}{
 		{args: []string{"start"}, wantCode: exitUsage, wantStderr: "dataporch: unknown command \"start\"; run dataporch --help\n"},
 		{args: []string{"run", "--foreground"}, wantCode: exitUsage, wantStderr: "dataporch: unknown flag --foreground; run dataporch run -h\n"},
+		{args: []string{"connections", "import"}, wantCode: exitUsage, wantStderr: "dataporch: database id is required\n"},
+		{args: []string{"connections", "import", "--id", "finance", "--kind", "postgres", "extra"}, wantCode: exitUsage, wantStderr: "dataporch: unexpected command arguments\n"},
+		{args: []string{"mcp-token", "bogus"}, wantCode: exitUsage, wantStderr: "dataporch: unknown command\n"},
 	}
 	for _, test := range tests {
 		t.Run(strings.Join(test.args, " "), func(t *testing.T) {

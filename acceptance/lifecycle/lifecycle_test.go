@@ -24,11 +24,10 @@ const lifecycleTimeout = 45 * time.Second
 
 //nolint:funlen,gocyclo // The acceptance test intentionally sequences the complete installed-binary lifecycle.
 func TestInstalledBinaryNativeLifecycle(t *testing.T) {
-	t.Parallel()
-
 	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
 		t.Fatalf("unsupported acceptance host %q", runtime.GOOS)
 	}
+	refuseExistingLaunchdService(t)
 
 	root := resolvedTempDir(t)
 	stateRoot := filepath.Join(root, "state $();%;nested", "state leaf")
@@ -50,7 +49,11 @@ func TestInstalledBinaryNativeLifecycle(t *testing.T) {
 	environment := lifecycleEnvironment(t, homeRoot, stateRoot, address)
 	definitionPath := nativeDefinitionPath(homeRoot)
 	linkSystemdDefinition(t, definitionPath)
+	serviceStarted := false
 	stopBinary := func() {
+		if !serviceStarted {
+			return
+		}
 		_, _, _ = invokeBinary(t, binaryPath, environment, "stop")
 	}
 	t.Cleanup(stopBinary)
@@ -71,6 +74,7 @@ func TestInstalledBinaryNativeLifecycle(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("run exit=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
+	serviceStarted = true
 	if _, err := os.Stat(definitionPath); err != nil {
 		t.Fatalf("native definition stat: %v", err)
 	}
@@ -268,6 +272,23 @@ func nativeDefinitionPath(home string) string {
 		return filepath.Join(home, "Library", "LaunchAgents", "com.dataporch.dataporch.plist")
 	}
 	return filepath.Join(home, ".config", "systemd", "user", "dataporch.service")
+}
+
+func refuseExistingLaunchdService(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS != "darwin" {
+		return
+	}
+
+	target := fmt.Sprintf("gui/%d/com.dataporch.dataporch", os.Getuid())
+	command := exec.CommandContext(t.Context(), "launchctl", "print", target)
+	output, err := command.CombinedOutput()
+	if err == nil {
+		t.Fatalf("launchd service %q is already loaded; stop it before running the lifecycle acceptance test", target)
+	}
+	if !strings.Contains(strings.ToLower(string(output)), "could not find service") {
+		t.Fatalf("inspect launchd service %q: %v: %s", target, err, output)
+	}
 }
 
 func linkSystemdDefinition(t *testing.T, definitionPath string) {

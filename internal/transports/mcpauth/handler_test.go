@@ -43,6 +43,42 @@ func TestNewValidatesDependencies(t *testing.T) {
 	}
 }
 
+func TestBearerCredential(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		value          string
+		duplicate      bool
+		wantCredential string
+		wantChallenge  string
+	}{
+		{name: "missing", wantChallenge: "Bearer"},
+		{name: "valid mixed case", value: "bEaReR dp-token", wantCredential: "dp-token"},
+		{name: "missing token", value: "Bearer", wantChallenge: invalidRequestChallenge},
+		{name: "extra fields", value: "Bearer dp-token extra", wantChallenge: invalidRequestChallenge},
+		{name: "non bearer", value: "Basic dp-token", wantChallenge: invalidRequestChallenge},
+		{name: "duplicate", value: "Bearer dp-token", duplicate: true, wantChallenge: invalidRequestChallenge},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/mcp", nil)
+			if test.value != "" {
+				request.Header.Set("Authorization", test.value)
+			}
+			if test.duplicate {
+				request.Header.Add("Authorization", test.value)
+			}
+
+			credential, challenge := BearerCredential(request)
+			if credential != test.wantCredential || challenge != test.wantChallenge {
+				t.Fatalf("BearerCredential() = (%q, %q), want (%q, %q)", credential, challenge, test.wantCredential, test.wantChallenge)
+			}
+		})
+	}
+}
+
 //nolint:funlen // The table covers every approved authentication response and downstream gate.
 func TestHandlerAuthorization(t *testing.T) {
 	t.Parallel()

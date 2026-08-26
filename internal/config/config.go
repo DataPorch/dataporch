@@ -14,7 +14,9 @@ const (
 	defaultHTTPAddress            = "127.0.0.1:8080"
 	defaultResourceLimit          = 100
 	maxResourceLimit              = 1000
-	mcpTokenStorePathEnv          = "DATAPORCH_MCP_TOKEN_STORE_PATH" //nolint:gosec // This is an environment variable name, not a credential.
+	mcpSocketPathEnv              = "DATAPORCH_MCP_SOCKET_PATH"        //nolint:gosec // This is an environment variable name, not a credential.
+	mcpControlTokenPathEnv        = "DATAPORCH_MCP_CONTROL_TOKEN_PATH" //nolint:gosec // This is an environment variable name, not a credential.
+	mcpTokenStorePathEnv          = "DATAPORCH_MCP_TOKEN_STORE_PATH"   //nolint:gosec // This is an environment variable name, not a credential.
 	defaultQueryTimeout           = 20 * time.Second
 	minQueryTimeout               = time.Second
 	maxQueryTimeout               = 20 * time.Second
@@ -38,10 +40,12 @@ type Config struct {
 	ResourceLimit          int
 	ShutdownPeriod         time.Duration
 	AdminSocketPath        string
+	MCPSocketPath          string
 	MasterKeyPath          string
 	SecretsStorePath       string
 	ConnectionsStorePath   string
 	MCPTokenStorePath      string
+	MCPControlTokenPath    string
 	QueryTimeout           time.Duration
 	QueryResponseByteLimit int
 	QueryTruncationEnabled bool
@@ -91,6 +95,13 @@ func Load(lookup LookupEnv, homes ...UserHomeDir) (Config, error) {
 		cfg.AdminSocketPath = value
 	}
 
+	if value, exists := lookup(mcpSocketPathEnv); exists {
+		if value == "" {
+			return Config{}, fmt.Errorf("validating %s: must not be empty", mcpSocketPathEnv)
+		}
+		cfg.MCPSocketPath = value
+	}
+
 	if value, exists := lookup("DATAPORCH_MASTER_KEY_PATH"); exists {
 		cfg.MasterKeyPath = value
 	}
@@ -110,8 +121,15 @@ func Load(lookup LookupEnv, homes ...UserHomeDir) (Config, error) {
 		cfg.MCPTokenStorePath = value
 	}
 
+	if value, exists := lookup(mcpControlTokenPathEnv); exists {
+		if value == "" {
+			return Config{}, fmt.Errorf("validating %s: must not be empty", mcpControlTokenPathEnv)
+		}
+		cfg.MCPControlTokenPath = value
+	}
+
 	//nolint:nestif // Path defaults are resolved together only when at least one override is absent.
-	if cfg.AdminSocketPath == "" || cfg.MasterKeyPath == "" || cfg.SecretsStorePath == "" || cfg.ConnectionsStorePath == "" || cfg.MCPTokenStorePath == "" {
+	if cfg.AdminSocketPath == "" || cfg.MCPSocketPath == "" || cfg.MasterKeyPath == "" || cfg.SecretsStorePath == "" || cfg.ConnectionsStorePath == "" || cfg.MCPTokenStorePath == "" || cfg.MCPControlTokenPath == "" {
 		resolvedHome, err := home()
 		if err != nil {
 			return Config{}, fmt.Errorf("resolving user home directory: %w", err)
@@ -122,6 +140,9 @@ func Load(lookup LookupEnv, homes ...UserHomeDir) (Config, error) {
 		base := filepath.Join(resolvedHome, ".dataporch")
 		if cfg.AdminSocketPath == "" {
 			cfg.AdminSocketPath = filepath.Join(base, "admin.sock")
+		}
+		if cfg.MCPSocketPath == "" {
+			cfg.MCPSocketPath = filepath.Join(base, "mcp.sock")
 		}
 		if cfg.MasterKeyPath == "" {
 			cfg.MasterKeyPath = filepath.Join(base, "master.key")
@@ -134,6 +155,9 @@ func Load(lookup LookupEnv, homes ...UserHomeDir) (Config, error) {
 		}
 		if cfg.MCPTokenStorePath == "" {
 			cfg.MCPTokenStorePath = filepath.Join(base, "mcp-token.json")
+		}
+		if cfg.MCPControlTokenPath == "" {
+			cfg.MCPControlTokenPath = filepath.Join(base, "mcp-control-token")
 		}
 	}
 
@@ -201,6 +225,10 @@ func (c Config) Validate() error {
 		return errors.New("validating DATAPORCH_ADMIN_SOCKET_PATH: must not be empty")
 	}
 
+	if c.MCPSocketPath == "" {
+		return fmt.Errorf("validating %s: must not be empty", mcpSocketPathEnv)
+	}
+
 	if c.MasterKeyPath == "" {
 		return errors.New("validating DATAPORCH_MASTER_KEY_PATH: must not be empty")
 	}
@@ -217,15 +245,21 @@ func (c Config) Validate() error {
 		return fmt.Errorf("validating %s: must not be empty", mcpTokenStorePathEnv)
 	}
 
+	if c.MCPControlTokenPath == "" {
+		return fmt.Errorf("validating %s: must not be empty", mcpControlTokenPathEnv)
+	}
+
 	for _, path := range []struct {
 		name  string
 		value string
 	}{
 		{name: "DATAPORCH_ADMIN_SOCKET_PATH", value: c.AdminSocketPath},
+		{name: mcpSocketPathEnv, value: c.MCPSocketPath},
 		{name: "DATAPORCH_MASTER_KEY_PATH", value: c.MasterKeyPath},
 		{name: "DATAPORCH_SECRETS_STORE_PATH", value: c.SecretsStorePath},
 		{name: "DATAPORCH_CONNECTIONS_STORE_PATH", value: c.ConnectionsStorePath},
 		{name: mcpTokenStorePathEnv, value: c.MCPTokenStorePath},
+		{name: mcpControlTokenPathEnv, value: c.MCPControlTokenPath},
 	} {
 		if !filepath.IsAbs(path.value) {
 			return fmt.Errorf("validating %s: must be absolute", path.name)
@@ -260,10 +294,12 @@ func (c Config) Validate() error {
 		path string
 	}{
 		{name: "admin socket", path: filepath.Clean(c.AdminSocketPath)},
+		{name: "MCP socket", path: filepath.Clean(c.MCPSocketPath)},
 		{name: "master key", path: filepath.Clean(c.MasterKeyPath)},
 		{name: "secrets store", path: filepath.Clean(c.SecretsStorePath)},
 		{name: "connections store", path: filepath.Clean(c.ConnectionsStorePath)},
 		{name: "MCP token store", path: filepath.Clean(c.MCPTokenStorePath)},
+		{name: "MCP control token", path: filepath.Clean(c.MCPControlTokenPath)},
 	}
 
 	seen := make(map[string]string, len(paths))

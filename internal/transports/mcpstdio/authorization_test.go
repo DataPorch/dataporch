@@ -85,7 +85,10 @@ func TestCredentialRoundTripperDoesNotRetryTransportErrors(t *testing.T) {
 		calls++
 		return nil, transportErr
 	}), credentials)
-	_, err := transport.RoundTrip(newRequest(t, true))
+	response, err := transport.RoundTrip(newRequest(t, true))
+	if response != nil && response.Body != nil {
+		_ = response.Body.Close()
+	}
 	if !errors.Is(err, transportErr) {
 		t.Fatalf("RoundTrip() error = %v, want transport error", err)
 	}

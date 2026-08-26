@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime/debug"
+	"slices"
 
 	"github.com/adamraziv/dataporch/internal/config"
 	"github.com/adamraziv/dataporch/internal/connection"
@@ -156,7 +157,7 @@ func run(args []string, dependencies commandDependencies) error {
 //nolint:gocyclo // Explicit command grammar remains centralized to preserve exact usage errors.
 func runWithContext(ctx context.Context, args []string, dependencies commandDependencies) error {
 	switch {
-	case len(args) == 2 && args[0] == runCommand && args[1] == foregroundFlag:
+	case slices.Equal(args, []string{runCommand, foregroundFlag}):
 		return serve(ctx, dependencies)
 	case len(args) == 1 && args[0] == runCommand:
 		return (&Runner{dependencies: dependencies}).runBackground(ctx)

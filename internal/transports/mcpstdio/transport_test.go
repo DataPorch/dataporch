@@ -17,7 +17,7 @@ func TestUnixHTTPClientUsesOwnerOnlyUnixSocketAndRefreshesCredential(t *testing.
 
 	root := shortSocketDir(t)
 	path := filepath.Join(root, "mcp.sock")
-	listener, err := net.Listen("unix", path)
+	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "unix", path)
 	if err != nil {
 		t.Fatalf("Listen() error = %v", err)
 	}
@@ -80,7 +80,10 @@ func TestUnixDialerMapsUnavailableRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRequest() error = %v", err)
 	}
-	_, err = client.Do(request)
+	response, err := client.Do(request)
+	if response != nil && response.Body != nil {
+		_ = response.Body.Close()
+	}
 	if !errors.Is(err, ErrRuntimeUnavailable) {
 		t.Fatalf("Do() error = %v, want ErrRuntimeUnavailable", err)
 	}
@@ -100,6 +103,7 @@ func TestNewUnixTransportDisablesSDKRetriesAndSSE(t *testing.T) {
 
 func shortSocketDir(t *testing.T) string {
 	t.Helper()
+	//nolint:usetesting // Unix socket paths must remain short on macOS.
 	root, err := os.MkdirTemp("/tmp", "dp-stdio-")
 	if err != nil {
 		t.Fatalf("MkdirTemp() error = %v", err)

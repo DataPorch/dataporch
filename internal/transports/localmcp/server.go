@@ -62,6 +62,7 @@ func NewServer(dependencies Dependencies) (*Server, error) {
 	}, nil
 }
 
+//nolint:gocyclo // Lifecycle ordering keeps credential and socket cleanup explicit.
 func (s *Server) Run(ctx context.Context) (err error) {
 	if ctx == nil {
 		return errors.New("local MCP: context is required")
@@ -101,7 +102,7 @@ func (s *Server) Run(ctx context.Context) (err error) {
 		}
 	}()
 
-	if err := os.Chmod(s.socketPath, socketPermission); err != nil { //nolint:gosec // The configured local socket is owner-only.
+	if err := os.Chmod(s.socketPath, socketPermission); err != nil {
 		return fmt.Errorf("setting local MCP socket permissions: %w", err)
 	}
 
@@ -125,7 +126,7 @@ func (s *Server) Run(ctx context.Context) (err error) {
 	done := make(chan struct{})
 	defer close(done)
 	shutdownErrors := make(chan error, 1)
-	go func() { //nolint:gosec // Shutdown must continue after the run context is canceled.
+	go func() {
 		select {
 		case <-ctx.Done():
 			shutdownContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)

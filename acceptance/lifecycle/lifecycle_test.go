@@ -38,6 +38,14 @@ func TestInstalledBinaryNativeLifecycle(t *testing.T) {
 			t.Fatalf("create acceptance directory %q: %v", directory, err)
 		}
 	}
+	socketRoot, err := os.MkdirTemp("/tmp", "dp-life-")
+	if err != nil {
+		t.Fatalf("create short socket directory: %v", err)
+	}
+	if err := os.Chmod(socketRoot, 0o700); err != nil {
+		t.Fatalf("restrict short socket directory: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(socketRoot) })
 
 	installCurrentBinary(t, binRoot)
 	binaryPath := filepath.Join(binRoot, "dataporch")
@@ -46,7 +54,7 @@ func TestInstalledBinaryNativeLifecycle(t *testing.T) {
 	}
 
 	address := freeTCPAddress(t)
-	environment := lifecycleEnvironment(t, homeRoot, stateRoot, address)
+	environment := lifecycleEnvironment(t, homeRoot, stateRoot, socketRoot, address)
 	definitionPath := nativeDefinitionPath(homeRoot)
 	linkSystemdDefinition(t, definitionPath)
 	serviceStarted := false
@@ -75,6 +83,14 @@ func TestInstalledBinaryNativeLifecycle(t *testing.T) {
 		t.Fatalf("run exit=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
 	serviceStarted = true
+	localRuntimeFiles := []string{
+		environmentValue(environment, "DATAPORCH_MCP_SOCKET_PATH"),
+		environmentValue(environment, "DATAPORCH_MCP_CONTROL_TOKEN_PATH"),
+	}
+	for _, path := range localRuntimeFiles {
+		assertExactOwnerOnlyFile(t, path)
+	}
+	firstCredential := readCredential(t, localRuntimeFiles[1])
 	if _, err := os.Stat(definitionPath); err != nil {
 		t.Fatalf("native definition stat: %v", err)
 	}
@@ -127,6 +143,10 @@ func TestInstalledBinaryNativeLifecycle(t *testing.T) {
 	if pid := parsePID(stdout); pid == oldPID {
 		t.Fatalf("restart kept PID %d", pid)
 	}
+	secondCredential := readCredential(t, localRuntimeFiles[1])
+	if firstCredential == secondCredential {
+		t.Fatal("restart preserved the daemon-lifetime MCP credential")
+	}
 
 	stdout, stderr, code = invokeBinary(t, binaryPath, environment, "stop")
 	if code != 0 {
@@ -138,6 +158,11 @@ func TestInstalledBinaryNativeLifecycle(t *testing.T) {
 	}
 	for _, path := range stateFiles {
 		assertOwnerOnlyFile(t, path)
+	}
+	for _, path := range localRuntimeFiles {
+		if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("local runtime artifact %q after stop: %v, want not exist", path, err)
+		}
 	}
 
 	stdout, stderr, code = invokeBinary(t, binaryPath, environment, "status")
@@ -193,7 +218,7 @@ func installCurrentBinary(t *testing.T, binRoot string) {
 	}
 }
 
-func lifecycleEnvironment(t *testing.T, home, stateRoot, address string) []string {
+func lifecycleEnvironment(t *testing.T, home, stateRoot, socketRoot, address string) []string {
 	t.Helper()
 	return append(filteredEnvironment(os.Environ(), "HOME=", "DATAPORCH_", "UNRELATED_ENV="),
 		"HOME="+home,
@@ -203,6 +228,8 @@ func lifecycleEnvironment(t *testing.T, home, stateRoot, address string) []strin
 		"DATAPORCH_SECRETS_STORE_PATH="+filepath.Join(stateRoot, "secrets.store"),
 		"DATAPORCH_CONNECTIONS_STORE_PATH="+filepath.Join(stateRoot, "connections.store"),
 		"DATAPORCH_MCP_TOKEN_STORE_PATH="+filepath.Join(stateRoot, "mcp-token.json"),
+		"DATAPORCH_MCP_SOCKET_PATH="+filepath.Join(socketRoot, "mcp.sock"),
+		"DATAPORCH_MCP_CONTROL_TOKEN_PATH="+filepath.Join(stateRoot, "mcp-control-token"),
 		"DATAPORCH_MCP_TOKEN=secret-canary",
 		"UNRELATED_ENV=unrelated-canary",
 	)
@@ -340,6 +367,26 @@ func assertOwnerOnlyFile(t *testing.T, path string) {
 	if info.Mode().Perm()&0o077 != 0 {
 		t.Fatalf("state file %q mode = %o, want owner-only", path, info.Mode().Perm())
 	}
+}
+
+func assertExactOwnerOnlyFile(t *testing.T, path string) {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat owner-only file %q: %v", path, err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("file %q mode = %o, want 600", path, info.Mode().Perm())
+	}
+}
+
+func readCredential(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read credential %q: %v", path, err)
+	}
+	return string(data)
 }
 
 func environmentValue(environment []string, name string) string {

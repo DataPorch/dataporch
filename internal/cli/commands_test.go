@@ -19,30 +19,40 @@ func TestMCPCommandPassesContextAndStreams(t *testing.T) {
 
 	dependencies := testCommandDependencies(t)
 	dependencies.protectedFileValidator = func(string) error { return nil }
-	var gotContext context.Context
-	var gotConfig config.Config
-	var gotInput io.Reader
-	var gotOutput io.Writer
-	dependencies.runMCPAdapter = func(ctx context.Context, cfg config.Config, input io.Reader, output io.Writer) error {
-		gotContext, gotConfig, gotInput, gotOutput = ctx, cfg, input, output
-		return nil
-	}
-	ctx := context.WithValue(t.Context(), struct{}{}, "caller")
+	adapter := &recordingMCPAdapter{}
+	dependencies.runMCPAdapter = adapter.Run
+	ctx := t.Context()
 	if err := runWithContext(ctx, []string{"mcp"}, dependencies); err != nil {
 		t.Fatalf("runWithContext() error = %v", err)
 	}
-	if gotContext != ctx {
+	if adapter.context != ctx {
 		t.Fatal("MCP adapter did not receive caller context")
 	}
-	if gotConfig.MCPSocketPath == "" || gotConfig.MCPControlTokenPath == "" {
-		t.Fatalf("MCP config paths = %#v, want resolved paths", gotConfig)
+	if adapter.config.MCPSocketPath == "" || adapter.config.MCPControlTokenPath == "" {
+		t.Fatalf("MCP config paths = %#v, want resolved paths", adapter.config)
 	}
-	if gotInput != dependencies.stdin || gotOutput != dependencies.stdout {
+	if adapter.input != dependencies.stdin || adapter.output != dependencies.stdout {
 		t.Fatal("MCP adapter did not receive injected streams")
 	}
-	if dependencies.stdout.(*bytes.Buffer).Len() != 0 {
+	stdout, ok := dependencies.stdout.(*bytes.Buffer)
+	if !ok {
+		t.Fatalf("stdout type = %T, want *bytes.Buffer", dependencies.stdout)
+	}
+	if stdout.Len() != 0 {
 		t.Fatal("MCP command wrote non-protocol stdout")
 	}
+}
+
+type recordingMCPAdapter struct {
+	context context.Context //nolint:containedctx // The test records the exact caller context.
+	config  config.Config
+	input   io.Reader
+	output  io.Writer
+}
+
+func (a *recordingMCPAdapter) Run(ctx context.Context, cfg config.Config, input io.Reader, output io.Writer) error {
+	a.context, a.config, a.input, a.output = ctx, cfg, input, output
+	return nil
 }
 
 func TestMCPCommandRejectsExtraArguments(t *testing.T) {

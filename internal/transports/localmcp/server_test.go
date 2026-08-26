@@ -64,6 +64,7 @@ func TestNewServerValidatesDependencies(t *testing.T) {
 	}
 }
 
+//nolint:gocyclo // The lifecycle test covers publication, routing, auth, and cleanup.
 func TestServerPublishesRestrictedSocketAndCleansUp(t *testing.T) {
 	t.Parallel()
 
@@ -111,7 +112,12 @@ func TestServerPublishesRestrictedSocketAndCleansUp(t *testing.T) {
 	}
 
 	client := unixHTTPClient(t, socketPath)
-	response, err := client.Post("http://unix/mcp", "application/json", strings.NewReader("{}"))
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "http://unix/mcp", strings.NewReader("{}"))
+	if err != nil {
+		t.Fatalf("NewRequest() error = %v", err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	response, err := client.Do(request)
 	if err != nil {
 		t.Fatalf("POST(/mcp) error = %v", err)
 	}
@@ -120,7 +126,7 @@ func TestServerPublishesRestrictedSocketAndCleansUp(t *testing.T) {
 	}
 	_ = response.Body.Close()
 
-	request, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "http://unix/mcp", strings.NewReader("{}"))
+	request, err = http.NewRequestWithContext(t.Context(), http.MethodPost, "http://unix/mcp", strings.NewReader("{}"))
 	if err != nil {
 		t.Fatalf("NewRequest() error = %v", err)
 	}
@@ -140,7 +146,11 @@ func TestServerPublishesRestrictedSocketAndCleansUp(t *testing.T) {
 	}
 
 	for _, path := range []string{"/v1/mcp-token", "/healthz", "/"} {
-		response, err := client.Get("http://unix" + path)
+		request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://unix"+path, nil)
+		if err != nil {
+			t.Fatalf("NewRequest(%s) error = %v", path, err)
+		}
+		response, err := client.Do(request)
 		if err != nil {
 			t.Fatalf("GET(%s) error = %v", path, err)
 		}
@@ -198,9 +208,11 @@ func TestServerRejectsUnsafeExistingSocketPaths(t *testing.T) {
 		setup func(t *testing.T, path string)
 	}{
 		{name: "regular file", setup: func(t *testing.T, path string) {
+			t.Helper()
 			writeTestPath(t, path, 0o600)
 		}},
 		{name: "symlink", setup: func(t *testing.T, path string) {
+			t.Helper()
 			target := path + "-target"
 			writeTestPath(t, target, 0o600)
 			if err := os.Symlink(target, path); err != nil {
@@ -208,6 +220,7 @@ func TestServerRejectsUnsafeExistingSocketPaths(t *testing.T) {
 			}
 		}},
 		{name: "directory", setup: func(t *testing.T, path string) {
+			t.Helper()
 			if err := os.Mkdir(path, 0o700); err != nil {
 				t.Fatalf("Mkdir() error = %v", err)
 			}
@@ -240,7 +253,7 @@ func TestServerRejectsActiveSocketAndRemovesStaleSocket(t *testing.T) {
 
 	root := secureTempDir(t)
 	path := filepath.Join(root, "mcp.sock")
-	active, err := net.Listen("unix", path)
+	active, err := (&net.ListenConfig{}).Listen(t.Context(), "unix", path)
 	if err != nil {
 		t.Fatalf("Listen(active) error = %v", err)
 	}
@@ -350,6 +363,7 @@ func writeTestPath(t *testing.T, path string, mode os.FileMode) {
 
 func secureTempDir(t *testing.T) string {
 	t.Helper()
+	//nolint:usetesting // Unix socket paths must remain short on macOS.
 	root, err := os.MkdirTemp("", "dp-local-")
 	if err != nil {
 		t.Fatalf("MkdirTemp() error = %v", err)
@@ -370,7 +384,7 @@ func waitForSocket(t *testing.T, path string, runErr <-chan error) {
 			t.Fatalf("Run() exited before socket creation: %v", err)
 		default:
 		}
-		if info, err := os.Stat(path); err == nil && info.Mode()&os.ModeSocket != 0 {
+		if info, err := os.Stat(path); err == nil && info.Mode()&os.ModeSocket != 0 && info.Mode().Perm() == 0o600 {
 			return
 		}
 		time.Sleep(time.Millisecond)

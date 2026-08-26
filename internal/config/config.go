@@ -14,8 +14,8 @@ const (
 	defaultHTTPAddress            = "127.0.0.1:8080"
 	defaultResourceLimit          = 100
 	maxResourceLimit              = 1000
-	mcpSocketPathEnv              = "DATAPORCH_MCP_SOCKET_PATH"        //nolint:gosec // This is an environment variable name, not a credential.
-	mcpControlTokenPathEnv        = "DATAPORCH_MCP_CONTROL_TOKEN_PATH" //nolint:gosec // This is an environment variable name, not a credential.
+	mcpSocketPathEnv              = "DATAPORCH_MCP_SOCKET_PATH"
+	mcpControlTokenPathEnv        = "DATAPORCH_MCP_CONTROL_TOKEN_PATH" //nolint:gosec // This is a path environment variable, not a credential.
 	mcpTokenStorePathEnv          = "DATAPORCH_MCP_TOKEN_STORE_PATH"   //nolint:gosec // This is an environment variable name, not a credential.
 	defaultQueryTimeout           = 20 * time.Second
 	minQueryTimeout               = time.Second

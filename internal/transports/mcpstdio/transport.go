@@ -47,7 +47,7 @@ func validateSocket(path string) error {
 		return runtimeUnavailable(err)
 	}
 	if info.Mode()&os.ModeSymlink != 0 || info.Mode()&os.ModeSocket == 0 {
-		return fmt.Errorf("local MCP socket path is not an owner-only socket")
+		return errors.New("local MCP socket path is not an owner-only socket")
 	}
 	if info.Mode().Perm() != 0o600 {
 		return fmt.Errorf("local MCP socket permissions are %o, want 600", info.Mode().Perm())
@@ -73,7 +73,7 @@ func validateSocketOwner(info os.FileInfo) error {
 
 func runtimeUnavailable(err error) error {
 	if errors.Is(err, os.ErrNotExist) || errors.Is(err, syscall.ENOENT) || errors.Is(err, syscall.ECONNREFUSED) {
-		return fmt.Errorf("%w: %v", ErrRuntimeUnavailable, err)
+		return fmt.Errorf("%w: %w", ErrRuntimeUnavailable, err)
 	}
 	return err
 }

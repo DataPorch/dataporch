@@ -289,8 +289,11 @@ func (a *App) waitForServers(
 		case err := <-publicErrors:
 			cancel()
 			a.waitForAdmin(adminErrors)
-			a.waitForLocalMCP(localMCPErrors)
+			localErr := a.waitForLocalMCP(localMCPErrors)
 			runtimeErr := a.closeRuntimesWithTimeout(ctx)
+			if localErr != nil {
+				runtimeErr = errors.Join(runtimeErr, fmt.Errorf("serving local MCP: %w", localErr))
+			}
 
 			if errors.Is(err, http.ErrServerClosed) {
 				return runtimeErr

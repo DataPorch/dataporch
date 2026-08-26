@@ -10,6 +10,7 @@ import (
 
 var testCredential = strings.Repeat("A", 43)
 
+//nolint:gocyclo // The test covers the complete secure-store lifecycle.
 func TestStorePublishReadAndDelete(t *testing.T) {
 	t.Parallel()
 

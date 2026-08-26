@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"errors"
-	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -17,7 +16,7 @@ func TestAppCreatesAndRemovesLocalMCPArtifacts(t *testing.T) {
 	t.Parallel()
 
 	cfg := initializedTestConfig(t)
-	application, err := New(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	application, err := New(cfg, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -55,7 +54,7 @@ func TestAppLocalMCPUsesDedicatedCredentialBoundary(t *testing.T) {
 	t.Parallel()
 
 	cfg := initializedTestConfig(t)
-	application, err := New(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	application, err := New(cfg, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}

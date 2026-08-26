@@ -33,6 +33,19 @@ func TestNew(t *testing.T) {
 	}
 }
 
+func TestNewRejectsNilRandomness(t *testing.T) {
+	t.Parallel()
+
+	_, err := newWithDependencies(
+		testConfigFor(t),
+		slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)),
+		appDependencies{newExecutionService: execution.New},
+	)
+	if !errors.Is(err, errRandomnessRequired) {
+		t.Fatalf("newWithDependencies() error = %v, want randomness error", err)
+	}
+}
+
 func TestApp_Run(t *testing.T) {
 	t.Parallel()
 
@@ -262,6 +275,7 @@ func TestAppImportDoesNotCallAdapterAuthentication(t *testing.T) {
 				},
 			},
 			newExecutionService: execution.New,
+			random:              testRandomReader(),
 		},
 	)
 	if err != nil {
@@ -397,6 +411,7 @@ func TestNewWithDependenciesClosesRuntimesWhenExecutionFails(t *testing.T) {
 			newExecutionService: func(execution.Dependencies) (*execution.Service, error) {
 				return nil, executionErr
 			},
+			random: testRandomReader(),
 		},
 	)
 	if application != nil {
@@ -438,6 +453,7 @@ func newAppWithRelationalModules(
 	application, err := newWithDependencies(cfg, logger, appDependencies{
 		relationalModuleFactories: factories,
 		newExecutionService:       execution.New,
+		random:                    testRandomReader(),
 	})
 	if err != nil {
 		t.Fatalf("newWithDependencies() error = %v", err)
@@ -528,6 +544,7 @@ func testNewConstructsRelationalRuntimeWithoutOpening(
 		appDependencies{
 			relationalModuleFactories: []relationalModuleFactory{factory},
 			newExecutionService:       execution.New,
+			random:                    testRandomReader(),
 		},
 	)
 	if err != nil {
@@ -549,10 +566,12 @@ func testConfig() config.Config {
 		ResourceLimit:          10,
 		ShutdownPeriod:         time.Second,
 		AdminSocketPath:        "/tmp/dataporch/admin.sock",
+		MCPSocketPath:          "/tmp/dataporch/mcp.sock",
 		MasterKeyPath:          "/tmp/dataporch/master.key",
 		SecretsStorePath:       "/tmp/dataporch/secrets.store",
 		ConnectionsStorePath:   "/tmp/dataporch/connections.store",
 		MCPTokenStorePath:      "/tmp/dataporch/mcp-token.json",
+		MCPControlTokenPath:    "/tmp/dataporch/mcp-control-token",
 		QueryTimeout:           20 * time.Second,
 		QueryResponseByteLimit: 10_485_760,
 		QueryTruncationEnabled: true,
@@ -587,15 +606,21 @@ func testConfigFor(t *testing.T) config.Config {
 		ResourceLimit:          10,
 		ShutdownPeriod:         time.Second,
 		AdminSocketPath:        filepath.Join(socketRoot, "admin.sock"),
+		MCPSocketPath:          filepath.Join(socketRoot, "mcp.sock"),
 		MasterKeyPath:          filepath.Join(stateRoot, "master.key"),
 		SecretsStorePath:       filepath.Join(stateRoot, "secrets.store"),
 		ConnectionsStorePath:   filepath.Join(stateRoot, "connections.store"),
 		MCPTokenStorePath:      filepath.Join(stateRoot, "mcp-token.json"),
+		MCPControlTokenPath:    filepath.Join(stateRoot, "mcp-control-token"),
 		QueryTimeout:           20 * time.Second,
 		QueryResponseByteLimit: 10_485_760,
 		QueryTruncationEnabled: true,
 		QueryRowLimit:          1000,
 	}
+}
+
+func testRandomReader() *bytes.Reader {
+	return bytes.NewReader(bytes.Repeat([]byte{0x52}, 32))
 }
 
 func initializedTestConfig(t *testing.T) config.Config {

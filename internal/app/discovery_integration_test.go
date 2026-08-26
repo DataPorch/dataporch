@@ -128,6 +128,7 @@ func newIntegrationHarness(t *testing.T) *integrationHarness {
 				newCountingPostgresModule(&runtime),
 			},
 			newExecutionService: execution.New,
+			random:              testRandomReader(),
 		},
 	)
 	if err != nil {

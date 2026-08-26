@@ -223,6 +223,7 @@ func newAppWithPostgresRuntimeTestStubAndLogger(
 				},
 			},
 			newExecutionService: execution.New,
+			random:              testRandomReader(),
 		},
 	)
 	if err != nil {

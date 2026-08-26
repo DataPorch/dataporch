@@ -214,7 +214,7 @@ func TestWaitForServersJoinsUnexpectedServeAndRuntimeErrors(t *testing.T) {
 
 	runCtx, cancel := context.WithCancel(ctx)
 
-	err := application.waitForServers(runCtx, cancel, publicErrors, adminErrors)
+	err := application.waitForServers(runCtx, cancel, publicErrors, adminErrors, nil)
 	if !errors.Is(err, serveErr) {
 		t.Fatalf("waitForServers() error = %v, want serving error", err)
 	}

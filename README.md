@@ -178,6 +178,8 @@ The default state is kept under `~/.dataporch`:
 ~/.dataporch/secrets.store
 ~/.dataporch/connections.store
 ~/.dataporch/mcp-token.json
+~/.dataporch/mcp.sock
+~/.dataporch/mcp-control-token
 ~/.dataporch/logs/
 ```
 
@@ -191,6 +193,8 @@ export DATAPORCH_MASTER_KEY_PATH=/etc/dataporch/master.key
 export DATAPORCH_SECRETS_STORE_PATH=/var/lib/dataporch/secrets.store
 export DATAPORCH_CONNECTIONS_STORE_PATH=/var/lib/dataporch/connections.store
 export DATAPORCH_MCP_TOKEN_STORE_PATH=/var/lib/dataporch/mcp-token.json
+export DATAPORCH_MCP_SOCKET_PATH=/run/dataporch/mcp.sock
+export DATAPORCH_MCP_CONTROL_TOKEN_PATH=/var/lib/dataporch/mcp-control-token
 dataporch run -f
 ```
 
@@ -227,19 +231,36 @@ dataporch connections import --id finance --kind postgres
 DataPorch reads the connection string from a hidden terminal prompt. The MCP interface does not receive the connection string.
 Change `--kind` and enter the matching connection format for MySQL or SQLite.
 
-### Create an MCP token
+### Local agent access
+
+```bash
+dataporch secrets init
+dataporch run
+```
+
+Install the Codex or Claude Code plugin after the runtime is running. The plugin launches `dataporch mcp` over stdio and authenticates through runtime-only local state.
+
+Local plugin users do not run `dataporch mcp-token create`, copy or export a credential, or edit a shell profile. New terminals, client restarts, and runtime restarts require no repeated token setup.
+
+### Direct HTTP MCP clients
+
+Direct HTTP clients can continue using a long-lived bearer token:
 
 ```bash
 dataporch mcp-token create
-```
-
-Export the token in the environment that starts your MCP client:
-
-```bash
 export DATAPORCH_MCP_TOKEN='dp-...'
 ```
 
-DataPorch shows the plaintext token only when you create or rotate it.
+The token is for `http://127.0.0.1:8080/mcp` only. Rotate or revoke it with:
+
+```bash
+dataporch mcp-token list
+dataporch mcp-token rotate
+dataporch mcp-token revoke
+dataporch mcp-token revoke --yes
+```
+
+Do not place the token in plugin manifests, repository files, shell history, or logs. Hosted OAuth is separate work.
 
 ---
 
@@ -261,7 +282,7 @@ claude plugin marketplace add /absolute/path/to/dataporch
 claude plugin install dataporch@dataporch
 ```
 
-See [`plugins/dataporch/README.md`](plugins/dataporch/README.md) for installation, authentication, updates, removal, and troubleshooting.
+See [`plugins/dataporch/README.md`](plugins/dataporch/README.md) for local stdio setup, updates, removal, direct HTTP usage, and troubleshooting.
 
 ---
 

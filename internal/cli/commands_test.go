@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
+	"io/fs"
 	"os"
 	"strings"
 	"testing"
@@ -11,6 +13,107 @@ import (
 	"github.com/adamraziv/dataporch/internal/config"
 	"github.com/adamraziv/dataporch/internal/connection"
 )
+
+func TestMCPCommandPassesContextAndStreams(t *testing.T) {
+	t.Parallel()
+
+	dependencies := testCommandDependencies(t)
+	dependencies.protectedFileValidator = func(string) error { return nil }
+	var gotContext context.Context
+	var gotConfig config.Config
+	var gotInput io.Reader
+	var gotOutput io.Writer
+	dependencies.runMCPAdapter = func(ctx context.Context, cfg config.Config, input io.Reader, output io.Writer) error {
+		gotContext, gotConfig, gotInput, gotOutput = ctx, cfg, input, output
+		return nil
+	}
+	ctx := context.WithValue(t.Context(), struct{}{}, "caller")
+	if err := runWithContext(ctx, []string{"mcp"}, dependencies); err != nil {
+		t.Fatalf("runWithContext() error = %v", err)
+	}
+	if gotContext != ctx {
+		t.Fatal("MCP adapter did not receive caller context")
+	}
+	if gotConfig.MCPSocketPath == "" || gotConfig.MCPControlTokenPath == "" {
+		t.Fatalf("MCP config paths = %#v, want resolved paths", gotConfig)
+	}
+	if gotInput != dependencies.stdin || gotOutput != dependencies.stdout {
+		t.Fatal("MCP adapter did not receive injected streams")
+	}
+	if dependencies.stdout.(*bytes.Buffer).Len() != 0 {
+		t.Fatal("MCP command wrote non-protocol stdout")
+	}
+}
+
+func TestMCPCommandRejectsExtraArguments(t *testing.T) {
+	t.Parallel()
+
+	err := run([]string{"mcp", "extra"}, testCommandDependencies(t))
+	if !errors.Is(err, errUnexpectedArguments) {
+		t.Fatalf("run() error = %v, want unexpected arguments", err)
+	}
+	if got := exitCode(err); got != exitUsage {
+		t.Fatalf("exitCode() = %d, want %d", got, exitUsage)
+	}
+}
+
+func TestMCPCommandDiagnosticsStayOnStderr(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		validator  ProtectedFileValidator
+		adapterErr error
+		want       string
+	}{
+		{
+			name: "not initialized",
+			validator: func(string) error {
+				return fs.ErrNotExist
+			},
+			want: "dataporch: not initialized; run dataporch secrets init, then dataporch run\n",
+		},
+		{
+			name:       "runtime stopped",
+			validator:  func(string) error { return nil },
+			adapterErr: ErrMCPRuntimeUnavailable,
+			want:       "dataporch: runtime is not running; run dataporch run\n",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			stdout := &bytes.Buffer{}
+			stderr := &bytes.Buffer{}
+			dependencies := testCommandDependencies(t)
+			dependencies.stdout = stdout
+			dependencies.stderr = stderr
+			dependencies.protectedFileValidator = test.validator
+			dependencies.runMCPAdapter = func(context.Context, config.Config, io.Reader, io.Writer) error {
+				return test.adapterErr
+			}
+			runner, err := New(Dependencies{
+				Stdin: dependencies.stdin, Stdout: stdout, Stderr: stderr,
+				LookupEnv: dependencies.lookupEnv, UserHomeDir: dependencies.userHomeDir,
+				ProtectedFileValidator: dependencies.protectedFileValidator,
+				RunMCPAdapter:          dependencies.runMCPAdapter,
+				Version:                "0.1.0", InvocationPath: "/opt/homebrew/bin/dataporch",
+			})
+			if err != nil {
+				t.Fatalf("New() error = %v", err)
+			}
+			if got := runner.Execute(t.Context(), []string{"mcp"}); got != exitFailure {
+				t.Fatalf("Execute() = %d, want failure", got)
+			}
+			if stdout.Len() != 0 {
+				t.Fatalf("stdout = %q, want empty", stdout.String())
+			}
+			if stderr.String() != test.want {
+				t.Fatalf("stderr = %q, want %q", stderr.String(), test.want)
+			}
+		})
+	}
+}
 
 func TestSecretsInitRunsOnce(t *testing.T) {
 	t.Parallel()

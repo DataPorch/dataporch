@@ -20,7 +20,7 @@ func newCredentialRoundTripper(base http.RoundTripper, credentials CredentialRea
 func (t *credentialRoundTripper) RoundTrip(request *http.Request) (*http.Response, error) {
 	credential, err := t.credentials.Read()
 	if err != nil {
-		return nil, fmt.Errorf("reading local MCP credential: %w", err)
+		return nil, runtimeUnavailable(fmt.Errorf("reading local MCP credential: %w", err))
 	}
 	first, err := t.roundTripWithCredential(request, credential)
 	if err != nil || first.StatusCode != http.StatusUnauthorized || request.GetBody == nil {
@@ -32,7 +32,7 @@ func (t *credentialRoundTripper) RoundTrip(request *http.Request) (*http.Respons
 
 	credential, err = t.credentials.Read()
 	if err != nil {
-		return nil, fmt.Errorf("refreshing local MCP credential: %w", err)
+		return nil, runtimeUnavailable(fmt.Errorf("refreshing local MCP credential: %w", err))
 	}
 	body, err := request.GetBody()
 	if err != nil {

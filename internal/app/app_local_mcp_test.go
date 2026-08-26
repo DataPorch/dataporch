@@ -27,6 +27,8 @@ func TestAppCreatesAndRemovesLocalMCPArtifacts(t *testing.T) {
 	go func() { done <- application.Run(ctx) }()
 	waitForFile(t, cfg.MCPSocketPath)
 	waitForFile(t, cfg.MCPControlTokenPath)
+	waitForMode(t, cfg.MCPSocketPath, 0o600)
+	waitForMode(t, cfg.MCPControlTokenPath, 0o600)
 
 	for _, path := range []string{cfg.MCPSocketPath, cfg.MCPControlTokenPath} {
 		info, err := os.Stat(path)
@@ -62,6 +64,8 @@ func TestAppLocalMCPUsesDedicatedCredentialBoundary(t *testing.T) {
 	go func() { done <- application.Run(ctx) }()
 	waitForFile(t, cfg.MCPSocketPath)
 	waitForFile(t, cfg.MCPControlTokenPath)
+	waitForMode(t, cfg.MCPSocketPath, 0o600)
+	waitForMode(t, cfg.MCPControlTokenPath, 0o600)
 	credential := readLocalCredential(t, cfg.MCPControlTokenPath)
 
 	publicResponse := serveApplicationRequest(t, application, http.MethodGet, "/mcp", "Bearer "+credential)
@@ -131,4 +135,16 @@ func localMCPHTTPClient(t *testing.T, path string) *http.Client {
 	}}
 	t.Cleanup(transport.CloseIdleConnections)
 	return &http.Client{Transport: transport}
+}
+
+func waitForMode(t *testing.T, path string, mode os.FileMode) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if info, err := os.Stat(path); err == nil && info.Mode().Perm() == mode {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("path %q did not reach mode %o", path, mode)
 }

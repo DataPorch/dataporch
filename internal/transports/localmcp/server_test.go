@@ -291,6 +291,147 @@ func TestServerRejectsActiveSocketAndRemovesStaleSocket(t *testing.T) {
 	}
 }
 
+func TestServerReservesSocketBeforePublishingCredential(t *testing.T) {
+	t.Parallel()
+
+	root := secureTempDir(t)
+	path := filepath.Join(root, "mcp.sock")
+	firstStore := &recordingCredentialStore{publishDone: make(chan struct{})}
+	first, err := NewServer(Dependencies{
+		SocketPath: path, Credentials: firstStore,
+		Random:  strings.NewReader(strings.Repeat("A", 32)),
+		Handler: http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}),
+	})
+	if err != nil {
+		t.Fatalf("NewServer(first) error = %v", err)
+	}
+	secondStore := &recordingCredentialStore{}
+	second, err := NewServer(Dependencies{
+		SocketPath: path, Credentials: secondStore,
+		Random:  strings.NewReader(strings.Repeat("B", 32)),
+		Handler: http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}),
+	})
+	if err != nil {
+		t.Fatalf("NewServer(second) error = %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	firstRun := make(chan error, 1)
+	go func() { firstRun <- first.Run(ctx) }()
+	select {
+	case <-firstStore.publishDone:
+	case <-time.After(time.Second):
+		t.Fatal("first server did not publish its credential")
+	}
+	waitForSocket(t, path, firstRun)
+
+	secondRun := make(chan error, 1)
+	go func() { secondRun <- second.Run(t.Context()) }()
+	select {
+	case err := <-secondRun:
+		if err == nil || !strings.Contains(err.Error(), "already active") {
+			t.Fatalf("second Run() error = %v, want already-active error", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("second Run() did not reject the active socket")
+	}
+	if len(secondStore.publishValues) != 0 {
+		t.Fatalf("second Publish() calls = %d, want 0", len(secondStore.publishValues))
+	}
+
+	cancel()
+	if err := <-firstRun; err != nil {
+		t.Fatalf("first Run() error = %v", err)
+	}
+}
+
+func TestServerWaitsForGracefulShutdown(t *testing.T) {
+	t.Parallel()
+
+	root := secureTempDir(t)
+	path := filepath.Join(root, "mcp.sock")
+	store := &recordingCredentialStore{publishDone: make(chan struct{})}
+	handlerStarted := make(chan struct{})
+	releaseHandler := make(chan struct{})
+	handlerDone := make(chan struct{})
+	server, err := NewServer(Dependencies{
+		SocketPath: path, Credentials: store,
+		Random: strings.NewReader(strings.Repeat("A", 32)),
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			close(handlerStarted)
+			<-releaseHandler
+			close(handlerDone)
+			w.WriteHeader(http.StatusNoContent)
+		}),
+	})
+	if err != nil {
+		t.Fatalf("NewServer() error = %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	runErr := make(chan error, 1)
+	go func() { runErr <- server.Run(ctx) }()
+	select {
+	case <-store.publishDone:
+	case <-time.After(time.Second):
+		t.Fatal("Publish() was not called")
+	}
+	waitForSocket(t, path, runErr)
+
+	client := unixHTTPClient(t, path)
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "http://unix/mcp", strings.NewReader("{}"))
+	if err != nil {
+		t.Fatalf("NewRequest() error = %v", err)
+	}
+	request.Header.Set("Authorization", "Bearer "+store.publishValues[0])
+	responseDone := make(chan error, 1)
+	go func() {
+		response, requestErr := client.Do(request)
+		if response != nil {
+			_ = response.Body.Close()
+		}
+		responseDone <- requestErr
+	}()
+	select {
+	case <-handlerStarted:
+	case <-time.After(time.Second):
+		t.Fatal("handler did not start")
+	}
+
+	cancel()
+	select {
+	case err := <-runErr:
+		close(releaseHandler)
+		<-handlerDone
+		t.Fatalf("Run() returned before handler drained: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(releaseHandler)
+	select {
+	case <-handlerDone:
+	case <-time.After(time.Second):
+		t.Fatal("handler did not finish")
+	}
+	select {
+	case err := <-responseDone:
+		if err != nil {
+			t.Fatalf("request error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("request did not finish")
+	}
+	select {
+	case err := <-runErr:
+		if err != nil {
+			t.Fatalf("Run() error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Run() did not finish after handler drained")
+	}
+}
+
 func TestServerRotatesCredentialAcrossRuns(t *testing.T) {
 	t.Parallel()
 

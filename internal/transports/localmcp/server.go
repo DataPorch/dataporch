@@ -71,19 +71,6 @@ func (s *Server) Run(ctx context.Context) (err error) {
 		return err
 	}
 
-	credential, err := mcpcontrol.Generate(s.random)
-	if err != nil {
-		return err
-	}
-	if err := s.credentials.Publish(credential); err != nil {
-		return fmt.Errorf("publishing local MCP credential: %w", err)
-	}
-	defer func() {
-		if cleanupErr := s.credentials.Delete(); cleanupErr != nil {
-			err = errors.Join(err, fmt.Errorf("deleting local MCP credential: %w", cleanupErr))
-		}
-	}()
-
 	if err := prepareSocket(s.socketPath); err != nil {
 		return err
 	}
@@ -106,6 +93,19 @@ func (s *Server) Run(ctx context.Context) (err error) {
 		return fmt.Errorf("setting local MCP socket permissions: %w", err)
 	}
 
+	credential, err := mcpcontrol.Generate(s.random)
+	if err != nil {
+		return err
+	}
+	if err := s.credentials.Publish(credential); err != nil {
+		return fmt.Errorf("publishing local MCP credential: %w", err)
+	}
+	defer func() {
+		if cleanupErr := s.credentials.Delete(); cleanupErr != nil {
+			err = errors.Join(err, fmt.Errorf("deleting local MCP credential: %w", cleanupErr))
+		}
+	}()
+
 	authenticated := authenticatedHandler(credential, s.handler)
 	mux := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/mcp" {
@@ -124,28 +124,26 @@ func (s *Server) Run(ctx context.Context) (err error) {
 	}
 
 	done := make(chan struct{})
-	defer close(done)
 	shutdownErrors := make(chan error, 1)
 	go func() {
+		var shutdownErr error
 		select {
 		case <-ctx.Done():
 			shutdownContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
 			defer cancel()
-			shutdownErrors <- server.Shutdown(shutdownContext)
+			shutdownErr = server.Shutdown(shutdownContext)
 		case <-done:
 		}
+		shutdownErrors <- shutdownErr
 	}()
 
 	err = server.Serve(listener)
+	close(done)
 	if errors.Is(err, http.ErrServerClosed) {
 		err = nil
 	}
-	select {
-	case shutdownErr := <-shutdownErrors:
-		if shutdownErr != nil {
-			err = errors.Join(err, fmt.Errorf("shutting down local MCP server: %w", shutdownErr))
-		}
-	default:
+	if shutdownErr := <-shutdownErrors; shutdownErr != nil {
+		err = errors.Join(err, fmt.Errorf("shutting down local MCP server: %w", shutdownErr))
 	}
 
 	return err

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -160,6 +161,7 @@ func TestServerPublishesRestrictedSocketAndCleansUp(t *testing.T) {
 		_ = response.Body.Close()
 	}
 
+	client.CloseIdleConnections()
 	cancel()
 	select {
 	case err := <-runErr:
@@ -346,6 +348,121 @@ func TestServerReservesSocketBeforePublishingCredential(t *testing.T) {
 	}
 }
 
+func TestServerKeepsRuntimeOwnershipUntilCleanupCompletes(t *testing.T) {
+	t.Parallel()
+
+	root := secureTempDir(t)
+	path := filepath.Join(root, "mcp.sock")
+	firstStore := &recordingCredentialStore{publishDone: make(chan struct{})}
+	handlerStarted := make(chan struct{})
+	releaseHandler := make(chan struct{})
+	handlerDone := make(chan struct{})
+	first, err := NewServer(Dependencies{
+		SocketPath: path, Credentials: firstStore,
+		Random: strings.NewReader(strings.Repeat("A", 32)),
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			close(handlerStarted)
+			<-releaseHandler
+			close(handlerDone)
+			w.WriteHeader(http.StatusNoContent)
+		}),
+	})
+	if err != nil {
+		t.Fatalf("NewServer(first) error = %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	firstRun := make(chan error, 1)
+	go func() { firstRun <- first.Run(ctx) }()
+	select {
+	case <-firstStore.publishDone:
+	case <-time.After(time.Second):
+		t.Fatal("first server did not publish its credential")
+	}
+	waitForSocket(t, path, firstRun)
+
+	client := unixHTTPClient(t, path)
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "http://unix/mcp", strings.NewReader("{}"))
+	if err != nil {
+		t.Fatalf("NewRequest() error = %v", err)
+	}
+	request.Header.Set("Authorization", "Bearer "+firstStore.publishValues[0])
+	responseDone := make(chan error, 1)
+	go func() {
+		response, requestErr := client.Do(request)
+		if response != nil {
+			_ = response.Body.Close()
+		}
+		responseDone <- requestErr
+	}()
+	select {
+	case <-handlerStarted:
+	case <-time.After(time.Second):
+		t.Fatal("handler did not start")
+	}
+
+	cancel()
+	waitForClosedSocket(t, path, firstRun)
+
+	secondStore := &recordingCredentialStore{}
+	second, err := NewServer(Dependencies{
+		SocketPath: path, Credentials: secondStore,
+		Random:  strings.NewReader(strings.Repeat("B", 32)),
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }),
+	})
+	if err != nil {
+		t.Fatalf("NewServer(second) error = %v", err)
+	}
+	secondRun := make(chan error, 1)
+	go func() { secondRun <- second.Run(t.Context()) }()
+	select {
+	case err := <-secondRun:
+		if !errors.Is(err, errRuntimeAlreadyActive) {
+			t.Fatalf("second Run() error = %v, want active-runtime error", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("second Run() did not preserve first runtime ownership")
+	}
+	if len(secondStore.publishValues) != 0 {
+		t.Fatalf("second Publish() calls = %d, want 0", len(secondStore.publishValues))
+	}
+
+	close(releaseHandler)
+	select {
+	case <-handlerDone:
+	case <-time.After(time.Second):
+		t.Fatal("handler did not finish")
+	}
+	select {
+	case err := <-responseDone:
+		if err != nil {
+			t.Fatalf("request error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("request did not finish")
+	}
+	if err := <-firstRun; err != nil {
+		t.Fatalf("first Run() error = %v", err)
+	}
+
+	secondStore.publishDone = make(chan struct{})
+	secondContext, secondCancel := context.WithCancel(t.Context())
+	defer secondCancel()
+	secondRun = make(chan error, 1)
+	go func() { secondRun <- second.Run(secondContext) }()
+	select {
+	case <-secondStore.publishDone:
+	case <-time.After(time.Second):
+		t.Fatal("second server did not publish after first cleanup")
+	}
+	waitForSocket(t, path, secondRun)
+	secondCancel()
+	if err := <-secondRun; err != nil {
+		t.Fatalf("second Run() error = %v", err)
+	}
+}
+
 //nolint:gocyclo // The test coordinates server, request, and shutdown lifecycles.
 func TestServerWaitsForGracefulShutdown(t *testing.T) {
 	t.Parallel()
@@ -430,6 +547,79 @@ func TestServerWaitsForGracefulShutdown(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("Run() did not finish after handler drained")
+	}
+}
+
+func TestServerForceClosesHandlersAfterShutdownTimeout(t *testing.T) {
+	t.Parallel()
+
+	root := secureTempDir(t)
+	path := filepath.Join(root, "mcp.sock")
+	store := &recordingCredentialStore{publishDone: make(chan struct{})}
+	handlerStarted := make(chan struct{})
+	handlerCanceled := make(chan struct{})
+	server, err := NewServer(Dependencies{
+		SocketPath: path, Credentials: store,
+		Random: strings.NewReader(strings.Repeat("A", 32)),
+		Handler: http.HandlerFunc(func(_ http.ResponseWriter, request *http.Request) {
+			close(handlerStarted)
+			<-request.Context().Done()
+			close(handlerCanceled)
+		}),
+	})
+	if err != nil {
+		t.Fatalf("NewServer() error = %v", err)
+	}
+	server.shutdownTimeout = 20 * time.Millisecond
+
+	ctx, cancel := context.WithCancel(t.Context())
+	runErr := make(chan error, 1)
+	go func() { runErr <- server.Run(ctx) }()
+	select {
+	case <-store.publishDone:
+	case <-time.After(time.Second):
+		t.Fatal("Publish() was not called")
+	}
+	waitForSocket(t, path, runErr)
+
+	client := unixHTTPClient(t, path)
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://unix/mcp", nil)
+	if err != nil {
+		t.Fatalf("NewRequest() error = %v", err)
+	}
+	request.Header.Set("Authorization", "Bearer "+store.publishValues[0])
+	responseDone := make(chan error, 1)
+	go func() {
+		response, requestErr := client.Do(request)
+		if response != nil {
+			_ = response.Body.Close()
+		}
+		responseDone <- requestErr
+	}()
+	select {
+	case <-handlerStarted:
+	case <-time.After(time.Second):
+		t.Fatal("handler did not start")
+	}
+
+	cancel()
+	select {
+	case <-handlerCanceled:
+	case <-time.After(time.Second):
+		t.Fatal("handler was not canceled after shutdown timeout")
+	}
+	select {
+	case err := <-runErr:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("Run() error = %v, want shutdown deadline error", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Run() did not finish after forced close")
+	}
+	select {
+	case <-responseDone:
+	case <-time.After(time.Second):
+		t.Fatal("request did not finish after forced close")
 	}
 }
 
@@ -532,6 +722,30 @@ func waitForSocket(t *testing.T, path string, runErr <-chan error) {
 		time.Sleep(time.Millisecond)
 	}
 	t.Fatalf("socket %q was not created", path)
+}
+
+func waitForClosedSocket(t *testing.T, path string, runErr <-chan error) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		select {
+		case err := <-runErr:
+			t.Fatalf("Run() exited before cleanup completed: %v", err)
+		default:
+		}
+
+		connection, err := net.DialTimeout("unix", path, 20*time.Millisecond) //nolint:noctx // The probe is deliberately bounded.
+		if connection != nil {
+			_ = connection.Close()
+			time.Sleep(time.Millisecond)
+			continue
+		}
+		if errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.ENOENT) {
+			return
+		}
+		t.Fatalf("dialing local MCP socket during shutdown: %v", err)
+	}
+	t.Fatalf("socket %q was not closed", path)
 }
 
 func unixHTTPClient(t *testing.T, socketPath string) *http.Client {

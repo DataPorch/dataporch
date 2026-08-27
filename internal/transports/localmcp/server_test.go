@@ -348,6 +348,7 @@ func TestServerReservesSocketBeforePublishingCredential(t *testing.T) {
 	}
 }
 
+//nolint:gocyclo // The test coordinates overlapping server, request, and cleanup lifecycles.
 func TestServerKeepsRuntimeOwnershipUntilCleanupCompletes(t *testing.T) {
 	t.Parallel()
 
@@ -550,6 +551,7 @@ func TestServerWaitsForGracefulShutdown(t *testing.T) {
 	}
 }
 
+//nolint:gocyclo // The test coordinates timeout, handler cancellation, and client cleanup lifecycles.
 func TestServerForceClosesHandlersAfterShutdownTimeout(t *testing.T) {
 	t.Parallel()
 

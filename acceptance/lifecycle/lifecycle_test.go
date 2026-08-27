@@ -38,6 +38,7 @@ func TestInstalledBinaryNativeLifecycle(t *testing.T) {
 			t.Fatalf("create acceptance directory %q: %v", directory, err)
 		}
 	}
+	//nolint:usetesting // Unix socket paths must remain short on macOS.
 	socketRoot, err := os.MkdirTemp("/tmp", "dp-life-")
 	if err != nil {
 		t.Fatalf("create short socket directory: %v", err)

@@ -346,6 +346,7 @@ func TestServerReservesSocketBeforePublishingCredential(t *testing.T) {
 	}
 }
 
+//nolint:gocyclo // The test coordinates server, request, and shutdown lifecycles.
 func TestServerWaitsForGracefulShutdown(t *testing.T) {
 	t.Parallel()
 

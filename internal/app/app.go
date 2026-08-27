@@ -276,6 +276,7 @@ func (a *App) waitForServers(
 		if localMCPErrors != nil {
 			select {
 			case err := <-localMCPErrors:
+				err = normalizeLocalMCPError(err)
 				if err == nil {
 					localMCPErrors = nil
 					continue
@@ -312,6 +313,7 @@ func (a *App) waitForServers(
 
 			adminErrors = nil
 		case err := <-localMCPErrors:
+			err = normalizeLocalMCPError(err)
 			if err == nil {
 				localMCPErrors = nil
 				continue
@@ -414,5 +416,13 @@ func (a *App) waitForLocalMCP(localMCPErrors <-chan error) error {
 		return nil
 	}
 
-	return <-localMCPErrors
+	return normalizeLocalMCPError(<-localMCPErrors)
+}
+
+func normalizeLocalMCPError(err error) error {
+	if errors.Is(err, context.Canceled) || errors.Is(err, http.ErrServerClosed) {
+		return nil
+	}
+
+	return err
 }

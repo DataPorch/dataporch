@@ -118,6 +118,28 @@ func TestAppLocalMCPFailureIsFatal(t *testing.T) {
 	}
 }
 
+func TestAppLocalMCPStartupCancellationIsGraceful(t *testing.T) {
+	t.Parallel()
+
+	application := &App{
+		server:         &http.Server{},
+		logger:         slog.New(slog.DiscardHandler),
+		shutdownPeriod: time.Second,
+	}
+	publicErrors := make(chan error, 1)
+	publicErrors <- http.ErrServerClosed
+	adminErrors := make(chan error, 1)
+	adminErrors <- nil
+	localErrors := make(chan error, 1)
+	localErrors <- context.Canceled
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	if err := application.waitForServers(ctx, cancel, publicErrors, adminErrors, localErrors); err != nil {
+		t.Fatalf("waitForServers() error = %v, want nil", err)
+	}
+}
+
 func readLocalCredential(t *testing.T, path string) string {
 	t.Helper()
 	data, err := os.ReadFile(path)

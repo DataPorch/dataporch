@@ -1,4 +1,5 @@
 /bin/
+/dataporch
 /dist/
 /dist/
 *.exe

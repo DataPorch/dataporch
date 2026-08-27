@@ -78,7 +78,31 @@ func (m *launchdManager) Restart(ctx context.Context) error {
 	if err != nil && !serviceAbsent(output, err) {
 		return err
 	}
+	if err == nil {
+		if err := m.waitForUnregistered(ctx); err != nil {
+			return err
+		}
+	}
 	return m.Start(ctx)
+}
+
+func (m *launchdManager) waitForUnregistered(ctx context.Context) error {
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		status, err := m.Status(ctx)
+		if err != nil {
+			return fmt.Errorf("waiting for launchd service to unload: %w", err)
+		}
+		if !status.Registered {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("waiting for launchd service to unload: %w", ctx.Err())
+		case <-ticker.C:
+		}
+	}
 }
 
 func (m *launchdManager) Stop(ctx context.Context) error {
@@ -86,7 +110,10 @@ func (m *launchdManager) Stop(ctx context.Context) error {
 	if serviceAbsent(output, err) {
 		return nil
 	}
-	return err
+	if err != nil {
+		return err
+	}
+	return m.waitForUnregistered(ctx)
 }
 
 func (m *launchdManager) Unregister(ctx context.Context) error {

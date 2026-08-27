@@ -79,7 +79,12 @@ func TestLaunchdManagerUsesExplicitCommands(t *testing.T) {
 	t.Parallel()
 
 	home := "/Users/alice"
-	runner := &fakeCommandRunner{}
+	runner := &fakeCommandRunner{run: func(_ context.Context, _ string, args ...string) ([]byte, error) {
+		if len(args) > 0 && args[0] == "print" {
+			return []byte("Could not find service"), errors.New("exit status 3")
+		}
+		return nil, nil
+	}}
 	manager, err := newLaunchdManager(home, 501, runner)
 	if err != nil {
 		t.Fatalf("newLaunchdManager() error = %v", err)
@@ -100,6 +105,7 @@ func TestLaunchdManagerUsesExplicitCommands(t *testing.T) {
 	}
 	assertCommandCalls(t, runner.calls, []commandCall{
 		{name: "launchctl", args: []string{"bootout", "gui/501/com.dataporch.dataporch"}},
+		{name: "launchctl", args: []string{"print", "gui/501/com.dataporch.dataporch"}},
 		{name: "launchctl", args: []string{"bootstrap", "gui/501", "/Users/alice/Library/LaunchAgents/com.dataporch.dataporch.plist"}},
 		{name: "launchctl", args: []string{"kickstart", "gui/501/com.dataporch.dataporch"}},
 	})
@@ -108,7 +114,10 @@ func TestLaunchdManagerUsesExplicitCommands(t *testing.T) {
 	if err := manager.Stop(ctx); err != nil {
 		t.Fatalf("Stop() error = %v", err)
 	}
-	assertCommandCalls(t, runner.calls, []commandCall{{name: "launchctl", args: []string{"bootout", "gui/501/com.dataporch.dataporch"}}})
+	assertCommandCalls(t, runner.calls, []commandCall{
+		{name: "launchctl", args: []string{"bootout", "gui/501/com.dataporch.dataporch"}},
+		{name: "launchctl", args: []string{"print", "gui/501/com.dataporch.dataporch"}},
+	})
 }
 
 func TestLaunchdManagerTreatsAbsentServiceAsSuccess(t *testing.T) {
@@ -131,6 +140,32 @@ func TestLaunchdManagerTreatsAbsentServiceAsSuccess(t *testing.T) {
 	}
 	if err := manager.Restart(t.Context()); err != nil {
 		t.Fatalf("Restart() error = %v, want absent bootout to be ignored", err)
+	}
+}
+
+func TestLaunchdManagerWaitsForServiceToUnload(t *testing.T) {
+	t.Parallel()
+
+	printCalls := 0
+	runner := &fakeCommandRunner{run: func(_ context.Context, _ string, args ...string) ([]byte, error) {
+		if len(args) > 0 && args[0] == "print" {
+			printCalls++
+			if printCalls < 3 {
+				return []byte("state = exited\n"), nil
+			}
+			return []byte("Could not find service"), errors.New("exit status 3")
+		}
+		return nil, nil
+	}}
+	manager, err := newLaunchdManager(t.TempDir(), 501, runner)
+	if err != nil {
+		t.Fatalf("newLaunchdManager() error = %v", err)
+	}
+	if err := manager.Restart(t.Context()); err != nil {
+		t.Fatalf("Restart() error = %v", err)
+	}
+	if printCalls != 3 {
+		t.Fatalf("launchctl print calls = %d, want 3", printCalls)
 	}
 }
 

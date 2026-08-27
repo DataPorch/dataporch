@@ -2,8 +2,10 @@ package app
 
 import (
 	"context"
+	cryptorand "crypto/rand"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -14,8 +16,10 @@ import (
 	"github.com/adamraziv/dataporch/internal/config"
 	"github.com/adamraziv/dataporch/internal/connection"
 	"github.com/adamraziv/dataporch/internal/execution"
+	mcpControlLocal "github.com/adamraziv/dataporch/internal/mcpcontrol/local"
 	"github.com/adamraziv/dataporch/internal/transports/httpapi"
 	"github.com/adamraziv/dataporch/internal/transports/localadmin"
+	"github.com/adamraziv/dataporch/internal/transports/localmcp"
 	"github.com/adamraziv/dataporch/internal/transports/mcp"
 	"github.com/adamraziv/dataporch/internal/transports/mcpauth"
 )
@@ -32,6 +36,7 @@ var (
 	errContextRequired                 = errors.New("app: context is required")
 	errLoggerRequired                  = errors.New("app: logger is required")
 	errExecutionServiceFactoryRequired = errors.New("app: execution service factory is required")
+	errRandomnessRequired              = errors.New("app: randomness source is required")
 )
 
 type executionServiceFactory func(execution.Dependencies) (*execution.Service, error)
@@ -39,11 +44,17 @@ type executionServiceFactory func(execution.Dependencies) (*execution.Service, e
 type appDependencies struct {
 	relationalModuleFactories []relationalModuleFactory
 	newExecutionService       executionServiceFactory
+	random                    io.Reader
+}
+
+type transportLifecycle interface {
+	Run(context.Context) error
 }
 
 type App struct {
 	server         *http.Server
 	adminServer    *localadmin.Server
+	localMCPServer transportLifecycle
 	manager        *connection.Manager
 	service        *execution.Service
 	runtimes       []runtimeLifecycle
@@ -59,6 +70,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 			newMySQLModule,
 		},
 		newExecutionService: execution.New,
+		random:              cryptorand.Reader,
 	})
 }
 
@@ -73,6 +85,10 @@ func newWithDependencies(
 
 	if dependencies.newExecutionService == nil {
 		return nil, errExecutionServiceFactoryRequired
+	}
+
+	if dependencies.random == nil {
+		return nil, errRandomnessRequired
 	}
 
 	if err := cfg.Validate(); err != nil {
@@ -122,6 +138,28 @@ func newWithDependencies(
 		)
 	}
 
+	localCredentials, err := mcpControlLocal.New(cfg.MCPControlTokenPath)
+	if err != nil {
+		return nil, joinRuntimeCleanup(
+			fmt.Errorf("creating local MCP credential store: %w", err),
+			cfg.ShutdownPeriod,
+			security.relational.runtimes,
+		)
+	}
+	localMCPServer, err := localmcp.NewServer(localmcp.Dependencies{
+		SocketPath:  cfg.MCPSocketPath,
+		Credentials: localCredentials,
+		Random:      dependencies.random,
+		Handler:     mcpHandler,
+	})
+	if err != nil {
+		return nil, joinRuntimeCleanup(
+			fmt.Errorf("creating local MCP server: %w", err),
+			cfg.ShutdownPeriod,
+			security.relational.runtimes,
+		)
+	}
+
 	authenticatedMCP, err := mcpauth.New(security.mcpTokens, mcpHandler)
 	if err != nil {
 		return nil, joinRuntimeCleanup(
@@ -146,6 +184,7 @@ func newWithDependencies(
 			MaxHeaderBytes:    maxHeaderBytes,
 		},
 		adminServer:    security.adminServer,
+		localMCPServer: localMCPServer,
 		manager:        security.manager,
 		service:        service,
 		runtimes:       slices.Clone(security.relational.runtimes),
@@ -179,12 +218,14 @@ func (a *App) Run(ctx context.Context) error {
 
 	publicErrors := a.servePublic(listener)
 	adminErrors := a.serveAdmin(runCtx)
+	localMCPErrors := a.serveLocalMCP(runCtx)
 
 	return a.waitForServers(
 		ctx,
 		cancel,
 		publicErrors,
 		adminErrors,
+		localMCPErrors,
 	)
 }
 
@@ -213,18 +254,47 @@ func (a *App) serveAdmin(ctx context.Context) <-chan error {
 	return errors
 }
 
+func (a *App) serveLocalMCP(ctx context.Context) <-chan error {
+	if a.localMCPServer == nil {
+		return nil
+	}
+
+	errors := make(chan error, 1)
+	go func() { errors <- a.localMCPServer.Run(ctx) }()
+
+	return errors
+}
+
 func (a *App) waitForServers(
 	ctx context.Context,
 	cancel context.CancelFunc,
 	publicErrors <-chan error,
 	adminErrors <-chan error,
+	localMCPErrors <-chan error,
 ) error {
 	for {
+		if localMCPErrors != nil {
+			select {
+			case err := <-localMCPErrors:
+				err = normalizeLocalMCPError(err)
+				if err == nil {
+					localMCPErrors = nil
+					continue
+				}
+				return a.failLocalMCP(ctx, cancel, publicErrors, adminErrors, err)
+			default:
+			}
+		}
+
 		select {
 		case err := <-publicErrors:
 			cancel()
 			a.waitForAdmin(adminErrors)
+			localErr := a.waitForLocalMCP(localMCPErrors)
 			runtimeErr := a.closeRuntimesWithTimeout(ctx)
+			if localErr != nil {
+				runtimeErr = errors.Join(runtimeErr, fmt.Errorf("serving local MCP: %w", localErr))
+			}
 
 			if errors.Is(err, http.ErrServerClosed) {
 				return runtimeErr
@@ -242,15 +312,46 @@ func (a *App) waitForServers(
 			}
 
 			adminErrors = nil
+		case err := <-localMCPErrors:
+			err = normalizeLocalMCPError(err)
+			if err == nil {
+				localMCPErrors = nil
+				continue
+			}
+			return a.failLocalMCP(ctx, cancel, publicErrors, adminErrors, err)
 		case <-ctx.Done():
 			return a.shutdown(
 				ctx,
 				cancel,
 				publicErrors,
 				adminErrors,
+				localMCPErrors,
 			)
 		}
 	}
+}
+
+func (a *App) failLocalMCP(
+	ctx context.Context,
+	cancel context.CancelFunc,
+	publicErrors <-chan error,
+	adminErrors <-chan error,
+	err error,
+) error {
+	cancel()
+	shutdownCtx, stop := context.WithTimeout(context.WithoutCancel(ctx), a.shutdownPeriod)
+	shutdownErr := a.server.Shutdown(shutdownCtx)
+	if shutdownErr != nil {
+		shutdownErr = errors.Join(shutdownErr, a.server.Close())
+	}
+	stop()
+	if publicErr := <-publicErrors; publicErr != nil && !errors.Is(publicErr, http.ErrServerClosed) {
+		shutdownErr = errors.Join(shutdownErr, fmt.Errorf("serving http: %w", publicErr))
+	}
+	a.waitForAdmin(adminErrors)
+	runtimeErr := a.closeRuntimesWithTimeout(ctx)
+
+	return errors.Join(fmt.Errorf("serving local MCP: %w", err), shutdownErr, runtimeErr)
 }
 
 func (a *App) shutdown(
@@ -258,6 +359,7 @@ func (a *App) shutdown(
 	cancel context.CancelFunc,
 	publicErrors <-chan error,
 	adminErrors <-chan error,
+	localMCPErrors <-chan error,
 ) error {
 	cancel()
 
@@ -274,6 +376,9 @@ func (a *App) shutdown(
 	}
 
 	a.waitForAdmin(adminErrors)
+	if err := a.waitForLocalMCP(localMCPErrors); err != nil {
+		shutdownErr = errors.Join(shutdownErr, fmt.Errorf("serving local MCP: %w", err))
+	}
 
 	shutdownErr = errors.Join(shutdownErr, a.closeRuntimes(shutdownCtx))
 	if shutdownErr != nil {
@@ -304,4 +409,20 @@ func (a *App) waitForAdmin(adminErrors <-chan error) {
 	if err := <-adminErrors; err != nil {
 		a.logger.Warn("admin transport unavailable", "category", "unavailable")
 	}
+}
+
+func (a *App) waitForLocalMCP(localMCPErrors <-chan error) error {
+	if localMCPErrors == nil {
+		return nil
+	}
+
+	return normalizeLocalMCPError(<-localMCPErrors)
+}
+
+func normalizeLocalMCPError(err error) error {
+	if errors.Is(err, context.Canceled) || errors.Is(err, http.ErrServerClosed) {
+		return nil
+	}
+
+	return err
 }

@@ -2,45 +2,27 @@
 
 This package connects Codex and Claude Code to a separately installed DataPorch runtime. Both clients reuse the same focused skills for source discovery and bounded read-only queries; neither plugin installs or launches DataPorch.
 
-## Prerequisites
+## Local setup
 
-- A current Codex CLI with plugin support, Claude Code with plugin support, or both.
-- A separately installed DataPorch runtime listening at `http://127.0.0.1:8080/mcp`.
-- DataPorch source configuration completed through the runtime's local administration interface.
-- A local MCP token created through `dataporch mcp-token create`.
-- `DATAPORCH_MCP_TOKEN` exported to the process that launches the client.
-
-Keep the runtime and plugin on the same local machine unless a separate TLS and authorization boundary is provided.
-
-## Authentication
-
-The package contains only the environment-variable name `DATAPORCH_MCP_TOKEN`. It does not contain, issue, print, or persist a token. The runtime stores only a SHA-256 verifier at the server-side `DATAPORCH_MCP_TOKEN_STORE_PATH`; the client-side `DATAPORCH_MCP_TOKEN` is the plaintext credential used by the MCP connection.
-
-Start the runtime, then create the token through its local Unix admin socket:
+Install DataPorch, then initialize and start the runtime:
 
 ```bash
-dataporch mcp-token create
+dataporch secrets init
+dataporch run
 ```
 
-Make the displayed value available to the shell that launches the client without writing it into this repository:
+Install the Codex or Claude Code plugin using the instructions below. The plugin launches `dataporch mcp` over stdio and connects to the running same-machine runtime.
 
-```bash
-read -rsp 'DataPorch MCP token: ' DATAPORCH_MCP_TOKEN
-export DATAPORCH_MCP_TOKEN
+Local plugin users do not run `dataporch mcp-token create`, copy credentials, set `DATAPORCH_MCP_TOKEN`, or edit a shell profile. Authentication is initialized and rotated by the runtime, so new terminals and client restarts require no repeated setup.
+
+The runtime-only local state includes:
+
+```text
+~/.dataporch/mcp.sock
+~/.dataporch/mcp-control-token
 ```
 
-Codex reads the token through its existing `.mcp.json` declaration. Claude Code sends `Authorization: Bearer ${DATAPORCH_MCP_TOKEN}` from its plugin manifest.
-
-Rotate or revoke through the same local interface when needed:
-
-```bash
-dataporch mcp-token list
-dataporch mcp-token rotate
-dataporch mcp-token revoke
-dataporch mcp-token revoke --yes
-```
-
-The package does not support a static credential, OAuth fallback, another credential variable, or a configurable endpoint. This feature provides local Bearer access control, not full OAuth authorization; remote cleartext Bearer exposure is unsupported.
+Override these paths for a managed local deployment with `DATAPORCH_MCP_SOCKET_PATH` and `DATAPORCH_MCP_CONTROL_TOKEN_PATH`. The control credential is owner-only runtime state and is never included in plugin configuration, environment variables, logs, or normal command output.
 
 ## Codex
 
@@ -64,9 +46,9 @@ codex plugin add dataporch@dataporch
 
 Remote Git and fresh-machine acceptance belong to DAT-20. DAT-16 verifies the checked-out repository path.
 
-### Update
+### Update and remove
 
-For an installed local checkout, remove and reinstall the cached plugin after changing the checked-out source:
+For an installed local checkout, remove and reinstall the cached plugin after changing the checkout:
 
 ```bash
 codex plugin remove dataporch@dataporch
@@ -80,14 +62,6 @@ codex plugin marketplace upgrade dataporch
 codex plugin add dataporch@dataporch
 ```
 
-Start a new Codex thread after reinstalling.
-
-### Remove
-
-```bash
-codex plugin remove dataporch@dataporch
-```
-
 Remove the marketplace separately only when it is no longer wanted:
 
 ```bash
@@ -98,14 +72,12 @@ codex plugin marketplace remove dataporch
 
 ### Install from a checked-out repository
 
-Add the DataPorch repository as a local marketplace, then install the plugin:
-
 ```bash
 claude plugin marketplace add /absolute/path/to/dataporch
 claude plugin install dataporch@dataporch
 ```
 
-Start Claude Code after installation. If Claude Code is already running, use `/reload-plugins` when the install summary asks you to reload.
+Start Claude Code after installation. If it is already running, use `/reload-plugins` when the install summary asks you to reload.
 
 ### Install from Git
 
@@ -116,44 +88,54 @@ claude plugin install dataporch@dataporch
 
 Claude Code discovers the existing `source-discovery` and `bounded-query` skills from the plugin's default `skills/` directory. No manual `claude mcp add` command is required.
 
-### Update
+### Update and remove
 
 ```bash
 claude plugin update dataporch@dataporch
-```
-
-Reload plugins when prompted or start a new Claude Code session to use the updated package.
-
-### Remove
-
-```bash
 claude plugin uninstall dataporch@dataporch
 ```
 
-Remove the marketplace separately only when it is no longer wanted:
+Reload plugins when prompted or start a new Claude Code session after an update. Remove the marketplace separately when it is no longer wanted:
 
 ```bash
 claude plugin marketplace remove dataporch
 ```
 
+## Direct HTTP MCP clients
+
+Direct HTTP clients remain supported separately from the local plugin flow. Start the runtime, create a long-lived bearer token, and provide it only to the client process:
+
+```bash
+dataporch mcp-token create
+export DATAPORCH_MCP_TOKEN='dp-...'
+```
+
+The HTTP endpoint is `http://127.0.0.1:8080/mcp`. Rotate, inspect, or revoke the token through the local admin interface:
+
+```bash
+dataporch mcp-token list
+dataporch mcp-token rotate
+dataporch mcp-token revoke
+dataporch mcp-token revoke --yes
+```
+
+The token value must not be added to a plugin manifest, repository file, shell history, or logs. Remote cleartext bearer access is unsupported; hosted OAuth is separate work.
+
 ## Troubleshooting
 
-### DataPorch tools are unavailable
+### Not initialized
 
-Confirm the separately managed runtime is listening on `127.0.0.1:8080`. Codex treats its DataPorch MCP declaration as non-required. In Claude Code, use `/mcp` to inspect the plugin-provided `dataporch` server and reconnect after the runtime is available.
+Run `dataporch secrets init`, then `dataporch run`, and reload the plugin.
 
-### The client cannot see the token
+### Runtime stopped
 
-Set and export `DATAPORCH_MCP_TOKEN` in the environment of the process that launches Codex or Claude Code, then restart or reload the client. Do not add the token value to `.mcp.json`, either plugin manifest, a skill, or repository documentation.
+Run `dataporch run`. The `dataporch mcp` adapter does not start the runtime automatically.
 
-### The runtime rejects the token
+### Unsafe local state or reported path
 
-Run `dataporch mcp-token list` through the local admin socket. If the token was rotated, update `DATAPORCH_MCP_TOKEN` and restart or reload the client. If the verifier store is degraded, use `dataporch mcp-token revoke --yes` to attempt recovery, then create a new token. Neither plugin has a fallback credential mechanism.
-
-### Two DataPorch MCP servers appear
-
-Keep the plugin-provided server named `dataporch`. Remove any manually added duplicate instead of creating an unauthenticated workaround.
+The runtime requires owner-only local state. Correct the reported socket or control-token path and its parent permissions, then restart the runtime. Do not copy or export the control credential.
 
 ### Installed behavior is stale
 
 For Codex, remove and reinstall `dataporch@dataporch`, then start a new thread. For Claude Code, run `claude plugin update dataporch@dataporch` and reload plugins when prompted.
+

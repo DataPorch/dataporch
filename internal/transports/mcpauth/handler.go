@@ -25,7 +25,7 @@ func New(verifier Verifier, next http.Handler) (http.Handler, error) {
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		credential, challenge := credentialFromRequest(r)
+		credential, challenge := BearerCredential(r)
 		if challenge != "" {
 			writeUnauthorized(w, challenge)
 			return
@@ -48,7 +48,8 @@ func New(verifier Verifier, next http.Handler) (http.Handler, error) {
 	}), nil
 }
 
-func credentialFromRequest(r *http.Request) (string, string) {
+// BearerCredential returns the credential and an optional WWW-Authenticate challenge.
+func BearerCredential(r *http.Request) (string, string) {
 	values := r.Header.Values("Authorization")
 	if len(values) == 0 {
 		return "", "Bearer"

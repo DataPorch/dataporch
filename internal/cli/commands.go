@@ -10,17 +10,19 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime/debug"
+	"slices"
 
 	"github.com/adamraziv/dataporch/internal/config"
 	"github.com/adamraziv/dataporch/internal/connection"
 )
 
 var (
-	errDatabaseIDRequired   = errors.New("database id is required")
-	errDatabaseKindRequired = errors.New("database kind is required")
-	errTerminalRequired     = errors.New("connection import requires an interactive terminal")
-	errUnknownCommand       = errors.New("unknown command")
-	errUnexpectedArguments  = errors.New("unexpected command arguments")
+	errDatabaseIDRequired    = errors.New("database id is required")
+	errDatabaseKindRequired  = errors.New("database kind is required")
+	errTerminalRequired      = errors.New("connection import requires an interactive terminal")
+	errUnknownCommand        = errors.New("unknown command")
+	errUnexpectedArguments   = errors.New("unexpected command arguments")
+	ErrMCPRuntimeUnavailable = errors.New("runtime is not running; run dataporch run")
 )
 
 const (
@@ -29,6 +31,8 @@ const (
 	foregroundFlag     = "-f"
 	runCommand         = "run"
 )
+
+type RunMCPAdapter func(context.Context, config.Config, io.Reader, io.Writer) error
 
 type ImportClient interface {
 	Import(context.Context, connection.ImportRequest) (connection.ImportResult, error)
@@ -59,6 +63,7 @@ type Dependencies struct {
 	ProtectedFileValidator ProtectedFileValidator
 	NewServiceManager      func(config.Config) (ServiceManager, error)
 	HealthChecker          HealthChecker
+	RunMCPAdapter          RunMCPAdapter
 }
 
 type commandDependencies struct {
@@ -77,6 +82,7 @@ type commandDependencies struct {
 	protectedFileValidator  ProtectedFileValidator
 	newServiceManager       func(config.Config) (ServiceManager, error)
 	healthChecker           HealthChecker
+	runMCPAdapter           RunMCPAdapter
 }
 
 type Runner struct{ dependencies commandDependencies }
@@ -95,7 +101,7 @@ func New(dependencies Dependencies) (*Runner, error) {
 		isTerminal: dependencies.IsTerminal, readPassword: dependencies.ReadPassword, readConfirmation: dependencies.ReadConfirmation,
 		initializeSecrets: dependencies.InitializeSecrets, runApplication: dependencies.RunApplication, newClient: dependencies.NewClient, newAdminClient: dependencies.NewAdminClient,
 		version: resolvedVersion(dependencies.Version, debug.ReadBuildInfo), invocationPath: path, protectedFileValidator: dependencies.ProtectedFileValidator,
-		newServiceManager: dependencies.NewServiceManager, healthChecker: dependencies.HealthChecker,
+		newServiceManager: dependencies.NewServiceManager, healthChecker: dependencies.HealthChecker, runMCPAdapter: dependencies.RunMCPAdapter,
 	}}, nil
 }
 
@@ -151,7 +157,7 @@ func run(args []string, dependencies commandDependencies) error {
 //nolint:gocyclo // Explicit command grammar remains centralized to preserve exact usage errors.
 func runWithContext(ctx context.Context, args []string, dependencies commandDependencies) error {
 	switch {
-	case len(args) == 2 && args[0] == runCommand && args[1] == foregroundFlag:
+	case slices.Equal(args, []string{runCommand, foregroundFlag}):
 		return serve(ctx, dependencies)
 	case len(args) == 1 && args[0] == runCommand:
 		return (&Runner{dependencies: dependencies}).runBackground(ctx)
@@ -163,6 +169,10 @@ func runWithContext(ctx context.Context, args []string, dependencies commandDepe
 		return (&Runner{dependencies: dependencies}).statusBackground(ctx)
 	case len(args) == 2 && args[0] == "secrets" && args[1] == "init":
 		return initializeSecrets(dependencies)
+	case len(args) == 1 && args[0] == "mcp":
+		return runMCPAdapter(ctx, dependencies)
+	case len(args) > 0 && args[0] == "mcp":
+		return usageError(errUnexpectedArguments.Error(), errUnexpectedArguments)
 	case len(args) >= 2 && args[0] == connectionsCommand && args[1] == importCommand:
 		return importConnection(ctx, args[2:], dependencies)
 	case len(args) >= 2 && args[0] == mcpTokenCommand:
@@ -174,6 +184,35 @@ func runWithContext(ctx context.Context, args []string, dependencies commandDepe
 	default:
 		return usageError("unknown command; run dataporch --help", errUnknownCommand)
 	}
+}
+
+func runMCPAdapter(ctx context.Context, dependencies commandDependencies) error {
+	cfg, err := loadConfig(dependencies)
+	if err != nil {
+		return err
+	}
+	if dependencies.protectedFileValidator == nil {
+		return errors.New("protected file validator is required")
+	}
+	for _, path := range []string{cfg.MasterKeyPath, cfg.SecretsStorePath} {
+		if err := dependencies.protectedFileValidator(path); err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return errors.New("not initialized; run dataporch secrets init, then dataporch run")
+			}
+			return fmt.Errorf("validating local state %q: %w", path, err)
+		}
+	}
+	if dependencies.runMCPAdapter == nil {
+		return errors.New("MCP stdio adapter is required")
+	}
+	if err := dependencies.runMCPAdapter(ctx, cfg, dependencies.stdin, dependencies.stdout); err != nil {
+		if errors.Is(err, ErrMCPRuntimeUnavailable) {
+			return ErrMCPRuntimeUnavailable
+		}
+		return err
+	}
+
+	return nil
 }
 
 func serve(ctx context.Context, dependencies commandDependencies) error {

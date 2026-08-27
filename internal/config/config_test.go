@@ -12,43 +12,53 @@ func TestLoadSecurityPaths(t *testing.T) {
 
 	const (
 		wantAdminSocket     = "/Users/alice/.dataporch/admin.sock"
+		wantMCPSocket       = "/Users/alice/.dataporch/mcp.sock"
 		wantMasterKey       = "/Users/alice/.dataporch/master.key"
 		wantSecretsStore    = "/Users/alice/.dataporch/secrets.store"
 		wantConnectionsFile = "/Users/alice/.dataporch/connections.store"
+		wantControlToken    = "/Users/alice/.dataporch/mcp-control-token"
 	)
 
 	tests := []struct {
 		name                string
 		values              map[string]string
 		wantAdminSocket     string
+		wantMCPSocket       string
 		wantMasterKey       string
 		wantSecretsStore    string
 		wantConnectionsFile string
 		wantTokenStore      string
+		wantControlToken    string
 	}{
 		{
 			name:                "defaults",
 			values:              map[string]string{},
 			wantAdminSocket:     wantAdminSocket,
+			wantMCPSocket:       wantMCPSocket,
 			wantMasterKey:       wantMasterKey,
 			wantSecretsStore:    wantSecretsStore,
 			wantConnectionsFile: wantConnectionsFile,
 			wantTokenStore:      "/Users/alice/.dataporch/mcp-token.json",
+			wantControlToken:    wantControlToken,
 		},
 		{
 			name: "overrides",
 			values: map[string]string{
 				"DATAPORCH_ADMIN_SOCKET_PATH":      "/tmp/dataporch/admin.sock",
+				mcpSocketPathEnv:                   "/tmp/dataporch/mcp.sock",
 				"DATAPORCH_MASTER_KEY_PATH":        "/tmp/dataporch/master.key",
 				"DATAPORCH_SECRETS_STORE_PATH":     "/tmp/dataporch/secrets.store",
 				"DATAPORCH_CONNECTIONS_STORE_PATH": "/tmp/dataporch/connections.store",
+				mcpControlTokenPathEnv:             "/tmp/dataporch/mcp-control-token",
 				mcpTokenStorePathEnv:               "/tmp/dataporch/mcp-token.json",
 			},
 			wantAdminSocket:     "/tmp/dataporch/admin.sock",
+			wantMCPSocket:       "/tmp/dataporch/mcp.sock",
 			wantMasterKey:       "/tmp/dataporch/master.key",
 			wantSecretsStore:    "/tmp/dataporch/secrets.store",
 			wantConnectionsFile: "/tmp/dataporch/connections.store",
 			wantTokenStore:      "/tmp/dataporch/mcp-token.json",
+			wantControlToken:    "/tmp/dataporch/mcp-control-token",
 		},
 	}
 
@@ -68,6 +78,10 @@ func TestLoadSecurityPaths(t *testing.T) {
 				t.Errorf("AdminSocketPath = %q, want %q", cfg.AdminSocketPath, tt.wantAdminSocket)
 			}
 
+			if cfg.MCPSocketPath != tt.wantMCPSocket {
+				t.Errorf("MCPSocketPath = %q, want %q", cfg.MCPSocketPath, tt.wantMCPSocket)
+			}
+
 			if cfg.MasterKeyPath != tt.wantMasterKey {
 				t.Errorf("MasterKeyPath = %q, want %q", cfg.MasterKeyPath, tt.wantMasterKey)
 			}
@@ -82,6 +96,10 @@ func TestLoadSecurityPaths(t *testing.T) {
 
 			if cfg.MCPTokenStorePath != tt.wantTokenStore {
 				t.Errorf("MCPTokenStorePath = %q, want %q", cfg.MCPTokenStorePath, tt.wantTokenStore)
+			}
+
+			if cfg.MCPControlTokenPath != tt.wantControlToken {
+				t.Errorf("MCPControlTokenPath = %q, want %q", cfg.MCPControlTokenPath, tt.wantControlToken)
 			}
 		})
 	}
@@ -99,6 +117,8 @@ func TestValidateRejectsInvalidSecurityPaths(t *testing.T) {
 		SecretsStorePath:       "/var/lib/dataporch/secrets.store",
 		ConnectionsStorePath:   "/var/lib/dataporch/connections.store",
 		MCPTokenStorePath:      "/var/lib/dataporch/mcp-token.json",
+		MCPSocketPath:          "/run/dataporch/mcp.sock",
+		MCPControlTokenPath:    "/var/lib/dataporch/mcp-control-token",
 		QueryTimeout:           20 * time.Second,
 		QueryResponseByteLimit: 10_485_760,
 		QueryTruncationEnabled: true,
@@ -114,11 +134,15 @@ func TestValidateRejectsInvalidSecurityPaths(t *testing.T) {
 		{name: "empty secrets store", change: func(cfg *Config) { cfg.SecretsStorePath = "" }},
 		{name: "empty connections store", change: func(cfg *Config) { cfg.ConnectionsStorePath = "" }},
 		{name: "empty token store", change: func(cfg *Config) { cfg.MCPTokenStorePath = "" }},
+		{name: "empty MCP socket", change: func(cfg *Config) { cfg.MCPSocketPath = "" }},
+		{name: "empty MCP control token", change: func(cfg *Config) { cfg.MCPControlTokenPath = "" }},
 		{name: "relative admin socket", change: func(cfg *Config) { cfg.AdminSocketPath = "run/dataporch/admin.sock" }},
 		{name: "relative master key", change: func(cfg *Config) { cfg.MasterKeyPath = "etc/dataporch/master.key" }},
 		{name: "relative secrets store", change: func(cfg *Config) { cfg.SecretsStorePath = "var/lib/dataporch/secrets.store" }},
 		{name: "relative connections store", change: func(cfg *Config) { cfg.ConnectionsStorePath = "var/lib/dataporch/connections.store" }},
 		{name: "relative token store", change: func(cfg *Config) { cfg.MCPTokenStorePath = "var/lib/dataporch/mcp-token.json" }},
+		{name: "relative MCP socket", change: func(cfg *Config) { cfg.MCPSocketPath = "run/dataporch/mcp.sock" }},
+		{name: "relative MCP control token", change: func(cfg *Config) { cfg.MCPControlTokenPath = "var/lib/dataporch/mcp-control-token" }},
 		{name: "key equals secret store", change: func(cfg *Config) { cfg.SecretsStorePath = cfg.MasterKeyPath }},
 		{
 			name: "secret equals connection store",
@@ -130,6 +154,9 @@ func TestValidateRejectsInvalidSecurityPaths(t *testing.T) {
 		{name: "token store equals secret store", change: func(cfg *Config) { cfg.MCPTokenStorePath = cfg.SecretsStorePath }},
 		{name: "token store equals connection store", change: func(cfg *Config) { cfg.MCPTokenStorePath = cfg.ConnectionsStorePath }},
 		{name: "token store equals admin socket", change: func(cfg *Config) { cfg.MCPTokenStorePath = cfg.AdminSocketPath }},
+		{name: "MCP socket equals admin socket", change: func(cfg *Config) { cfg.MCPSocketPath = cfg.AdminSocketPath }},
+		{name: "MCP control token equals admin socket", change: func(cfg *Config) { cfg.MCPControlTokenPath = cfg.AdminSocketPath }},
+		{name: "MCP socket equals control token", change: func(cfg *Config) { cfg.MCPControlTokenPath = cfg.MCPSocketPath }},
 		{
 			name:   "admin socket aliases master key",
 			change: func(cfg *Config) { cfg.MasterKeyPath = "/run/dataporch/./admin.sock" },
@@ -161,6 +188,14 @@ func TestValidateRejectsInvalidSecurityPaths(t *testing.T) {
 		{
 			name:   "token store aliases admin socket",
 			change: func(cfg *Config) { cfg.MCPTokenStorePath = "/run/dataporch/tmp/../admin.sock" },
+		},
+		{
+			name:   "MCP socket aliases admin socket",
+			change: func(cfg *Config) { cfg.MCPSocketPath = "/run/dataporch/tmp/../admin.sock" },
+		},
+		{
+			name:   "MCP control token aliases admin socket",
+			change: func(cfg *Config) { cfg.MCPControlTokenPath = "/run/dataporch/tmp/../admin.sock" },
 		},
 	}
 
@@ -391,10 +426,12 @@ func TestValidateQueryBounds(t *testing.T) {
 		ResourceLimit:          1,
 		ShutdownPeriod:         time.Second,
 		AdminSocketPath:        "/run/dataporch/admin.sock",
+		MCPSocketPath:          "/run/dataporch/mcp.sock",
 		MasterKeyPath:          "/etc/dataporch/master.key",
 		SecretsStorePath:       "/var/lib/dataporch/secrets.store",
 		ConnectionsStorePath:   "/var/lib/dataporch/connections.store",
 		MCPTokenStorePath:      "/var/lib/dataporch/mcp-token.json",
+		MCPControlTokenPath:    "/var/lib/dataporch/mcp-control-token",
 		QueryTimeout:           time.Second,
 		QueryResponseByteLimit: 65_536,
 		QueryTruncationEnabled: true,

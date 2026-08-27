@@ -89,6 +89,7 @@ func TestInstalledBinaryNativeLifecycle(t *testing.T) {
 		environmentValue(environment, "DATAPORCH_MCP_CONTROL_TOKEN_PATH"),
 	}
 	for _, path := range localRuntimeFiles {
+		waitForPath(t, path)
 		assertExactOwnerOnlyFile(t, path)
 	}
 	firstCredential := readCredential(t, localRuntimeFiles[1])
@@ -144,7 +145,8 @@ func TestInstalledBinaryNativeLifecycle(t *testing.T) {
 	if pid := parsePID(stdout); pid == oldPID {
 		t.Fatalf("restart kept PID %d", pid)
 	}
-	secondCredential := readCredential(t, localRuntimeFiles[1])
+	secondCredential := waitForCredentialChange(t, localRuntimeFiles[1], firstCredential)
+	assertExactOwnerOnlyFile(t, localRuntimeFiles[1])
 	if firstCredential == secondCredential {
 		t.Fatal("restart preserved the daemon-lifetime MCP credential")
 	}
@@ -161,9 +163,7 @@ func TestInstalledBinaryNativeLifecycle(t *testing.T) {
 		assertOwnerOnlyFile(t, path)
 	}
 	for _, path := range localRuntimeFiles {
-		if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
-			t.Fatalf("local runtime artifact %q after stop: %v, want not exist", path, err)
-		}
+		waitForPathRemoval(t, path)
 	}
 
 	stdout, stderr, code = invokeBinary(t, binaryPath, environment, "status")
@@ -388,6 +388,68 @@ func readCredential(t *testing.T, path string) string {
 		t.Fatalf("read credential %q: %v", path, err)
 	}
 	return string(data)
+}
+
+func waitForPath(t *testing.T, path string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), lifecycleTimeout)
+	defer cancel()
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if _, err := os.Stat(path); err == nil {
+			return
+		} else if !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("stat path %q while waiting for creation: %v", path, err)
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatalf("path %q did not become available: %v", path, ctx.Err())
+		case <-ticker.C:
+		}
+	}
+}
+
+func waitForCredentialChange(t *testing.T, path, previous string) string {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), lifecycleTimeout)
+	defer cancel()
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		data, err := os.ReadFile(path)
+		if err == nil && string(data) != previous {
+			return string(data)
+		}
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("read credential %q while waiting for rotation: %v", path, err)
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatalf("credential %q did not rotate: %v", path, ctx.Err())
+		case <-ticker.C:
+		}
+	}
+}
+
+func waitForPathRemoval(t *testing.T, path string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), lifecycleTimeout)
+	defer cancel()
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
+			return
+		} else if err != nil {
+			t.Fatalf("stat path %q while waiting for removal: %v", path, err)
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatalf("path %q was not removed: %v", path, ctx.Err())
+		case <-ticker.C:
+		}
+	}
 }
 
 func environmentValue(environment []string, name string) string {

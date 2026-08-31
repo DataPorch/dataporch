@@ -4,7 +4,7 @@ package app
 import (
 	"testing"
 
-	"github.com/adamraziv/dataporch/internal/connection/sqlite"
+	"github.com/DataPorch/dataporch/internal/connection/sqlite"
 )
 
 func TestNewSQLiteModule(t *testing.T) {

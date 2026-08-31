@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/adamraziv/dataporch/internal/connection"
-	"github.com/adamraziv/dataporch/internal/execution"
+	"github.com/DataPorch/dataporch/internal/connection"
+	"github.com/DataPorch/dataporch/internal/execution"
 )
 
 func newMySQLIntegrationQueryExecutor(t *testing.T, opener *Opener, options QueryOptions) *QueryExecutor {

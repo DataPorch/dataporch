@@ -14,8 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/adamraziv/dataporch/internal/atomicfile"
-	"github.com/adamraziv/dataporch/internal/mcptoken"
+	"github.com/DataPorch/dataporch/internal/atomicfile"
+	"github.com/DataPorch/dataporch/internal/mcptoken"
 )
 
 const (

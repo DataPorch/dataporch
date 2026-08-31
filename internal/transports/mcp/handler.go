@@ -10,8 +10,8 @@ import (
 	"reflect"
 	"time"
 
-	"github.com/adamraziv/dataporch/internal/connection"
-	"github.com/adamraziv/dataporch/internal/execution"
+	"github.com/DataPorch/dataporch/internal/connection"
+	"github.com/DataPorch/dataporch/internal/execution"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 

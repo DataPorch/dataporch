@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/adamraziv/dataporch/internal/execution"
+	"github.com/DataPorch/dataporch/internal/execution"
 )
 
 //nolint:gocyclo // The fixture exercises schema checks, relation kinds, privileges, and pagination.

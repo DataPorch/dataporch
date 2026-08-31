@@ -5,7 +5,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/adamraziv/dataporch/internal/connection"
+	"github.com/DataPorch/dataporch/internal/connection"
 )
 
 func TestPGXPoolFactoryConfigUsesResolvedDefinition(t *testing.T) {

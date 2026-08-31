@@ -6,8 +6,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/adamraziv/dataporch/internal/connection"
-	"github.com/adamraziv/dataporch/internal/connection/postgres"
+	"github.com/DataPorch/dataporch/internal/connection"
+	"github.com/DataPorch/dataporch/internal/connection/postgres"
 )
 
 func newPostgresModule(

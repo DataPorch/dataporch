@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/adamraziv/dataporch/internal/connection"
+	"github.com/DataPorch/dataporch/internal/connection"
 )
 
 func TestAppRunClosesRuntimeWhenContextIsAlreadyCanceled(t *testing.T) {

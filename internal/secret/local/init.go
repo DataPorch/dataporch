@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/adamraziv/dataporch/internal/atomicfile"
+	"github.com/DataPorch/dataporch/internal/atomicfile"
 )
 
 const masterKeySize = 32

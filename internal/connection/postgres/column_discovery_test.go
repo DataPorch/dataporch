@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/adamraziv/dataporch/internal/execution"
+	"github.com/DataPorch/dataporch/internal/execution"
 )
 
 func TestListColumnsSQLIncludesDomainNullability(t *testing.T) {

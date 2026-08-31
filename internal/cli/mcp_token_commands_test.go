@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/adamraziv/dataporch/internal/mcptoken"
+	"github.com/DataPorch/dataporch/internal/mcptoken"
 )
 
 func TestMCPTokenCommandsCreate(t *testing.T) {

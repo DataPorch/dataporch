@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/adamraziv/dataporch/internal/execution"
-	"github.com/adamraziv/dataporch/internal/mcptoken"
-	mcpTokenLocal "github.com/adamraziv/dataporch/internal/mcptoken/local"
+	"github.com/DataPorch/dataporch/internal/execution"
+	"github.com/DataPorch/dataporch/internal/mcptoken"
+	mcpTokenLocal "github.com/DataPorch/dataporch/internal/mcptoken/local"
 	sqlite3 "github.com/ncruces/go-sqlite3"
 	"github.com/ncruces/go-sqlite3/ext/fts5"
 )

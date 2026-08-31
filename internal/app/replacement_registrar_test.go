@@ -6,7 +6,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/adamraziv/dataporch/internal/connection"
+	"github.com/DataPorch/dataporch/internal/connection"
 )
 
 func TestReplacementRegistrarRoutesInvalidationByKind(t *testing.T) {

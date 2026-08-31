@@ -6,7 +6,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/adamraziv/dataporch/internal/app"
+	"github.com/DataPorch/dataporch/internal/app"
 )
 
 func main() { os.Exit(runMain()) }

@@ -12,16 +12,16 @@ import (
 	"slices"
 	"time"
 
-	"github.com/adamraziv/dataporch/internal/access"
-	"github.com/adamraziv/dataporch/internal/config"
-	"github.com/adamraziv/dataporch/internal/connection"
-	"github.com/adamraziv/dataporch/internal/execution"
-	mcpControlLocal "github.com/adamraziv/dataporch/internal/mcpcontrol/local"
-	"github.com/adamraziv/dataporch/internal/transports/httpapi"
-	"github.com/adamraziv/dataporch/internal/transports/localadmin"
-	"github.com/adamraziv/dataporch/internal/transports/localmcp"
-	"github.com/adamraziv/dataporch/internal/transports/mcp"
-	"github.com/adamraziv/dataporch/internal/transports/mcpauth"
+	"github.com/DataPorch/dataporch/internal/access"
+	"github.com/DataPorch/dataporch/internal/config"
+	"github.com/DataPorch/dataporch/internal/connection"
+	"github.com/DataPorch/dataporch/internal/execution"
+	mcpControlLocal "github.com/DataPorch/dataporch/internal/mcpcontrol/local"
+	"github.com/DataPorch/dataporch/internal/transports/httpapi"
+	"github.com/DataPorch/dataporch/internal/transports/localadmin"
+	"github.com/DataPorch/dataporch/internal/transports/localmcp"
+	"github.com/DataPorch/dataporch/internal/transports/mcp"
+	"github.com/DataPorch/dataporch/internal/transports/mcpauth"
 )
 
 const (

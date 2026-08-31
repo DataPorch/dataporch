@@ -7,7 +7,7 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/adamraziv/dataporch/internal/secret"
+	"github.com/DataPorch/dataporch/internal/secret"
 )
 
 var (

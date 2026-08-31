@@ -1,7 +1,7 @@
 # DataPorch
 
-[![CI](https://github.com/adamraziv/dataporch/actions/workflows/ci.yml/badge.svg)](https://github.com/adamraziv/dataporch/actions/workflows/ci.yml)
-[![License](https://img.shields.io/github/license/adamraziv/dataporch)](LICENSE)
+[![CI](https://github.com/DataPorch/dataporch/actions/workflows/ci.yml/badge.svg)](https://github.com/DataPorch/dataporch/actions/workflows/ci.yml)
+[![License](https://img.shields.io/github/license/DataPorch/dataporch)](LICENSE)
 
 
 DataPorch is an open-source data access layer that lets AI agents discover and query relational databases through MCP without exposing database credentials directly to the agent.
@@ -136,14 +136,14 @@ Homebrew installation is documented after the formula is accepted into
 `homebrew/core`; until then, install the published command with Go:
 
 ```bash
-go install github.com/adamraziv/dataporch/cmd/dataporch@latest
+go install github.com/DataPorch/dataporch/cmd/dataporch@latest
 ```
 
 The exact-version, reproducible installation becomes available when `v0.1.0`
 is published:
 
 ```bash
-go install github.com/adamraziv/dataporch/cmd/dataporch@v0.1.0
+go install github.com/DataPorch/dataporch/cmd/dataporch@v0.1.0
 ```
 
 Contributors working from a checkout can use `make install`. Go installs the
@@ -204,7 +204,7 @@ Upgrade or roll back an exact Go installation, then refresh the running
 service:
 
 ```bash
-go install github.com/adamraziv/dataporch/cmd/dataporch@v0.1.0
+go install github.com/DataPorch/dataporch/cmd/dataporch@v0.1.0
 dataporch restart
 
 dataporch stop

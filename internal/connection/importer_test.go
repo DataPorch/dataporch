@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/adamraziv/dataporch/internal/secret"
+	"github.com/DataPorch/dataporch/internal/secret"
 )
 
 func TestImporterAddsNormalizedDefinitionWithoutAuthentication(t *testing.T) {

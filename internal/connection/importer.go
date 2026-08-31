@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/adamraziv/dataporch/internal/secret"
+	"github.com/DataPorch/dataporch/internal/secret"
 )
 
 const oldSecretCleanupFailed = "old_secret_cleanup_failed"

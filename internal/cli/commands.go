@@ -12,8 +12,8 @@ import (
 	"runtime/debug"
 	"slices"
 
-	"github.com/adamraziv/dataporch/internal/config"
-	"github.com/adamraziv/dataporch/internal/connection"
+	"github.com/DataPorch/dataporch/internal/config"
+	"github.com/DataPorch/dataporch/internal/connection"
 )
 
 var (

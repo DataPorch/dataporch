@@ -12,11 +12,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/adamraziv/dataporch/internal/connection"
-	"github.com/adamraziv/dataporch/internal/mcptoken"
-	mcpTokenLocal "github.com/adamraziv/dataporch/internal/mcptoken/local"
-	"github.com/adamraziv/dataporch/internal/transports/localadmin"
-	"github.com/adamraziv/dataporch/internal/transports/mcpauth"
+	"github.com/DataPorch/dataporch/internal/connection"
+	"github.com/DataPorch/dataporch/internal/mcptoken"
+	mcpTokenLocal "github.com/DataPorch/dataporch/internal/mcptoken/local"
+	"github.com/DataPorch/dataporch/internal/transports/localadmin"
+	"github.com/DataPorch/dataporch/internal/transports/mcpauth"
 )
 
 func TestApplicationMCPAuthProtectsOnlyMCPAndAllowsHealth(t *testing.T) {

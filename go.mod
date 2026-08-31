@@ -1,4 +1,4 @@
-module github.com/adamraziv/dataporch
+module github.com/DataPorch/dataporch
 
 go 1.25.0
 

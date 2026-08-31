@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/adamraziv/dataporch/internal/mcptoken"
+	"github.com/DataPorch/dataporch/internal/mcptoken"
 )
 
 const (

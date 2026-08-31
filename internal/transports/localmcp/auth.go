@@ -3,8 +3,8 @@ package localmcp
 import (
 	"net/http"
 
-	"github.com/adamraziv/dataporch/internal/mcpcontrol"
-	"github.com/adamraziv/dataporch/internal/transports/mcpauth"
+	"github.com/DataPorch/dataporch/internal/mcpcontrol"
+	"github.com/DataPorch/dataporch/internal/transports/mcpauth"
 )
 
 func authenticatedHandler(credential string, next http.Handler) http.Handler {

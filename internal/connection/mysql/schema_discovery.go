@@ -4,7 +4,7 @@ import (
 	"context"
 	"strings"
 
-	"github.com/adamraziv/dataporch/internal/execution"
+	"github.com/DataPorch/dataporch/internal/execution"
 )
 
 func (d *Discoverer) ListSchemas(

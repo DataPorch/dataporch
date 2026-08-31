@@ -12,8 +12,8 @@ import (
 	"os"
 	"sync"
 
-	"github.com/adamraziv/dataporch/internal/atomicfile"
-	"github.com/adamraziv/dataporch/internal/secret"
+	"github.com/DataPorch/dataporch/internal/atomicfile"
+	"github.com/DataPorch/dataporch/internal/secret"
 )
 
 const secretIDSize = 18

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/adamraziv/dataporch/internal/execution"
+	"github.com/DataPorch/dataporch/internal/execution"
 )
 
 func TestListConstraintsSQLSupportsPostgreSQL14(t *testing.T) {

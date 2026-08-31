@@ -6,7 +6,7 @@ import (
 	"maps"
 	"strings"
 
-	"github.com/adamraziv/dataporch/internal/secret"
+	"github.com/DataPorch/dataporch/internal/secret"
 )
 
 const maxIDLength = 128

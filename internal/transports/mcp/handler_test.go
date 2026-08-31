@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/adamraziv/dataporch/internal/execution"
+	"github.com/DataPorch/dataporch/internal/execution"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 

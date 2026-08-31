@@ -16,13 +16,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/adamraziv/dataporch/internal/config"
-	"github.com/adamraziv/dataporch/internal/connection"
-	"github.com/adamraziv/dataporch/internal/connection/mysql"
-	"github.com/adamraziv/dataporch/internal/connection/postgres"
-	"github.com/adamraziv/dataporch/internal/connection/sqlite"
-	"github.com/adamraziv/dataporch/internal/execution"
-	"github.com/adamraziv/dataporch/internal/secret/local"
+	"github.com/DataPorch/dataporch/internal/config"
+	"github.com/DataPorch/dataporch/internal/connection"
+	"github.com/DataPorch/dataporch/internal/connection/mysql"
+	"github.com/DataPorch/dataporch/internal/connection/postgres"
+	"github.com/DataPorch/dataporch/internal/connection/sqlite"
+	"github.com/DataPorch/dataporch/internal/execution"
+	"github.com/DataPorch/dataporch/internal/secret/local"
 )
 
 func TestNew(t *testing.T) {

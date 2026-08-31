@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/adamraziv/dataporch/internal/execution"
+	"github.com/DataPorch/dataporch/internal/execution"
 )
 
 type queryResultReader struct {

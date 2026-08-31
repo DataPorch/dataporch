@@ -7,7 +7,7 @@ import (
 	"math"
 	"strings"
 
-	"github.com/adamraziv/dataporch/internal/execution"
+	"github.com/DataPorch/dataporch/internal/execution"
 )
 
 const resolveRelationSQL = `

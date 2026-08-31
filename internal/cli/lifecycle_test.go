@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/adamraziv/dataporch/internal/config"
+	"github.com/DataPorch/dataporch/internal/config"
 )
 
 type recordingServiceManager struct {

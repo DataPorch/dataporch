@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/adamraziv/dataporch/internal/connection"
-	"github.com/adamraziv/dataporch/internal/secret"
+	"github.com/DataPorch/dataporch/internal/connection"
+	"github.com/DataPorch/dataporch/internal/secret"
 )
 
 func TestOpenerPostgresIntegration(t *testing.T) {

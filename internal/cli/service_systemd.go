@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/adamraziv/dataporch/internal/atomicfile"
+	"github.com/DataPorch/dataporch/internal/atomicfile"
 )
 
 const systemdUnit = "dataporch.service"

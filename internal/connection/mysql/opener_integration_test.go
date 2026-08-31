@@ -18,9 +18,9 @@ import (
 
 	gomysql "github.com/go-sql-driver/mysql"
 
-	"github.com/adamraziv/dataporch/internal/connection"
-	"github.com/adamraziv/dataporch/internal/execution"
-	"github.com/adamraziv/dataporch/internal/secret"
+	"github.com/DataPorch/dataporch/internal/connection"
+	"github.com/DataPorch/dataporch/internal/execution"
+	"github.com/DataPorch/dataporch/internal/secret"
 )
 
 func testAdminDB(t *testing.T) *sql.DB {

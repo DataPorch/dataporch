@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/adamraziv/dataporch/internal/mcptoken"
+	"github.com/DataPorch/dataporch/internal/mcptoken"
 )
 
 const invalidRequestChallenge = `Bearer error="invalid_request"`

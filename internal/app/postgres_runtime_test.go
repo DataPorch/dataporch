@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/adamraziv/dataporch/internal/config"
-	"github.com/adamraziv/dataporch/internal/connection"
-	"github.com/adamraziv/dataporch/internal/connection/postgres"
-	"github.com/adamraziv/dataporch/internal/execution"
+	"github.com/DataPorch/dataporch/internal/config"
+	"github.com/DataPorch/dataporch/internal/connection"
+	"github.com/DataPorch/dataporch/internal/connection/postgres"
+	"github.com/DataPorch/dataporch/internal/execution"
 )
 
 func TestNewPostgresModule(t *testing.T) {

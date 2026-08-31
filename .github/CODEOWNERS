@@ -1,0 +1,6 @@
+# Release and build security ownership.
+/.github/workflows/** @adamraziv
+/.github/CODEOWNERS @adamraziv
+/.github/dependabot.yml @adamraziv
+/.goreleaser.yml @adamraziv
+/Dockerfile @adamraziv

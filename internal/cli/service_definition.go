@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/adamraziv/dataporch/internal/config"
+	"github.com/DataPorch/dataporch/internal/config"
 )
 
 type NativeState string

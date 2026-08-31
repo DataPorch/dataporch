@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/adamraziv/dataporch/internal/access"
-	"github.com/adamraziv/dataporch/internal/connection"
+	"github.com/DataPorch/dataporch/internal/access"
+	"github.com/DataPorch/dataporch/internal/connection"
 )
 
 var ErrSourceKindMismatch = errors.New("execution: source kind mismatch")

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/adamraziv/dataporch/internal/mcptoken"
+	"github.com/DataPorch/dataporch/internal/mcptoken"
 )
 
 //nolint:gocyclo // The table exercises each client operation and its wire contract.

@@ -6,7 +6,7 @@ import (
 	"errors"
 	"strconv"
 
-	"github.com/adamraziv/dataporch/internal/execution"
+	"github.com/DataPorch/dataporch/internal/execution"
 	"github.com/jackc/pgx/v5/pgconn"
 )
 

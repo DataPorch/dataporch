@@ -12,11 +12,11 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/adamraziv/dataporch/internal/cli"
-	"github.com/adamraziv/dataporch/internal/config"
-	mcpControlLocal "github.com/adamraziv/dataporch/internal/mcpcontrol/local"
-	"github.com/adamraziv/dataporch/internal/secret/local"
-	"github.com/adamraziv/dataporch/internal/transports/mcpstdio"
+	"github.com/DataPorch/dataporch/internal/cli"
+	"github.com/DataPorch/dataporch/internal/config"
+	mcpControlLocal "github.com/DataPorch/dataporch/internal/mcpcontrol/local"
+	"github.com/DataPorch/dataporch/internal/secret/local"
+	"github.com/DataPorch/dataporch/internal/transports/mcpstdio"
 	"golang.org/x/term"
 )
 

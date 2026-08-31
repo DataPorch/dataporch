@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/adamraziv/dataporch/internal/connection"
-	"github.com/adamraziv/dataporch/internal/execution"
+	"github.com/DataPorch/dataporch/internal/connection"
+	"github.com/DataPorch/dataporch/internal/execution"
 	sqlite3 "github.com/ncruces/go-sqlite3"
 )
 

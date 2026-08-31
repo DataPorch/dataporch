@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/adamraziv/dataporch/internal/connection"
-	"github.com/adamraziv/dataporch/internal/transports/localadmin"
+	"github.com/DataPorch/dataporch/internal/connection"
+	"github.com/DataPorch/dataporch/internal/transports/localadmin"
 )
 
 func TestUnixClientImportsThroughLocalAdminSocket(t *testing.T) {

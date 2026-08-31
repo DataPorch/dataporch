@@ -4,7 +4,7 @@ import (
 	"errors"
 	"maps"
 
-	"github.com/adamraziv/dataporch/internal/connection"
+	"github.com/DataPorch/dataporch/internal/connection"
 )
 
 var errDefinitionRegistrarRequired = errors.New("app: definition registrar is required")

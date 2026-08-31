@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/adamraziv/dataporch/internal/connection"
-	"github.com/adamraziv/dataporch/internal/connection/sqlite"
+	"github.com/DataPorch/dataporch/internal/connection"
+	"github.com/DataPorch/dataporch/internal/connection/sqlite"
 )
 
 func newSQLiteModule(

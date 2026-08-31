@@ -11,7 +11,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/adamraziv/dataporch/internal/execution"
+	"github.com/DataPorch/dataporch/internal/execution"
 	gomysql "github.com/go-sql-driver/mysql"
 )
 

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/adamraziv/dataporch/internal/connection"
+	"github.com/DataPorch/dataporch/internal/connection"
 )
 
 const Kind connection.Kind = "sqlite"

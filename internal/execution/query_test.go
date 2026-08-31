@@ -6,8 +6,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/adamraziv/dataporch/internal/access"
-	"github.com/adamraziv/dataporch/internal/connection"
+	"github.com/DataPorch/dataporch/internal/access"
+	"github.com/DataPorch/dataporch/internal/connection"
 )
 
 type recordingRelationalQueryExecutor struct {

@@ -20,12 +20,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/adamraziv/dataporch/internal/connection"
-	"github.com/adamraziv/dataporch/internal/connection/mysql"
-	"github.com/adamraziv/dataporch/internal/connection/postgres"
-	"github.com/adamraziv/dataporch/internal/execution"
-	"github.com/adamraziv/dataporch/internal/mcptoken"
-	mcpTokenLocal "github.com/adamraziv/dataporch/internal/mcptoken/local"
+	"github.com/DataPorch/dataporch/internal/connection"
+	"github.com/DataPorch/dataporch/internal/connection/mysql"
+	"github.com/DataPorch/dataporch/internal/connection/postgres"
+	"github.com/DataPorch/dataporch/internal/execution"
+	"github.com/DataPorch/dataporch/internal/mcptoken"
+	mcpTokenLocal "github.com/DataPorch/dataporch/internal/mcptoken/local"
 	"github.com/jackc/pgx/v5"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )

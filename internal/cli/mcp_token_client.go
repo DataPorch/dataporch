@@ -10,7 +10,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/adamraziv/dataporch/internal/mcptoken"
+	"github.com/DataPorch/dataporch/internal/mcptoken"
 )
 
 const mcpTokenResponseLimit = 16 << 10

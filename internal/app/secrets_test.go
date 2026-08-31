@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/adamraziv/dataporch/internal/config"
-	"github.com/adamraziv/dataporch/internal/secret/local"
+	"github.com/DataPorch/dataporch/internal/config"
+	"github.com/DataPorch/dataporch/internal/secret/local"
 )
 
 func TestInitializeSecretsUsesConfiguredPaths(t *testing.T) {

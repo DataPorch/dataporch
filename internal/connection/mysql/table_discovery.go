@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/adamraziv/dataporch/internal/execution"
+	"github.com/DataPorch/dataporch/internal/execution"
 )
 
 const listTablesSQL = `

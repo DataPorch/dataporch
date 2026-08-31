@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/adamraziv/dataporch/internal/mcptoken"
+	"github.com/DataPorch/dataporch/internal/mcptoken"
 )
 
 func TestNew(t *testing.T) {

@@ -7,14 +7,14 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/adamraziv/dataporch/internal/config"
-	"github.com/adamraziv/dataporch/internal/connection"
-	"github.com/adamraziv/dataporch/internal/connection/filestore"
-	"github.com/adamraziv/dataporch/internal/mcptoken"
-	mcpTokenLocal "github.com/adamraziv/dataporch/internal/mcptoken/local"
-	"github.com/adamraziv/dataporch/internal/secret"
-	"github.com/adamraziv/dataporch/internal/secret/local"
-	"github.com/adamraziv/dataporch/internal/transports/localadmin"
+	"github.com/DataPorch/dataporch/internal/config"
+	"github.com/DataPorch/dataporch/internal/connection"
+	"github.com/DataPorch/dataporch/internal/connection/filestore"
+	"github.com/DataPorch/dataporch/internal/mcptoken"
+	mcpTokenLocal "github.com/DataPorch/dataporch/internal/mcptoken/local"
+	"github.com/DataPorch/dataporch/internal/secret"
+	"github.com/DataPorch/dataporch/internal/secret/local"
+	"github.com/DataPorch/dataporch/internal/transports/localadmin"
 )
 
 var errSecurityUnavailable = errors.New("security component unavailable")

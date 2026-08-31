@@ -6,8 +6,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/adamraziv/dataporch/internal/connection"
-	"github.com/adamraziv/dataporch/internal/connection/mysql"
+	"github.com/DataPorch/dataporch/internal/connection"
+	"github.com/DataPorch/dataporch/internal/connection/mysql"
 )
 
 func newMySQLModule(

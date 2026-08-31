@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/adamraziv/dataporch/internal/connection"
-	"github.com/adamraziv/dataporch/internal/execution"
-	"github.com/adamraziv/dataporch/internal/secret"
+	"github.com/DataPorch/dataporch/internal/connection"
+	"github.com/DataPorch/dataporch/internal/execution"
+	"github.com/DataPorch/dataporch/internal/secret"
 )
 
 func TestNewRelationalCompositionProjectsModulesInFactoryOrder(t *testing.T) {

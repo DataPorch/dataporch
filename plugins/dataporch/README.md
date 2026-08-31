@@ -40,7 +40,7 @@ Start a new Codex thread after installation so it loads the shared skills and MC
 ### Install from Git
 
 ```bash
-codex plugin marketplace add adamraziv/dataporch --ref main
+codex plugin marketplace add DataPorch/dataporch --ref main
 codex plugin add dataporch@dataporch
 ```
 
@@ -82,7 +82,7 @@ Start Claude Code after installation. If it is already running, use `/reload-plu
 ### Install from Git
 
 ```bash
-claude plugin marketplace add adamraziv/dataporch
+claude plugin marketplace add DataPorch/dataporch
 claude plugin install dataporch@dataporch
 ```
 

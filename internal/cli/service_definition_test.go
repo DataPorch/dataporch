@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/adamraziv/dataporch/internal/config"
+	"github.com/DataPorch/dataporch/internal/config"
 )
 
 func TestServiceEnvironmentIsAllowlistedAndOrdered(t *testing.T) {

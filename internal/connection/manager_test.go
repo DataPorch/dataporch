@@ -8,7 +8,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/adamraziv/dataporch/internal/secret"
+	"github.com/DataPorch/dataporch/internal/secret"
 )
 
 func TestManagerRegisterIsImmediatelyVisible(t *testing.T) {

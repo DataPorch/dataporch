@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/adamraziv/dataporch/internal/execution"
+	"github.com/DataPorch/dataporch/internal/execution"
 )
 
 //nolint:gocyclo // The test covers parameter order, pagination, descriptions, and row cleanup.

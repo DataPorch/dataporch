@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/adamraziv/dataporch/internal/config"
+	"github.com/DataPorch/dataporch/internal/config"
 )
 
 //nolint:dupword // Exact public help text intentionally repeats command names.

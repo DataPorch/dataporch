@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/adamraziv/dataporch/internal/connection"
+	"github.com/DataPorch/dataporch/internal/connection"
 )
 
 const (

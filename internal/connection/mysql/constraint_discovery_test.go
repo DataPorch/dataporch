@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/adamraziv/dataporch/internal/execution"
+	"github.com/DataPorch/dataporch/internal/execution"
 )
 
 //nolint:gocyclo // The fixture asserts each constraint family and cross-database redaction rule.

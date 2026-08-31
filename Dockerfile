@@ -5,7 +5,7 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY cmd ./cmd
 COPY internal ./internal
-RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X github.com/adamraziv/dataporch/internal/app.releaseVersion=$VERSION" -o /out/dataporch ./cmd/dataporch
+RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X github.com/DataPorch/dataporch/internal/app.releaseVersion=$VERSION" -o /out/dataporch ./cmd/dataporch
 
 FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
 COPY --from=build /out/dataporch /usr/local/bin/dataporch

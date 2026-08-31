@@ -14,10 +14,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/adamraziv/dataporch/internal/connection"
-	"github.com/adamraziv/dataporch/internal/connection/filestore"
-	"github.com/adamraziv/dataporch/internal/mcptoken"
-	"github.com/adamraziv/dataporch/internal/secret/local"
+	"github.com/DataPorch/dataporch/internal/connection"
+	"github.com/DataPorch/dataporch/internal/connection/filestore"
+	"github.com/DataPorch/dataporch/internal/mcptoken"
+	"github.com/DataPorch/dataporch/internal/secret/local"
 )
 
 func TestHandlerImportsConnection(t *testing.T) {

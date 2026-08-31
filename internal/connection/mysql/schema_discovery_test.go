@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/adamraziv/dataporch/internal/execution"
+	"github.com/DataPorch/dataporch/internal/execution"
 )
 
 func TestListSchemasProjectsOnlyImportedDatabase(t *testing.T) {

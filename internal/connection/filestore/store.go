@@ -10,8 +10,8 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/adamraziv/dataporch/internal/atomicfile"
-	"github.com/adamraziv/dataporch/internal/connection"
+	"github.com/DataPorch/dataporch/internal/atomicfile"
+	"github.com/DataPorch/dataporch/internal/connection"
 )
 
 var (

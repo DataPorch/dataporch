@@ -5,8 +5,8 @@
     "name": "DataPorch",
     "url": "https://github.com/adamraziv"
   },
-  "homepage": "https://github.com/adamraziv/dataporch#readme",
-  "repository": "https://github.com/adamraziv/dataporch",
+  "homepage": "https://github.com/DataPorch/dataporch#readme",
+  "repository": "https://github.com/DataPorch/dataporch",
   "license": "Apache-2.0",
   "keywords": [
     "dataporch",
@@ -27,6 +27,6 @@
     "capabilities": [
       "Read"
     ],
-    "websiteURL": "https://github.com/adamraziv/dataporch"
+    "websiteURL": "https://github.com/DataPorch/dataporch"
   }
 }

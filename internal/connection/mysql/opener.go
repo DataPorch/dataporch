@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/adamraziv/dataporch/internal/connection"
+	"github.com/DataPorch/dataporch/internal/connection"
 )
 
 var (

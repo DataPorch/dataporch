@@ -7,7 +7,7 @@ import (
 	"io/fs"
 	"path/filepath"
 
-	"github.com/adamraziv/dataporch/internal/config"
+	"github.com/DataPorch/dataporch/internal/config"
 )
 
 func (r *Runner) managerFor(cfg config.Config) (ServiceManager, error) {

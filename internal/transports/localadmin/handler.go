@@ -9,8 +9,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/adamraziv/dataporch/internal/connection"
-	"github.com/adamraziv/dataporch/internal/mcptoken"
+	"github.com/DataPorch/dataporch/internal/connection"
+	"github.com/DataPorch/dataporch/internal/mcptoken"
 )
 
 const maxRequestBody = 64 << 10

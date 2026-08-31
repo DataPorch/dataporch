@@ -13,7 +13,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/adamraziv/dataporch/internal/mcpcontrol"
+	"github.com/DataPorch/dataporch/internal/mcpcontrol"
 	"golang.org/x/sys/unix"
 )
 

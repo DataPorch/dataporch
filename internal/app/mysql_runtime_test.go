@@ -4,7 +4,7 @@ package app
 import (
 	"testing"
 
-	"github.com/adamraziv/dataporch/internal/connection/mysql"
+	"github.com/DataPorch/dataporch/internal/connection/mysql"
 )
 
 func TestNewMySQLModule(t *testing.T) {
